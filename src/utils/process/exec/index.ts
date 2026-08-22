@@ -23,7 +23,12 @@ const exec = async (command: string[], options: ExecOptions = {}): Promise<ExecR
 
   try {
     if (stream) {
-      const child = Bun.spawn(command, { cwd, stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' });
+      const child = Bun.spawn(command, {
+        cwd,
+        stdin: 'ignore',
+        stdout: 'inherit',
+        stderr: 'inherit',
+      });
       return { stdout: '', stderr: '', exitCode: await child.exited };
     }
 

@@ -1,5 +1,5 @@
-import type InstallOutcome from '../../../types/InstallOutcome';
 import type Installer from '../../../types/Installer';
+import type InstallOutcome from '../../../types/InstallOutcome';
 
 interface EnsureInstalledOptions {
   /** Package manager to install with when the package turns out to be missing. */
