@@ -7,8 +7,10 @@ export interface NavigationLevel<T> {
 }
 
 /** Breadcrumb-style navigation stack over hierarchical rows. */
-const useCommandNavigation = <T>(initialItems: T[]) => {
-  const [stack, setStack] = useState<NavigationLevel<T>[]>([{ path: [], items: initialItems }]);
+const useCommandNavigation = <T>(initialItems: T[], initialStack?: NavigationLevel<T>[]) => {
+  const [stack, setStack] = useState<NavigationLevel<T>[]>(
+    initialStack ?? [{ path: [], items: initialItems }],
+  );
 
   //? The stack is never emptied, so there is always a level to render
   const current = stack[stack.length - 1] as NavigationLevel<T>;

@@ -1,6 +1,6 @@
 import { Badge, StatusMessage, TextInput } from '@inkjs/ui';
 import { Box, Text, useInput } from 'ink';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type PickerItem from '../../../types/PickerItem';
 import type PickerSelection from '../../../types/PickerSelection';
 import resolvePickerChildren from '../../../utils/picker/resolvePickerChildren';
@@ -14,6 +14,13 @@ export interface CommandPickerProps {
   title: string;
   /** Leads the example command line — defaults to `title`. */
   commandPrefix?: string;
+  /**
+   * Groups to descend into before the first render, outermost first.
+   *
+   * E.g. `['mega']` opens the picker already inside the mega group, so `giti mega` behaves
+   * like pressing Enter on the mega folder from the top-level picker.
+   */
+  initialPath?: string[];
   onPick: (selection: PickerSelection) => void;
   onCancel: () => void;
 }
@@ -24,11 +31,30 @@ const isGroup = (item: PickerItem) => item.children !== undefined;
  * Two-pane command browser: a searchable list of the current level on the left, a preview of the
  * highlighted row on the right. Enter runs a leaf and descends into a group; Esc climbs back out.
  */
-const CommandPicker = ({ items, title, commandPrefix, onPick, onCancel }: CommandPickerProps) => {
+const CommandPicker = ({ items, title, commandPrefix, initialPath, onPick, onCancel }: CommandPickerProps) => {
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState('');
 
-  const { current, navigateInto, navigateBack } = useCommandNavigation(items);
+  //? Build the initial navigation stack by walking `items` along `initialPath`. Each segment
+  //? resolves the matching group's children so the picker renders already descended into it.
+  const initialStack = useMemo(() => {
+    if (!initialPath?.length) return undefined;
+    const root = { path: [] as string[], items };
+    const stack = [root];
+    let current = items;
+    for (const segment of initialPath) {
+      const group = current.find((item) => item.label === segment && item.children !== undefined);
+      if (!group) break;
+      const children = resolvePickerChildren(group);
+      if (!children) break;
+      const parent = stack[stack.length - 1]!;
+      stack.push({ path: [...parent.path, group.label], items: children });
+      current = children;
+    }
+    return stack.length > 1 ? stack : undefined;
+  }, [items, initialPath]);
+
+  const { current, navigateInto, navigateBack } = useCommandNavigation(items, initialStack);
   const filtered = useCommandFilter(current.items, query);
 
   const selected = filtered.find((item) => item.value === highlighted) ?? filtered[0];

@@ -10,6 +10,13 @@ export interface PickCommandOptions {
   title: string;
   /** Leads the example command line — defaults to `title`. */
   commandPrefix?: string;
+  /**
+   * Groups to descend into before the first render, outermost first.
+   *
+   * E.g. `['mega']` opens the picker already inside the mega group, so `giti mega` behaves
+   * like pressing Enter on the mega folder from the top-level picker.
+   */
+  initialPath?: string[];
 }
 
 /**
@@ -23,6 +30,7 @@ const pickCommand = async ({
   items,
   title,
   commandPrefix,
+  initialPath,
 }: PickCommandOptions): Promise<PickerSelection | undefined> => {
   let settle: (selection: PickerSelection | undefined) => void;
   const picked = new Promise<PickerSelection | undefined>((resolve) => {
@@ -34,6 +42,7 @@ const pickCommand = async ({
       items={items}
       title={title}
       commandPrefix={commandPrefix}
+      initialPath={initialPath}
       onPick={(selection) => settle(selection)}
       onCancel={() => settle(undefined)}
     />,
