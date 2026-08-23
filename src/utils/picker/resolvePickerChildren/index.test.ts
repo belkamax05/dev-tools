@@ -10,9 +10,9 @@ describe('resolvePickerChildren', () => {
   });
 
   test('returns the children a group lists directly', () => {
-    expect(resolvePickerChildren({ value: 'subrepo', label: 'subrepo', children: [child] })).toEqual(
-      [child],
-    );
+    expect(
+      resolvePickerChildren({ value: 'subrepo', label: 'subrepo', children: [child] }),
+    ).toEqual([child]);
   });
 
   test('calls a thunk only when the group is opened', () => {

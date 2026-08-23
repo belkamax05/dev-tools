@@ -6,7 +6,7 @@ import renderInkImmediate from '../../utils/renderInkImmediate';
 
 export interface PickCommandOptions {
   items: PickerItem[];
-  /** Shown in the header, e.g. `giti` or `shu`. */
+  /** Header text, shown verbatim, e.g. `giti TUI`. */
   title: string;
   /** Leads the example command line — defaults to `title`. */
   commandPrefix?: string;

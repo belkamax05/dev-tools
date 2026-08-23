@@ -46,7 +46,8 @@ const ScrollableSelect = ({
     if (key.downArrow && focusedIndex < options.length - 1) {
       const next = focusedIndex + 1;
       setFocusedIndex(next);
-      if (next >= visibleTo) setVisibleFrom((from) => Math.min(from + 1, options.length - VISIBLE_COUNT));
+      if (next >= visibleTo)
+        setVisibleFrom((from) => Math.min(from + 1, options.length - VISIBLE_COUNT));
       const option = options[next];
       if (option) onHighlight?.(option.value);
     }

@@ -10,7 +10,7 @@ import ScrollableSelect from '../ScrollableSelect';
 
 export interface CommandPickerProps {
   items: PickerItem[];
-  /** Shown in the header, e.g. `giti` or `shu`. */
+  /** Header text, shown verbatim, e.g. `giti TUI`. */
   title: string;
   /** Leads the example command line — defaults to `title`. */
   commandPrefix?: string;
@@ -72,10 +72,12 @@ const CommandPicker = ({ items, title, commandPrefix, onPick, onCancel }: Comman
       {/* Header */}
       <Box>
         <Text bold color="cyan">
-          {title} TUI
+          {title}
         </Text>
         <Text> </Text>
-        <TextInput placeholder="Search..." onChange={setQuery} />
+        {/*? TextInput keeps its own buffer, so remounting it per level is what actually clears
+            the box — resetting `query` alone would leave stale text on screen filtering nothing */}
+        <TextInput key={current.path.join('/')} placeholder="Search..." onChange={setQuery} />
       </Box>
 
       {/* Breadcrumb */}
@@ -129,7 +131,9 @@ const CommandPicker = ({ items, title, commandPrefix, onPick, onCancel }: Comman
               )}
 
               {enterAction === 'open' ? (
-                <StatusMessage variant="info">Press Enter to navigate into this group</StatusMessage>
+                <StatusMessage variant="info">
+                  Press Enter to navigate into this group
+                </StatusMessage>
               ) : (
                 <>
                   <Text dimColor>Example:</Text>
