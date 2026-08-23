@@ -1,0 +1,66 @@
+{
+	"editor.formatOnSave": true,
+	"editor.defaultFormatter": "biomejs.biome",
+	"editor.codeActionsOnSave": {
+		"quickfix.biome": "always",
+		"source.fixAll.biome": "always",
+		"source.organizeImports.biome": "always"
+	},
+	"[typescript]": {
+		"editor.defaultFormatter": "biomejs.biome",
+		"editor.codeActionsOnSave": {
+			"quickfix.biome": "always",
+			"source.fixAll.biome": "always",
+			"source.organizeImports.biome": "always",
+			"source.organizeImports": "never"
+		}
+	},
+	"[typescriptreact]": {
+		"editor.defaultFormatter": "biomejs.biome",
+		"editor.codeActionsOnSave": {
+			"quickfix.biome": "always",
+			"source.fixAll.biome": "always",
+			"source.organizeImports.biome": "always",
+			"source.organizeImports": "never"
+		}
+	},
+	"typescript.format.enable": false,
+	"javascript.format.enable": false,
+	"typescript.validate.enable": true,
+	"javascript.validate.enable": true,
+	"typescript.suggest.paths": false,
+	"javascript.suggest.paths": false,
+	"files.watcherExclude": {
+		"**/.git/**": true,
+		"**/.gitignore": false,
+		"**/node_modules/**": true,
+		"**/dist/**": true,
+		"**/build/**": true,
+		"**/coverage/**": true,
+		"**/playwright-report/**": true,
+		"**/.playwright-browsers/**": true,
+		"**/.next/**": true,
+		"**/.nuxt/**": true,
+		"**/.svelte-kit/**": true,
+		"**/.astro/**": true,
+		"**/.vercel/**": true,
+		"**/.open-next/**": true,
+		"**/.wrangler/**": true,
+		"**/.deno/**": true,
+		"**/.bun/**": true,
+		"**/.cache/**": true,
+		"**/.yarn/**": true,
+		"**/.vinxi/**": true,
+		"**/.turbo/**": true,
+		"**/.nx/**": true,
+		"**/.eslintcache": true,
+		"**/.biome/**": true,
+		"**/storybook-static/**": true,
+		"**/.cloned/**": true,
+		"**/modules/**": true,
+		"**/*.log": true,
+		"**/*.tsbuildinfo": true,
+		"**/tsconfig.tsbuildinfo": true
+	},
+	"bun.test.filePattern": "**/*{.test.,__test__}{js,ts,tsx,jsx,mts,cts,cjs,mjs}"
+}
