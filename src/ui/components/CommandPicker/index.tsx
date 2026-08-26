@@ -31,7 +31,14 @@ const isGroup = (item: PickerItem) => item.children !== undefined;
  * Two-pane command browser: a searchable list of the current level on the left, a preview of the
  * highlighted row on the right. Enter runs a leaf and descends into a group; Esc climbs back out.
  */
-const CommandPicker = ({ items, title, commandPrefix, initialPath, onPick, onCancel }: CommandPickerProps) => {
+const CommandPicker = ({
+  items,
+  title,
+  commandPrefix,
+  initialPath,
+  onPick,
+  onCancel,
+}: CommandPickerProps) => {
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState('');
 
