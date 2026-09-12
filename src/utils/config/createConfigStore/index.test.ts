@@ -18,7 +18,7 @@ let previous: string | undefined;
 
 beforeEach(() => {
   previous = process.env.XDG_CONFIG_HOME;
-  home = mkdtempSync(join(tmpdir(), 'utils-terminal-config-'));
+  home = mkdtempSync(join(tmpdir(), 'dev-tools-config-'));
   process.env.XDG_CONFIG_HOME = home;
 });
 

@@ -1,5 +1,5 @@
 {
-  "name": "utils-terminal",
+  "name": "dev-tools",
   "module": "index.ts",
   "type": "module",
   "scripts": {

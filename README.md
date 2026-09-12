@@ -1,4 +1,4 @@
-# utils-terminal
+# dev-tools
 
 Reusable terminal building blocks shared by the sibling repos in `~/dev/shulker` — colour and
 formatting helpers, process/install utilities, a config store, and a full terminal-UI kit:
@@ -35,7 +35,7 @@ dependency, because these libs are separate git repos:
 
 ```jsonc
 "paths": {
-  "@/utils-terminal/*": ["../utils-terminal/src/*"]
+  "@/dev-tools/*": ["../dev-tools/src/*"]
 }
 ```
 
@@ -68,9 +68,9 @@ to the top level, and the isolated linker does not.
 
 ```tsx
 import { render } from 'ink';
-import runTuiApp from '@/utils-terminal/ui/app/runTuiApp';
-import TuiThemeProvider from '@/utils-terminal/ui/providers/TuiThemeProvider';
-import { createTheme } from '@/utils-terminal/ui/theme';
+import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
+import TuiThemeProvider from '@/dev-tools/ui/providers/TuiThemeProvider';
+import { createTheme } from '@/dev-tools/ui/theme';
 
 const theme = createTheme({ sizes: { app: { minWidth: 64, minHeight: 16 } } });
 
@@ -137,7 +137,7 @@ whether the pointer is on *itself*, and moving right-to-left across a row delive
 the boundary a repo with its own React must stay on:
 
 ```ts
-import pickCommand from '@/utils-terminal/ui/dialogs/pickCommand';
+import pickCommand from '@/dev-tools/ui/dialogs/pickCommand';
 
 const selection = await pickCommand({
   items: [{ value: 'status', label: 'status', description: 'Show repository status' }],
