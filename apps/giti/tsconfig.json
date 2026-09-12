@@ -31,7 +31,7 @@
     // lib's own shared code the same way sibling repos do, just one level
     // closer since there is no separate git repo in between.
     "paths": {
-      "@/giti/*": ["./src/*"],
+      "@/dev-tools/giti/*": ["./src/*"],
       "@/dev-tools/*": ["../../libs/*"]
     }
   }

@@ -104,9 +104,9 @@ src/config/                 systemConfig / sysPaths mirrors of shulker-controlle
 - **One default export per file**, named the same as its folder. Utilities are
   `src/utils/gitExec/index.ts`, imported as `import gitExec from '../utils/gitExec'`.
 - Imports use tsconfig `paths`, not npm: `@/dev-tools/*` → `../../libs/*` (dev-tools's own libs,
-  two levels up since this app lives at `dev-tools/apps/giti`), `@/giti/*` → `./src/*`. Bun
-  honours these at runtime; there is no symlink and `bun install` will never fix a missing
-  mapping.
+  two levels up since this app lives at `dev-tools/apps/giti`), `@/dev-tools/giti/*` → `./src/*`
+  — the same alias every outside consumer of this app uses. Bun honours these at runtime; there
+  is no symlink and `bun install` will never fix a missing mapping.
 - Comments explain *why*. Two recurring markers: `//?` for a rationale note on non-obvious
   behaviour, and JSDoc `@throws` documenting the failure a guard exists to prevent.
 - `tsconfig.json` is strict with `noUncheckedIndexedAccess`, so `array[0]` is `T | undefined`.
