@@ -1,0 +1,19 @@
+#!/bin/sh
+
+get_this_file_directory() {
+    __get_dirname_of_script() {
+        # shellcheck disable=SC2128,SC3054
+        if [ -n "$BASH_SOURCE" ]; then
+            dirname "${BASH_SOURCE[0]}"
+        elif [ -n "$ZSH_VERSION" ]; then
+            # shellcheck disable=SC2296
+            dirname "${(%):-%x}" 2>/dev/null || dirname "$0"
+        else
+            dirname "$0"
+        fi
+    }
+    (cd "$(__get_dirname_of_script)" && pwd)
+}
+
+# shellcheck disable=SC2155
+export PATH="$(get_this_file_directory)/bin:$PATH"

@@ -42,11 +42,12 @@ dependency, because these libs are separate git repos:
 What you may import depends on whether you share this lib's copy of `react` and `ink`.
 
 **Workspace members** — everything the root `package.json` lists under `workspaces`, currently
-`apps/*`, `libs/*` and `repos/dygma-hacking` — may import and render **anything**, components
-included. Bun's isolated linker points every member's `node_modules/react` and `node_modules/ink`
-at one physical copy in the root store, so a component authored here is reconciled by the same
-React the consumer is using and its hooks find their dispatcher. `apps/os-configure` and
-`repos/dygma-hacking` are both built this way, and between them they are where every component
+`apps/*`, `libs/*`, `libs/dev-tools/apps/*`, and `repos/dygma-hacking` — may import and render
+**anything**, components included. Bun's isolated
+linker points every member's `node_modules/react` and `node_modules/ink` at one physical copy in
+the root store, so a component authored here is reconciled by the same React the consumer is
+using and its hooks find their dispatcher. `apps/os-configure`, `repos/dygma-hacking`, and this
+lib's own `apps/giti` are all built this way, and between them they are where every component
 here came from.
 
 **Anything outside the workspace** installs its own `react` and `ink` and therefore does **not**
@@ -54,7 +55,8 @@ share a copy. A component authored here would be mounted by a reconciler holding
 React, and every hook in it would throw. Such a consumer is limited to:
 
 - `ui/dialogs/*` — which mount and tear down a complete Ink tree with *this* lib's ink, and
-  exchange plain data with the caller (see `PickerItem`). `libs/giti` uses it this way;
+  exchange plain data with the caller (see `PickerItem`). `repos/shulker-controller` uses it
+  this way;
 - `ui/terminal/*`, `ui/theme/*`, and everything under `utils/` — no React in any of it;
 - `ui/app/runTuiApp` and `ui/utils/renderInkImmediate` — both take the caller's own `render` as
   an argument for exactly this reason.

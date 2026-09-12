@@ -1,0 +1,25 @@
+{
+  "name": "giti",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "lint": "bun biome check .",
+    "format": "bun biome check --write --unsafe .",
+    "generate-commands": "bun run scripts/generate-commands"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.18"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.7.0",
+    "@inkjs/ui": "^2.0.0",
+    "ink": "^7.1.1",
+    "react": "^19.2.8",
+    "zod": "^4.4.3"
+  }
+}

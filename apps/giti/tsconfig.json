@@ -25,9 +25,14 @@
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
-  },
-  // apps/* are independent subprojects with their own tsconfig `paths` (see
-  // apps/giti/tsconfig.json); typecheck them by cd-ing in, not from here.
-  "exclude": ["apps"]
+    "noPropertyAccessFromIndexSignature": false,
+
+    // This app lives at apps/giti inside dev-tools; @/dev-tools/* reaches the
+    // lib's own shared code the same way sibling repos do, just one level
+    // closer since there is no separate git repo in between.
+    "paths": {
+      "@/giti/*": ["./src/*"],
+      "@/dev-tools/*": ["../../libs/*"]
+    }
+  }
 }

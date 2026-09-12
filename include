@@ -1,0 +1,25 @@
+#!/bin/sh
+
+get_this_file_directory() {
+    __get_dirname_of_script() {
+        # shellcheck disable=SC2128,SC3054
+        if [ -n "$BASH_SOURCE" ]; then
+            dirname "${BASH_SOURCE[0]}"
+        elif [ -n "$ZSH_VERSION" ]; then
+            # shellcheck disable=SC2296
+            dirname "${(%):-%x}" 2>/dev/null || dirname "$0"
+        else
+            dirname "$0"
+        fi
+    }
+    (cd "$(__get_dirname_of_script)" && pwd)
+}
+
+DEV_TOOLS_SCRIPT_DIR=$(get_this_file_directory)
+
+# ? apps/giti is a subproject of dev-tools, sharing this lib's own code directly instead of
+# ? through the cross-repo `@/dev-tools` alias. It is `giti` now — libs/giti is no longer
+# ? sourced from the root include, so there is nothing left for this to shadow.
+function giti() {
+    bun "$DEV_TOOLS_SCRIPT_DIR/apps/giti/bin/giti" "$@"
+}
