@@ -7,7 +7,7 @@ components, hooks, theming, and the mouse/alternate-screen layer under them.
 ## Layout
 
 ```
-src/
+libs/
 ├── config/color/     Palette, standard variants, ANSI style codes
 ├── types/            Default-exported interfaces (ExecResult, PickerItem, InkRender, …)
 ├── ui/
@@ -35,7 +35,7 @@ dependency, because these libs are separate git repos:
 
 ```jsonc
 "paths": {
-  "@/dev-tools/*": ["../dev-tools/src/*"]
+  "@/dev-tools/*": ["../dev-tools/libs/*"]
 }
 ```
 
