@@ -91,6 +91,10 @@ include                     POSIX sh, prepends bin/ to PATH — dead code here; 
 scripts/                    codegen, run directly with bun
 src/cli/index.ts            command dispatcher
 src/commands/<name>.ts      one file per command; default export + optional `export const meta`
+src/core/<area>/index.ts    the dashboard's git operations (status, hunks, commit, branches, log,
+                             remotes, stash, operation) — plain async functions returning
+                             `{ ok, message }`, each tested against a throwaway repo (`core/testRepo`)
+src/ui/dashboard/           the dashboard: App, one folder per tab under views/, shared helpers
 src/ui/renderInkX/index.tsx Ink TUIs; default-export an async render fn that awaits and unmounts
 src/ui/renderInkCommands/   the command picker — adapter over dev-tools's shared dialog
 src/utils/<name>/index.ts   folder-per-unit, one default export, sibling index.test.ts
@@ -110,9 +114,34 @@ src/config/                 systemConfig / sysPaths mirrors of shulker-controlle
   Destructuring defaults (`const [hash = '', author = ''] = line.split('|')`) is the idiom used
   throughout.
 
+## The dashboard
+
+`giti` with no arguments opens a tabbed dashboard: Overview, Status, Log, Branches, Stash,
+Remotes, Vendored. Every tab works with **both mouse and keyboard**. Each toolbar button, hint,
+tab and row checkbox is clickable and also has a hotkey, and the hotkey is always printed on it.
+If you add an action, add both.
+
+- **Views get `GitViewProps`** (`src/ui/dashboard/types`): `refreshKey` / `reload` to re-read,
+  `notify` for the footer message, `onCaptureInput` while a prompt owns the keyboard, `handoff`
+  to give the terminal to `$EDITOR` or `git commit`, `offerUndo` to register an undo, and
+  `reservedChrome` for rows that App draws above the view (the operation banner).
+- **Git goes through `src/core`, never straight from a view.** Views only compose core calls and
+  prompts. `core/run` sets `GIT_OPTIONAL_LOCKS=0` (so a background refresh never takes the index
+  lock from a git that the user is running) and `GIT_TERMINAL_PROMPT=0`.
+- **Destructive actions either ask first or can be undone.** Discarding a file or a hunk saves a
+  patch under `.git/giti-undo/`, and dropping a stash keeps its hash. Ctrl+Z (or the footer Undo
+  button) puts it back. A branch is only deleted with `-d`, never `-D`. Pull is `--ff-only`, and
+  force-push is `--force-with-lease`.
+- **Rebase/merge/cherry-pick/revert in progress** shows a banner above the tabs: ^N continue,
+  ^K skip, ^X abort. Conflicted files get their own section in Status, with O/T to take
+  ours/theirs.
+- **Auto-refresh**: `useRepoWatch` watches the work tree recursively, falling back to `.git`
+  alone, with a 300ms debounce; `r` still reloads by hand.
+- **The command picker** described below is the palette: `:` or Ctrl+P opens it over any tab.
+
 ## The command picker
 
-`giti` with no arguments opens a two-pane browser over `src/commands/**`. Three pieces:
+The palette (`:` in the dashboard) is a two-pane browser over `src/commands/**`. Three pieces:
 
 - `src/utils/getCommandEntries` — globs the command modules and imports each one for its `meta`.
   It takes an optional directory so it can be tested against a fixture instead of whichever

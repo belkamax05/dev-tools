@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { Text, useApp, useInput } from 'ink';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import AppShell from '@/dev-tools/ui/components/AppShell';
@@ -174,16 +174,26 @@ export const App = ({
         ).length
       : 0;
 
+  //? An action offers its undo and then reports what it did, in that order —
+  //? so the first report after an offer belongs to it and keeps it; any report
+  //? after that is about something else, and the offer lapses
+  const offeredJustNow = useRef(false);
   const notify = useCallback((text: string, tone: Tone = 'info') => {
     setStatus({ text, tone });
-    setUndo(undefined);
+    if (offeredJustNow.current) offeredJustNow.current = false;
+    else setUndo(undefined);
   }, []);
-  const offerUndo = useCallback((offer: UndoOffer) => setUndo(offer), []);
+  const offerUndo = useCallback((offer: UndoOffer) => {
+    offeredJustNow.current = true;
+    setUndo(offer);
+  }, []);
 
   const runUndo = async () => {
     if (!undo) return;
     const offer = undo;
     setUndo(undefined);
+    //? The Undo button is gone once used; its hover hint must not outlive it
+    setFooterHint(null);
     const result = await offer.run();
     setStatus({ text: result.message, tone: result.ok ? 'ok' : 'error' });
     reload();

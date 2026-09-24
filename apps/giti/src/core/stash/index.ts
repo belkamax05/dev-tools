@@ -37,13 +37,19 @@ const act = async (
 };
 
 /** Stash everything — staged, unstaged and untracked — under a message. */
-export const pushStash = (root: string, message: string) =>
-  act(
+export const pushStash = async (root: string, message: string): Promise<OperationResult> => {
+  const result = await git(
     ['stash', 'push', '--include-untracked', ...(message.trim() ? ['-m', message.trim()] : [])],
     root,
-    'Stashed your changes',
-    'nothing to stash',
   );
+  //? Exit 0 with nothing done is how git says there was nothing to stash
+  if (result.ok && /No local changes/i.test(result.stdout + result.stderr)) {
+    return { ok: false, message: 'Nothing to stash — the working tree is clean' };
+  }
+  return result.ok
+    ? { ok: true, message: 'Stashed your changes' }
+    : { ok: false, message: failure(result, 'could not stash') };
+};
 
 export const applyStash = (root: string, ref: string) =>
   act(['stash', 'apply', ref], root, `Applied ${ref}`, 'apply stopped');

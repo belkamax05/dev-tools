@@ -98,6 +98,23 @@ including on a signal.
 before `runTuiApp` is called.** Once the input filter and Ink own stdin, a reply is not a reply,
 it is a handful of garbage keystrokes delivered to whichever view is listening.
 
+### Building blocks
+
+Beyond `AppShell`/`ListDetail`/`PickList`, pieces that more than one app needs live here, not in
+one app:
+
+- `components/Toolbar`: a row of buttons, each `{ hotkey, label, onPress, tone?, disabled?, isOn? }`.
+  Clicking one and pressing its hotkey do the same thing. The view still binds the key with its
+  own `useInput`.
+- `components/LinkRow`: a clickable path or URL line.
+- `hooks/usePrompt`: a one-line `confirm(message, onYes)` / `ask(message, onSubmit)` that takes
+  the keyboard while it is open. Render `prompt.line` in place of the view's header.
+- `hooks/useLoader(load, deps)`: `{ data, isLoading, error, reload }` for async reads.
+- `app/runTuiSession`: `runTuiApp` in a loop, for apps that hand the terminal to another
+  program (`$EDITOR`, `git commit`) and come back afterwards, with mouse reporting restored.
+- `utils/system/{editFile,revealPath,openUrl}`: open in `$EDITOR`, the file manager, or the
+  browser (`remoteWebUrl` turns a git remote into its web URL).
+
 ### Theme
 
 `theme` answers "how big" and `colors` answers "what colour", and components ask rather than

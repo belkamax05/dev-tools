@@ -18,9 +18,15 @@ export const remoteWebUrl = (remote: string): string | undefined => {
 /** Open a URL in the desktop's browser, detached — the caller never waits on it. */
 export const openUrl = (url: string): void => {
   const command =
-    process.platform === 'darwin' ? ['open', url] : process.platform === 'win32' ? ['cmd', '/c', 'start', '', url] : ['xdg-open', url];
+    process.platform === 'darwin'
+      ? ['open', url]
+      : process.platform === 'win32'
+        ? ['cmd', '/c', 'start', '', url]
+        : ['xdg-open', url];
   const [bin = '', ...args] = command;
-  spawn(bin, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+  spawn(bin, args, { stdio: 'ignore', detached: true })
+    .on('error', () => {})
+    .unref();
 };
 
 export default openUrl;

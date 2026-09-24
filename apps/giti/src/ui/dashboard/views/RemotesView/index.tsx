@@ -128,7 +128,13 @@ export const RemotesView = ({
   const items: PickItem<Remote>[] = remotes.map((remote) => ({
     id: remote.name,
     label: remote.name,
-    hint: remote.fetchUrl,
+    //? The address shortened to what tells remotes apart — its last two parts
+    hint: remote.fetchUrl
+      .replace(/\.git$/, '')
+      .split(/[/:]/)
+      .filter(Boolean)
+      .slice(-2)
+      .join('/'),
     value: remote,
   }));
 

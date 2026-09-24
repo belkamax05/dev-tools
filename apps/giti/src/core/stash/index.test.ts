@@ -22,6 +22,7 @@ describe('stash', () => {
     const dropped = await dropStash(repo.root, second!);
     expect(dropped.ok).toBe(true);
     expect(await getStashes(repo.root)).toEqual([]);
+    expect((await pushStash(repo.root, 'nothing')).ok).toBe(false);
     expect((await restoreStash(repo.root, dropped.hash!, second!.message)).ok).toBe(true);
     expect((await getStashes(repo.root))[0]?.message).toContain('second');
   });

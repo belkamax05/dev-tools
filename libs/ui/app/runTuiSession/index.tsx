@@ -66,7 +66,9 @@ export const runTuiSession = async (
     await afterHandoff?.(handoff);
     notice =
       describe?.(handoff) ??
-      (handoff.type === 'edit' ? `Back from editing ${handoff.path}` : `Back from ${handoff.label}`);
+      (handoff.type === 'edit'
+        ? `Back from editing ${handoff.path}`
+        : `Back from ${handoff.label}`);
   }
 };
 
