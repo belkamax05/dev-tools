@@ -11,11 +11,23 @@ import type { PixelSurface } from './pixelCanvas.ts';
 export interface RasterCanvas extends PixelSurface {
   readonly rgba: Uint8Array;
   toRgb(): Uint8Array;
+  /**
+   * `set` with an alpha channel. Only the raster path can show transparency —
+   * kitty and iTerm2 composite it over the terminal's own background — so only
+   * this surface has it, and `drawImage` uses it when it is there.
+   */
+  setPixel(x: number, y: number, r: number, g: number, b: number, a: number): void;
+  /** `clear`, with the alpha to clear to: 0 for a transparent canvas. */
+  clear(r?: number, g?: number, b?: number, a?: number): void;
 }
+
+/** Whether a surface can hold transparency — see `RasterCanvas.setPixel`. */
+export const isRasterCanvas = (surface: PixelSurface): surface is RasterCanvas =>
+  'setPixel' in surface;
 
 export function createRasterCanvas(width: number, height: number): RasterCanvas {
   const rgba = new Uint8Array(width * height * 4);
-  // Opaque by default; nothing here draws transparency.
+  // Opaque by default; `setPixel` and `clear(…, 0)` are how transparency gets in.
   rgba.fill(255);
 
   return {
@@ -25,13 +37,22 @@ export function createRasterCanvas(width: number, height: number): RasterCanvas 
     // Real pixels are square, so no correction is needed.
     pixelAspect: 1,
 
-    clear(r = 0, g = 0, b = 0) {
+    clear(r = 0, g = 0, b = 0, a = 255) {
       for (let i = 0; i < rgba.length; i += 4) {
         rgba[i] = r;
         rgba[i + 1] = g;
         rgba[i + 2] = b;
-        rgba[i + 3] = 255;
+        rgba[i + 3] = a;
       }
+    },
+
+    setPixel(x, y, r, g, b, a) {
+      if (x < 0 || y < 0 || x >= width || y >= height) return;
+      const i = (y * width + x) * 4;
+      rgba[i] = r;
+      rgba[i + 1] = g;
+      rgba[i + 2] = b;
+      rgba[i + 3] = a;
     },
 
     set(x, y, r, g, b) {

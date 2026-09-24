@@ -15,7 +15,7 @@ export type { BrailleCanvasOptions } from './createBrailleCanvas.ts';
 export { default as createCellCanvas } from './createCellCanvas.ts';
 export type { CellCanvasMode } from './createCellCanvas.ts';
 export { default as createHalfBlockCanvas } from './createHalfBlockCanvas.ts';
-export { default as createRasterCanvas } from './createRasterCanvas.ts';
+export { default as createRasterCanvas, isRasterCanvas } from './createRasterCanvas.ts';
 export type { RasterCanvas } from './createRasterCanvas.ts';
 export { default as createSextantCanvas } from './createSextantCanvas.ts';
 
