@@ -1,21 +1,23 @@
+import { relative } from 'node:path';
 import { render } from 'ink';
 
-import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
+import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import getCommandEntries from '../../utils/getCommandEntries';
 import getCommandPickerItems from '../../utils/getCommandPickerItems';
 import getWorkingDir from '../../utils/getWorkingDir';
-import App from '../dashboard/App';
+import App, { TABS, type TabId } from '../dashboard/App';
 
 /**
- * Open the giti dashboard and resolve with the command the user picked, if any.
+ * Open the giti dashboard and resolve with the command the user picked from
+ * its palette, if any.
  *
- * Dispatching is left to `src/cli/index.ts`, exactly as `renderInkCommands`
- * leaves it: the returned name is what the CLI resolves onto a file, so the
- * dashboard feeds the one dispatch path instead of growing a second one — and
- * the command runs on a terminal the TUI has already handed back, rather than
- * writing into an alternate screen that is about to be discarded.
+ * Dispatching a picked command is left to `src/cli/index.ts` — the name goes
+ * back the way it came, so there is still one dispatch path, and the command
+ * runs on a terminal the TUI has already handed back. Everything else — an
+ * editor for a file or a commit message — is lent the terminal by
+ * `runTuiSession` and the dashboard comes back on the same tab.
  *
  * @returns The picked command's name, or `undefined` when the user just quit
  */
@@ -26,35 +28,45 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
 
   const configStore = createConfigStore({
     appName: 'giti',
-    defaults: { theme: 'classic' },
+    defaults: { theme: 'classic', tab: 'overview' },
   });
-  const config = await configStore.load();
+  let config = await configStore.load();
+  const save = (next: typeof config) => {
+    config = next;
+    configStore.save(next).catch(() => {});
+  };
+  //? Across handoffs the tab comes from here, so an editor round trip lands
+  //? back where it left; across runs, from the saved config
+  let tab: TabId = TABS.some((t) => t.id === config.tab) ? (config.tab as TabId) : 'overview';
 
-  //? Written by the app on its way out and read once `runTuiApp` returns. A
-  //? plain variable rather than a promise because the ordering is already
-  //? guaranteed: the app sets this and then calls `exit()`, and `runTuiApp` does
-  //? not return until Ink has unmounted and the terminal is back.
+  //? Written by the app on its way out and read once the session returns.
   let picked: string | undefined;
 
-  await runTuiApp(
-    <App
-      cwd={cwd}
-      commands={commands}
-      initialPaletteId={config.theme}
-      onThemeChange={(theme) => {
-        configStore.save({ ...config, theme }).catch(() => {});
-      }}
-      onRunCommand={(command) => {
-        picked = command;
-      }}
-    />,
+  await runTuiSession(
+    (frame) => (
+      <App
+        cwd={cwd}
+        commands={commands}
+        notice={frame.notice}
+        onHandoff={frame.handoff}
+        initialTab={tab}
+        onTabChange={(next) => {
+          tab = next;
+          save({ ...config, tab: next });
+        }}
+        initialPaletteId={config.theme}
+        onThemeChange={(theme) => save({ ...config, theme })}
+        onRunCommand={(command) => {
+          picked = command;
+        }}
+      />
+    ),
     {
-      //? giti's own `render`, which is what keeps this usable from a repo that
-      //? resolves its own ink — see the lib's `InkRender`.
       render,
-      //? The whole point of returning a value: the process has to outlive the
-      //? dashboard so the CLI can dispatch what was picked.
-      keepProcessAlive: true,
+      describe: (intent) =>
+        intent.type === 'edit'
+          ? `Back from editing ${relative(cwd, intent.path)}`
+          : `Back from ${intent.label}`,
     },
   );
 

@@ -13,6 +13,7 @@
  * `ui/dialogs` instead — see the README.
  */
 export * from './app/runTuiApp';
+export * from './app/runTuiSession';
 export * from './components';
 export * from './hooks';
 export {

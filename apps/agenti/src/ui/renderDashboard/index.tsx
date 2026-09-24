@@ -2,24 +2,19 @@ import { relative } from 'node:path';
 import { render } from 'ink';
 
 import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
-import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
+import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
 
-import { spawnSync } from 'node:child_process';
-
-import settingsStore, { hasOwnIde } from '../../config/settings';
+import settingsStore, { hasOwnIde, type TabId } from '../../config/settings';
 import type { Scope } from '../../core/scope';
-import editFile from '../../utils/editFile';
-import type { TabId } from '../../config/settings';
 import App from '../App';
-import type { Handoff, Session } from '../types';
+import type { Session } from '../types';
 
 /**
- * Open the dashboard on `root`, and keep reopening it until the user quits.
+ * Open the dashboard on a scope, and keep reopening it until the user quits.
  *
- * The loop is how a tab gets an editor: it hands back what it wants done, the
- * dashboard unmounts and gives the terminal back, the editor runs on it, and
- * the dashboard comes back up on the same tab, row and open folders — all of
- * which live in `session` for exactly this reason.
+ * `runTuiSession` is what lets a tab borrow the terminal — for an editor, or to
+ * launch Claude Code — and come back; everything worth returning to (the tab,
+ * the selected row, the open folders) lives in `session` for that reason.
  */
 export const renderDashboard = async (scope: Scope, initialTab?: TabId): Promise<void> => {
   const { root } = scope;
@@ -37,45 +32,37 @@ export const renderDashboard = async (scope: Scope, initialTab?: TabId): Promise
     preview: false,
     ideFocus: { pane: 'list', link: 0 },
   };
-  let notice: string | undefined;
 
-  while (true) {
-    let handoff: Handoff | undefined;
-
-    await runTuiApp(
+  await runTuiSession(
+    (frame) => (
       <App
         scope={scope}
         settings={settings}
         settingsPath={settingsStore.path}
         session={session}
-        notice={notice}
+        notice={frame.notice}
         onSettingsChange={(next) => {
           settings = next;
           //? Applied before it is saved, so a config dir that cannot be written
           //? costs persistence and not the setting
           settingsStore.save(next).catch(() => {});
         }}
-        onHandoff={(intent) => {
-          handoff = intent;
-        }}
-      />,
-      { render, keepProcessAlive: true },
-    );
-
-    if (!handoff) return;
-    const intent = handoff as Handoff;
-    if (intent.type === 'edit') {
-      editFile(intent.path);
-      notice = `Back from editing ${relative(root, intent.path)}`;
-    } else {
-      const [bin = '', ...args] = intent.command;
-      spawnSync(bin, args, { cwd: intent.cwd, stdio: 'inherit' });
-      notice = `Back from ${intent.label}`;
-    }
-    //? The file edited may have been agenti's own config — reopening with the
-    //? copy from before the edit would undo it on the next save
-    settings = await settingsStore.load();
-  }
+        onHandoff={frame.handoff}
+      />
+    ),
+    {
+      render,
+      //? The file edited may have been agenti's own config — reopening with the
+      //? copy from before the edit would undo it on the next save
+      afterHandoff: async () => {
+        settings = await settingsStore.load();
+      },
+      describe: (intent) =>
+        intent.type === 'edit'
+          ? `Back from editing ${relative(root, intent.path)}`
+          : `Back from ${intent.label}`,
+    },
+  );
 };
 
 export default renderDashboard;

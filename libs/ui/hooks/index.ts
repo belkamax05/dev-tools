@@ -3,6 +3,10 @@ export { default as useClickable } from './useClickable';
 export type { ClickableOptions, ClickableState } from './useClickable';
 export { default as useHeldFlag } from './useHeldFlag';
 export { default as useHoveredId } from './useHoveredId';
+export { default as useLoader } from './useLoader';
+export type { LoaderState } from './useLoader';
+export { default as usePrompt } from './usePrompt';
+export type { PromptApi } from './usePrompt';
 export {
   default as useRasterOverlay,
   rasterPixelSize,

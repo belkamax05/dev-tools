@@ -1,9 +1,9 @@
 import { type DOMElement, Text } from 'ink';
 import { useRef } from 'react';
 
-import Box from '@/dev-tools/ui/components/Box';
-import useClickable from '@/dev-tools/ui/hooks/useClickable';
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import Box from '../Box';
+import useClickable from '../../hooks/useClickable';
+import { useColors } from '../../providers/TuiThemeProvider';
 
 export interface LinkRowProps {
   label: string;

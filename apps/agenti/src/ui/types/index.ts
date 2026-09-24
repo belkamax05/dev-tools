@@ -3,14 +3,8 @@ import type { Scope } from '../../core/scope';
 
 export type Tone = 'ok' | 'warn' | 'error' | 'info';
 
-/**
- * Something the dashboard cannot do inside its own frame, handed back to the
- * CLI to do on a real terminal before the dashboard reopens.
- */
-export type Handoff =
-  | { type: 'edit'; path: string }
-  /** A terminal program — Claude Code — run in the foreground until it exits. */
-  | { type: 'run'; command: string[]; cwd: string; label: string };
+export type { Handoff } from '@/dev-tools/ui/app/runTuiSession';
+import type { Handoff } from '@/dev-tools/ui/app/runTuiSession';
 
 /**
  * What a view keeps across a handoff. The dashboard is unmounted while an

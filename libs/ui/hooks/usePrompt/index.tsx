@@ -1,7 +1,7 @@
 import { Text, useInput } from 'ink';
 import { type ReactNode, useEffect, useState } from 'react';
 
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import { useColors } from '../../providers/TuiThemeProvider';
 
 type Prompt =
   | { kind: 'confirm'; message: string; onYes: () => void }

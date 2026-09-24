@@ -1,8 +1,8 @@
 import { Text } from 'ink';
 
-import ActionButton from '@/dev-tools/ui/components/ActionButton';
-import Box from '@/dev-tools/ui/components/Box';
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import ActionButton from '../ActionButton';
+import Box from '../Box';
+import { useColors } from '../../providers/TuiThemeProvider';
 
 export interface ToolbarAction {
   hotkey: string;

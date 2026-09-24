@@ -1,4 +1,4 @@
-import { Text } from 'ink';
+import { Text, useInput } from 'ink';
 
 import Box from '@/dev-tools/ui/components/Box';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
@@ -10,6 +10,8 @@ import ListDetail from '@/dev-tools/ui/components/ListDetail';
 
 export interface VendoredViewProps {
   snapshot: RepoSnapshot;
+  /** Run a giti command — the `mega` group acts on every vendored directory at once. */
+  onRunCommand?: (command: string) => void;
 }
 
 /** What each mechanism records, and therefore what this view can show for it. */
@@ -28,8 +30,16 @@ const KIND_NOTE: Record<Vendored['kind'], string> = {
  * opening a dashboard should do — `giti subrepo` and friends are where that
  * belongs.
  */
-export const VendoredView = ({ snapshot }: VendoredViewProps) => {
+export const VendoredView = ({ snapshot, onRunCommand }: VendoredViewProps) => {
   const colors = useColors();
+  //? The same three as the hints, from the keyboard; each hands the command
+  //? back to the CLI, which runs it on the real terminal with its own output
+  useInput((input) => {
+    if (!onRunCommand) return;
+    if (input === 'l') onRunCommand('mega/pull');
+    else if (input === 'P') onRunCommand('mega/push');
+    else if (input === 'S') onRunCommand('mega/status');
+  });
   const { vendored } = snapshot;
 
   const items: PickItem<Vendored>[] = vendored.map((entry) => ({
@@ -45,6 +55,15 @@ export const VendoredView = ({ snapshot }: VendoredViewProps) => {
       items={items}
       emptyText="No subrepos or subtrees in this repository."
       detailTitle="Vendored directory"
+      hints={
+        onRunCommand
+          ? [
+              { key: 'l', label: 'pull all', onPress: () => onRunCommand('mega/pull') },
+              { key: 'P', label: 'push all', onPress: () => onRunCommand('mega/push') },
+              { key: 'S', label: 'status of all', onPress: () => onRunCommand('mega/status') },
+            ]
+          : []
+      }
       renderDetail={(item) => {
         const entry = item?.value;
         if (!entry) return null;

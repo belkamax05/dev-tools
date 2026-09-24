@@ -11,7 +11,7 @@ import {
 } from '@/dev-tools/terminal-canvas';
 
 import type { IdeDefinition } from '../../core/ides';
-import useLoader from '../useLoader';
+import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import { type LogoMode, loadLogo, resolveLogoTechnique } from '.';
 
 /** Drawn while the PNG decodes, and for an IDE whose logo is missing: nothing. */

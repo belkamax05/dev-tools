@@ -21,6 +21,11 @@ const repoScopedGitEnvVars = [
 const gitSpawnEnv = (): NodeJS.ProcessEnv => {
   const env = { ...process.env };
   for (const key of repoScopedGitEnvVars) delete env[key];
+  //? A read like `git status` otherwise refreshes and rewrites .git/index as a
+  //? side effect — which the dashboard's watcher would see as a change, reload,
+  //? and read again, forever. Only git's opportunistic writes are skipped;
+  //? nothing it reports changes.
+  env.GIT_OPTIONAL_LOCKS = '0';
   return env;
 };
 

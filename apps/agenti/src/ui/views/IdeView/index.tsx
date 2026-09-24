@@ -13,11 +13,11 @@ import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvide
 
 import { findIdeBinary, IDES, type IdeDefinition } from '../../../core/ides';
 import { launchDetached, launchPlan } from '../../../core/launch';
-import revealPath from '../../../utils/revealPath';
-import LinkRow from '../../LinkRow';
+import revealPath from '@/dev-tools/utils/system/revealPath';
+import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import { LOGO_MODES, type LogoMode, resolveLogoTechnique } from '../../logo';
 import IdeLogo from '../../logo/IdeLogo';
-import Toolbar from '../../Toolbar';
+import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import type { ViewProps } from '../../types';
 
 export interface IdeViewProps extends ViewProps {

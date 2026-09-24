@@ -7,10 +7,10 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import { getHealth, type HealthIssue, type Severity } from '../../../core/health';
-import Toolbar from '../../Toolbar';
+import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import type { ViewProps } from '../../types';
-import useLoader from '../../useLoader';
-import usePrompt from '../../usePrompt';
+import useLoader from '@/dev-tools/ui/hooks/useLoader';
+import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 
 const LABEL: Record<Severity, string> = { error: 'Errors', warn: 'Warnings', info: 'Suggestions' };
 

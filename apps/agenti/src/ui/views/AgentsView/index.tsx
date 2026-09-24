@@ -35,11 +35,11 @@ import {
   linkInstructions,
   unlinkInstructions,
 } from '../../../core/instructions';
-import revealPath from '../../../utils/revealPath';
-import Toolbar, { type ToolbarAction } from '../../Toolbar';
+import revealPath from '@/dev-tools/utils/system/revealPath';
+import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import type { ViewProps } from '../../types';
-import useLoader from '../../useLoader';
-import usePrompt from '../../usePrompt';
+import useLoader from '@/dev-tools/ui/hooks/useLoader';
+import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 
 /**
  * The checkbox each row carries, one per status — three cells wide on every

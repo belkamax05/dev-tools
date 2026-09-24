@@ -31,6 +31,10 @@ export const gitiTheme = createTheme({
      * a caption under one.
      */
     viewHints: 2,
+    /** A view's one-line status or prompt, above its panes. */
+    viewHeader: 1,
+    /** The strip shown while a rebase, merge, cherry-pick or revert is in progress. */
+    operationBanner: 1,
   },
 });
 
