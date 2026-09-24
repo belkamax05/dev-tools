@@ -12,19 +12,25 @@ import { type ThemeColors, useColors } from '@/dev-tools/ui/providers/TuiThemePr
 import {
   type AgentNode,
   type AgentStatus,
+  deleteEverywhere,
   deleteNode,
   getInventory,
   getNodeDiff,
   type Inventory,
+  type MergedNode,
+  mergeInventories,
   type OperationResult,
+  pushEverywhere,
   readPreview,
   setLinkMode,
   syncNode,
-  toggleLink,
+  toggleEverywhere,
 } from '../../../core/agents';
+import type { IdeDefinition } from '../../../core/ides';
 import {
   adoptInstructions,
   getInstructions,
+  type InstructionsState,
   type InstructionsStatus,
   linkInstructions,
   unlinkInstructions,
@@ -50,13 +56,13 @@ const CHECKBOX: Record<AgentStatus, string> = {
 };
 
 const DESCRIBE: Record<AgentStatus, string> = {
-  synced: 'in the IDE, same as .agents',
-  implicit: 'partly in the IDE',
-  missing: 'not in the IDE',
-  mismatch: 'the IDE copy differs from .agents',
-  orphan: 'only in the IDE folder, not in .agents',
+  synced: 'in every IDE that reads it, same as .agents',
+  implicit: 'in some IDEs, or partly',
+  missing: 'in none of the IDEs yet',
+  mismatch: "an IDE's copy differs from .agents",
+  orphan: 'only in an IDE, not in .agents',
   unknown: 'something unexpected is in the way',
-  unused: 'not read by this IDE',
+  unused: 'none of the IDEs reads this',
 };
 
 const statusColor = (status: AgentStatus, colors: ThemeColors) =>
@@ -81,38 +87,56 @@ const syncedKind = (node: AgentNode): string => {
   return kinds.size === 1 ? ([...kinds][0] ?? 'copy') : kinds.size ? 'mixed' : 'copy';
 };
 
-const hintFor = (node: AgentNode): string => {
-  if (node.status === 'synced') return syncedKind(node);
-  if (node.status === 'mismatch') return 'differs';
-  if (node.status === 'orphan') return 'IDE only';
-  if (node.status === 'implicit') return 'partly';
-  if (node.status === 'unknown') return '?';
-  if (node.status === 'unused') return 'unused';
-  return 'off';
+const hintForStatus = (status: AgentStatus): string =>
+  status === 'mismatch'
+    ? 'differs'
+    : status === 'orphan'
+      ? 'IDE only'
+      : status === 'implicit'
+        ? 'partly'
+        : status === 'unknown'
+          ? '?'
+          : status === 'unused'
+            ? 'unused'
+            : 'off';
+
+/** One IDE's view of an entry, in a word. */
+const hintFor = (node: AgentNode): string =>
+  node.status === 'synced' ? syncedKind(node) : hintForStatus(node.status);
+
+/** Every IDE's view at once: the shared word if they agree on how, `mixed` if not. */
+const mergedHint = (node: MergedNode): string => {
+  if (node.status !== 'synced') return hintForStatus(node.status);
+  const kinds = new Set(
+    Object.values(node.perIde)
+      .filter((own) => own.status === 'synced')
+      .map(syncedKind),
+  );
+  return kinds.size === 1 ? ([...kinds][0] ?? 'linked') : 'mixed';
 };
 
 const summary = (inventory: Inventory) => {
   const { counts } = inventory;
-  const parts = [
+  return [
     `${counts.synced} in sync`,
     counts.mismatch && `${counts.mismatch} differ`,
     counts.missing && `${counts.missing} off`,
     counts.orphan && `${counts.orphan} IDE-only`,
     counts.unknown && `${counts.unknown} unknown`,
-  ].filter(Boolean);
-  return parts.join(' · ');
+  ]
+    .filter(Boolean)
+    .join(' · ');
 };
 
 /**
  * ` [3/15]` after a folder with more than one entry: how many of its direct
- * entries are in the IDE, out of how many there are. A folder with one entry
- * says the same thing with its checkbox alone.
+ * entries are in step everywhere, out of how many there are.
  */
-const countFor = (node: AgentNode): string => {
-  const children = node.children ?? [];
+const countFor = (node: MergedNode): string => {
+  const children = (node.children ?? []).filter((child) => child.status !== 'unused');
   if (node.type !== 'directory' || children.length < 2) return '';
-  const inIde = children.filter((child) => child.status === 'synced').length;
-  return ` [${inIde}/${children.length}]`;
+  const inStep = children.filter((child) => child.status === 'synced').length;
+  return ` [${inStep}/${children.length}]`;
 };
 
 const INSTRUCTIONS_ID = '::instructions';
@@ -135,33 +159,40 @@ const INSTRUCTIONS_HINT: Record<InstructionsStatus, string> = {
   none: '',
 };
 
-const INSTRUCTIONS_DESCRIBE: Record<InstructionsStatus, (ide: string) => string> = {
-  native: (ide) => `${ide} reads AGENTS.md itself — nothing to keep in step`,
-  synced: (ide) => `${ide}'s instructions point at AGENTS.md`,
-  missing: (ide) => `${ide} does not see AGENTS.md yet`,
-  mismatch: (ide) => `${ide}'s instructions file does not point at AGENTS.md`,
-  'no-source': () => 'There is no AGENTS.md — the shared instructions every IDE reads',
-  none: () => '',
+/** Several IDEs' instruction states as one, the way `combineStatus` does for entries. */
+const combineInstructions = (states: InstructionsState[]): InstructionsStatus => {
+  const relevant = states.map((state) => state.status).filter((status) => status !== 'none');
+  if (relevant.length === 0) return 'none';
+  if (relevant.includes('no-source')) return 'no-source';
+  if (relevant.includes('mismatch')) return 'mismatch';
+  if (relevant.every((status) => status === 'native')) return 'native';
+  if (relevant.every((status) => status === 'synced' || status === 'native')) return 'synced';
+  return 'missing';
 };
 
 /** The width of the fold triangle plus its margin, for rows that have none. */
 const TWISTY_CELLS = 2;
 
+type Results = { ide: IdeDefinition; result: OperationResult }[];
+
 /**
- * `.agents` against the IDE's folder: the web version's Agents page, for the
- * one repository agenti was started in.
+ * `.agents` against every IDE this scope is kept in step with, as one tree.
+ *
+ * A row's checkbox means "this entry is on" — in every IDE that reads it, each
+ * in its own way (a link here, a generated copy there). Linking, pushing and
+ * deleting act on all of them; the detail pane lists what each IDE has.
+ * Adopting takes one IDE's copy into `.agents`, so it — like preview and diff
+ * — works on the IDE picked in the header (`[` / `]`).
  *
  * Every row has explicit controls rather than one big click target: a fold
- * triangle on folders and a checkbox that links or unlinks, each clickable on
- * its own. A click anywhere else on the row only selects it — opening a file
- * is never a side effect of pointing at it. What a file contains is shown on
- * request (`v` / Preview), and the actions for the selected row are buttons
- * in the detail pane, the likeliest one first and highlighted.
+ * triangle on folders and the checkbox, each clickable on its own. A click
+ * anywhere else only selects the row.
  */
 export const AgentsView = ({
   scope,
   root,
   ide,
+  ides,
   session,
   notify,
   onCaptureInput,
@@ -178,23 +209,32 @@ export const AgentsView = ({
   //? so an editor handoff comes back with the same folders open
   const [expanded, setExpanded] = useState(() => new Set(session.expanded));
   const [preview, setPreviewState] = useState(session.preview);
+  const ideKey = ides.map((one) => one.id).join(',');
 
   const {
-    data: inventory,
+    data: inventories = [],
     isLoading,
     error,
     reload,
-  } = useLoader(() => getInventory(scope, ide), [root, scope.kind, ide.id, refreshKey]);
-  //? Cheap — a couple of stats — so read fresh on every render rather than
-  //? loaded, which keeps it in step after any action without a reload of its own
-  const instructions = getInstructions(scope, ide);
+  } = useLoader(
+    () => ides.map((one) => getInventory(scope, one)),
+    [root, scope.kind, ideKey, refreshKey],
+  );
+  const focused = inventories.find((inventory) => inventory.ide.id === ide.id) ?? inventories[0];
+  const merged = mergeInventories(inventories);
+  //? Cheap — a couple of stats each — so read fresh on every render rather than
+  //? loaded, which keeps them in step after any action without a reload of their own
+  const instructions = ides
+    .map((one) => ({ ide: one, state: getInstructions(scope, one) }))
+    .filter(({ state }) => state.status !== 'none');
+  const instructionsStatus = combineInstructions(instructions.map(({ state }) => state));
 
   const setOpen = useCallback(
-    (node: AgentNode, open: boolean) => {
+    (path: string, open: boolean) => {
       setExpanded((prev) => {
         const next = new Set(prev);
-        if (open) next.add(node.relativePath);
-        else next.delete(node.relativePath);
+        if (open) next.add(path);
+        else next.delete(path);
         session.expanded = next;
         return next;
       });
@@ -214,37 +254,60 @@ export const AgentsView = ({
     reload();
   };
 
-  const toggle = (node: AgentNode) => {
-    if (!inventory) return;
+  /** Several IDEs' results as one status line: all well, or the first that was not. */
+  const report = (verb: string, past: string, what: string, results: Results) => {
+    if (results.length === 0)
+      return notify(`Nothing to ${verb} — ${what} is already that way`, 'info');
+    const failed = results.find(({ result }) => !result.ok);
+    if (failed) notify(`${failed.ide.name}: ${failed.result.message}`, 'warn');
+    else notify(`${past} ${what} in ${results.map(({ ide: one }) => one.name).join(', ')}`, 'ok');
+    reload();
+  };
+
+  /** The entry as the header's IDE has it — what preview, diff and adopt use. */
+  const focusedOf = (node: MergedNode): AgentNode | undefined =>
+    node.perIde[ide.id] ?? Object.values(node.perIde)[0];
+
+  const toggle = (node: MergedNode) => {
     if (node.status === 'mismatch' || node.status === 'unknown') {
       notify(
-        `${node.relativePath} differs — [a] adopt the IDE's copy or [p] push .agents'`,
+        `${node.relativePath} differs in an IDE — [a] adopt its copy or [p] push .agents'`,
         'warn',
       );
       return;
     }
     if (node.status === 'orphan') {
-      notify(`${node.relativePath} is only in the IDE — [a] adopts it into .agents`, 'warn');
+      notify(`${node.relativePath} is only in an IDE — [a] adopts it into .agents`, 'warn');
       return;
     }
     if (node.status === 'unused') {
-      notify(`${ide.name} has nowhere that reads ${node.relativePath}`, 'warn');
+      notify(
+        `None of ${ides.map((one) => one.name).join(', ')} reads ${node.relativePath}`,
+        'warn',
+      );
       return;
     }
-    apply(toggleLink(inventory, node, node.status === 'missing' || node.status === 'implicit'));
+    const on = node.status === 'missing' || node.status === 'implicit';
+    report(
+      on ? 'link' : 'unlink',
+      on ? 'Linked' : 'Unlinked',
+      node.relativePath,
+      toggleEverywhere(inventories, node, on),
+    );
   };
 
-  const toRows = (nodes: AgentNode[], depth = 0): PickItem<AgentNode>[] =>
+  const toRows = (nodes: MergedNode[], depth = 0): PickItem<MergedNode>[] =>
     nodes.flatMap((node) => {
       const isDir = node.type === 'directory';
       const isOpen = isDir && expanded.has(node.relativePath);
-      const row: PickItem<AgentNode> = {
+      const hint = mergedHint(node);
+      const row: PickItem<MergedNode> = {
         id: node.relativePath,
         label: `${node.name}${countFor(node)}`,
-        hint: hintFor(node),
-        //? The two hints that mean "in the IDE, at least partly" stand out from
+        hint,
+        //? The hints that mean "in the IDEs, at least partly" stand out from
         //? the dimmed rest; "off" and the others stay as they are
-        hintColor: ['linked', 'generated', 'partly'].includes(hintFor(node))
+        hintColor: ['linked', 'generated', 'mixed', 'partly'].includes(hint)
           ? colors.accent
           : undefined,
         value: node,
@@ -256,7 +319,7 @@ export const AgentsView = ({
                   id: 'fold',
                   glyph: isOpen ? '▾' : '▸',
                   color: colors.text,
-                  onPress: () => setOpen(node, !isOpen),
+                  onPress: () => setOpen(node.relativePath, !isOpen),
                 },
               ]
             : []),
@@ -271,24 +334,134 @@ export const AgentsView = ({
       return [row, ...(isOpen && node.children ? toRows(node.children, depth + 1) : [])];
     });
 
-  const instructionsRow: PickItem<AgentNode>[] =
-    instructions.status === 'none'
+  // --- instructions ------------------------------------------------------
+
+  const toggleInstructions = () => {
+    if (instructionsStatus === 'native')
+      return notify('Every IDE here reads AGENTS.md itself', 'info');
+    if (instructionsStatus === 'no-source') {
+      const adoptable = instructions.find(({ state }) => state.targetHasContent);
+      return notify(
+        adoptable
+          ? `[a] adopts ${relative(root, adoptable.state.targetPath ?? '')} as AGENTS.md`
+          : 'Write an AGENTS.md first ([e])',
+        'warn',
+      );
+    }
+    const pointing = instructions.filter(({ state }) => state.status === 'synced');
+    //? Everything already points at it: the checkbox turns them all off. Anything
+    //? else turns on whatever can be turned on without losing content.
+    if (instructionsStatus === 'synced') {
+      return report(
+        'unlink',
+        'Unlinked',
+        'AGENTS.md',
+        pointing.map(({ ide: one, state }) => ({ ide: one, result: unlinkInstructions(state) })),
+      );
+    }
+    const linkable = instructions.filter(
+      ({ state }) =>
+        state.status === 'missing' || (state.status === 'mismatch' && state.mode === 'import'),
+    );
+    const blocked = instructions.find(
+      ({ state }) => state.status === 'mismatch' && state.mode === 'link',
+    );
+    report(
+      'link',
+      'Linked',
+      'AGENTS.md',
+      linkable.map(({ ide: one, state }) => ({ ide: one, result: linkInstructions(state) })),
+    );
+    if (blocked) {
+      notify(
+        `${relative(root, blocked.state.targetPath ?? '')} has content of its own — [p] replaces it with a link`,
+        'warn',
+      );
+    }
+  };
+
+  const adoptableInstructions = instructions.find(
+    ({ state }) => state.status === 'no-source' && state.targetHasContent,
+  );
+  const replaceableInstructions = instructions.filter(
+    ({ state }) => state.status === 'mismatch' && state.mode === 'link',
+  );
+
+  const replaceInstructions = () =>
+    prompt.confirm(
+      `Replace ${replaceableInstructions.map(({ state }) => relative(root, state.targetPath ?? '')).join(', ')} with a link to AGENTS.md?`,
+      () =>
+        report(
+          'replace',
+          'Replaced',
+          'IDE instructions with links to AGENTS.md',
+          replaceableInstructions.map(({ ide: one, state }) => ({
+            ide: one,
+            result: linkInstructions(state, { force: true }),
+          })),
+        ),
+    );
+
+  const instructionsActions = (): ToolbarAction[] => {
+    const actions: ToolbarAction[] = [];
+    if (instructionsStatus === 'missing' || instructionsStatus === 'mismatch') {
+      actions.push({
+        hotkey: 'Space',
+        label: 'Point every IDE at AGENTS.md',
+        onPress: toggleInstructions,
+        tone: 'primary',
+      });
+    }
+    if (instructionsStatus === 'synced') {
+      actions.push({ hotkey: 'Space', label: 'Remove the IDE files', onPress: toggleInstructions });
+    }
+    if (adoptableInstructions) {
+      actions.push({
+        hotkey: 'a',
+        label: `Adopt ${relative(root, adoptableInstructions.state.targetPath ?? '')} as AGENTS.md`,
+        onPress: () => apply(adoptInstructions(adoptableInstructions.state)),
+        tone: 'primary',
+      });
+    }
+    if (replaceableInstructions.length) {
+      actions.push({
+        hotkey: 'p',
+        label: 'Replace with links',
+        onPress: replaceInstructions,
+        tone: 'danger',
+      });
+    }
+    const exists = instructions[0]?.state.sourceExists;
+    actions.push(
+      { hotkey: 'v', label: 'Preview', onPress: togglePreview, isOn: preview },
+      {
+        hotkey: 'e',
+        label: exists ? 'Edit AGENTS.md' : 'Write AGENTS.md',
+        onPress: () => handoff({ type: 'edit', path: scope.instructionsPath }),
+        tone: instructionsStatus === 'no-source' && !adoptableInstructions ? 'primary' : 'normal',
+      },
+    );
+    return actions;
+  };
+
+  const instructionsRow: PickItem<MergedNode>[] =
+    instructionsStatus === 'none'
       ? []
       : [
           {
             id: INSTRUCTIONS_ID,
             label: 'AGENTS.md',
-            hint: INSTRUCTIONS_HINT[instructions.status],
-            hintColor: instructions.status === 'synced' ? colors.accent : undefined,
+            hint: INSTRUCTIONS_HINT[instructionsStatus],
+            hintColor: instructionsStatus === 'synced' ? colors.accent : undefined,
             indent: TWISTY_CELLS,
             controls: [
               {
                 id: 'link',
-                glyph: INSTRUCTIONS_BOX[instructions.status],
+                glyph: INSTRUCTIONS_BOX[instructionsStatus],
                 color:
-                  instructions.status === 'synced' || instructions.status === 'native'
+                  instructionsStatus === 'synced' || instructionsStatus === 'native'
                     ? colors.ok
-                    : instructions.status === 'mismatch'
+                    : instructionsStatus === 'mismatch'
                       ? colors.warn
                       : colors.muted,
                 onPress: () => toggleInstructions(),
@@ -296,181 +469,144 @@ export const AgentsView = ({
             ],
           },
         ];
-  const items = [...instructionsRow, ...(inventory ? toRows(inventory.nodes) : [])];
+
+  const items = [...instructionsRow, ...toRows(merged)];
   const onInstructions = currentId === INSTRUCTIONS_ID;
   const current = items.find((item) => item.id === currentId)?.value;
-
-  const toggleInstructions = () => {
-    const state = instructions;
-    if (state.status === 'native') return notify(`${ide.name} reads AGENTS.md itself`, 'info');
-    if (state.status === 'synced') return apply(unlinkInstructions(state));
-    if (state.status === 'no-source') {
-      return notify(
-        state.targetHasContent
-          ? '[a] adopts the IDE file as AGENTS.md'
-          : 'Write an AGENTS.md first ([e])',
-        'warn',
-      );
-    }
-    if (state.status === 'mismatch' && state.mode === 'link') {
-      return notify(
-        `${state.targetPath} has its own content — [p] replaces it with a link`,
-        'warn',
-      );
-    }
-    apply(linkInstructions(state));
-  };
-
-  const instructionsActions = (): ToolbarAction[] => {
-    const state = instructions;
-    const target = state.targetPath ? relative(root, state.targetPath) : undefined;
-    const actions: ToolbarAction[] = [];
-    if (state.status === 'missing' || (state.status === 'mismatch' && state.mode === 'import')) {
-      actions.push({
-        hotkey: 'Space',
-        label: state.mode === 'import' ? `Import from ${target}` : `Link ${target}`,
-        onPress: toggleInstructions,
-        tone: 'primary',
-      });
-    }
-    if (state.status === 'synced') {
-      actions.push({ hotkey: 'Space', label: `Remove ${target}`, onPress: toggleInstructions });
-    }
-    if (state.status === 'no-source' && state.targetHasContent) {
-      actions.push({
-        hotkey: 'a',
-        label: `Adopt ${target} as AGENTS.md`,
-        onPress: () => apply(adoptInstructions(state)),
-        tone: 'primary',
-      });
-    }
-    if (state.status === 'mismatch' && state.mode === 'link') {
-      actions.push({
-        hotkey: 'p',
-        label: `Replace ${target} with a link`,
-        onPress: () =>
-          prompt.confirm(`Replace ${target} (and what it says) with a link to AGENTS.md?`, () =>
-            apply(linkInstructions(state, { force: true })),
-          ),
-        tone: 'danger',
-      });
-    }
-    actions.push(
-      { hotkey: 'v', label: 'Preview', onPress: togglePreview, isOn: preview },
-      {
-        hotkey: 'e',
-        label: state.sourceExists ? 'Edit AGENTS.md' : 'Write AGENTS.md',
-        onPress: () => handoff({ type: 'edit', path: state.sourcePath }),
-        tone: state.status === 'no-source' && !state.targetHasContent ? 'primary' : 'normal',
-      },
-    );
-    return actions;
-  };
+  const currentOwn = current ? focusedOf(current) : undefined;
+  const focusedInventory = currentOwn
+    ? inventories.find((inventory) => current?.perIde[inventory.ide.id] === currentOwn)
+    : focused;
 
   const diff = useLoader(
     () =>
-      preview && current?.status === 'mismatch' && current.type === 'file'
-        ? getNodeDiff(current)
+      preview && currentOwn?.status === 'mismatch' && currentOwn.type === 'file'
+        ? getNodeDiff(currentOwn)
         : undefined,
-    [current?.relativePath, current?.status, inventory, preview],
+    [currentOwn?.relativePath, currentOwn?.status, focusedInventory?.ide.id, inventories, preview],
   );
 
-  const edit = (node: AgentNode) => {
+  // --- entry actions -----------------------------------------------------
+
+  const edit = (node: MergedNode) => {
     if (node.type !== 'file') return;
+    const own = focusedOf(node);
     handoff({
       type: 'edit',
-      path: node.status === 'orphan' && node.targetPath ? node.targetPath : node.sourcePath,
+      path: node.status === 'orphan' && own?.targetPath ? own.targetPath : node.sourcePath,
     });
   };
 
-  const adopt = (node: AgentNode) => {
-    if (!inventory) return;
-    if (node.status !== 'mismatch' && node.status !== 'orphan' && node.status !== 'implicit') {
-      notify('Nothing to adopt — only differing or IDE-only entries can be', 'warn');
-      return;
-    }
-    const overwrite = node.status === 'orphan' ? '' : ', overwriting it there';
-    prompt.confirm(`Adopt the IDE's ${node.relativePath} into .agents${overwrite}?`, () =>
-      apply(syncNode(inventory, node, 'pull')),
+  /** The IDE whose copy adopting takes: the header's, else the first that has one to give. */
+  const adoptSource = (node: MergedNode) => {
+    const wants = (own: AgentNode | undefined) =>
+      own && (own.status === 'mismatch' || own.status === 'orphan' || own.status === 'implicit');
+    const inventory =
+      (wants(node.perIde[ide.id]) ? focused : undefined) ??
+      inventories.find((one) => wants(node.perIde[one.ide.id]));
+    return inventory ? { inventory, own: node.perIde[inventory.ide.id] as AgentNode } : undefined;
+  };
+
+  const adopt = (node: MergedNode) => {
+    const from = adoptSource(node);
+    if (!from)
+      return notify('Nothing to adopt — only differing or IDE-only entries can be', 'warn');
+    const overwrite = from.own.status === 'orphan' ? '' : ', overwriting it there';
+    prompt.confirm(
+      `Adopt ${from.inventory.ide.name}'s ${node.relativePath} into .agents${overwrite}?`,
+      () => apply(syncNode(from.inventory, from.own, 'pull')),
     );
   };
 
-  const push = (node: AgentNode) => {
-    if (!inventory) return;
-    if (node.status !== 'mismatch' && node.status !== 'implicit') {
-      notify('Nothing to push — only differing entries can be', 'warn');
-      return;
-    }
-    prompt.confirm(`Push .agents/${node.relativePath} over the IDE's copy?`, () =>
-      apply(syncNode(inventory, node, 'push')),
+  const differing = (node: MergedNode) =>
+    inventories.filter((inventory) => {
+      const own = node.perIde[inventory.ide.id];
+      return own && (own.status === 'mismatch' || own.status === 'implicit');
+    });
+
+  const push = (node: MergedNode) => {
+    const targets = differing(node);
+    if (!targets.length) return notify('Nothing to push — no IDE copy differs', 'warn');
+    prompt.confirm(
+      `Push .agents/${node.relativePath} over ${targets.map((inventory) => inventory.ide.name).join(', ')}'s copy?`,
+      () => report('push', 'Pushed', node.relativePath, pushEverywhere(inventories, node)),
     );
   };
 
-  const remove = (node: AgentNode) => {
-    const where = node.status === 'orphan' ? `${ide.folder}/` : '.agents/';
-    prompt.confirm(`Delete ${where}${node.relativePath} for good?`, () => apply(deleteNode(node)));
+  const remove = (node: MergedNode) => {
+    if (node.status === 'orphan') {
+      const own = focusedOf(node);
+      const holder = inventories.find((inventory) => node.perIde[inventory.ide.id] === own);
+      if (!own || !holder) return;
+      return prompt.confirm(`Delete ${node.relativePath} from ${holder.ide.name} for good?`, () =>
+        apply(deleteNode(own)),
+      );
+    }
+    prompt.confirm(`Delete .agents/${node.relativePath} and every IDE's copy of it for good?`, () =>
+      apply(deleteEverywhere(node)),
+    );
   };
 
   const switchMode = () => {
-    if (!inventory) return;
-    const next = inventory.mode === 'directory' ? 'granular' : 'directory';
+    if (!focused?.canSwitchMode) return;
+    const next = focused.mode === 'directory' ? 'granular' : 'directory';
+    const folder = focused.ide.folder;
     const message =
       next === 'directory'
-        ? `Replace ${ide.folder} with one link to .agents?`
-        : `Replace the ${ide.folder} link with a folder of per-entry links?`;
-    prompt.confirm(message, () => apply(setLinkMode(inventory, next)));
+        ? `Replace ${folder} with one link to .agents?`
+        : `Replace the ${folder} link with a folder of per-entry links?`;
+    prompt.confirm(message, () => apply(setLinkMode(focused, next)));
   };
 
-  const reveal = (node: AgentNode) =>
+  const reveal = (node: MergedNode) => {
+    const own = focusedOf(node);
     revealPath(
-      (node.status === 'orphan' || node.status === 'synced') && node.targetPath
-        ? node.targetPath
+      (node.status === 'orphan' || node.status === 'synced') && own?.targetPath
+        ? own.targetPath
         : node.sourcePath,
     );
+  };
 
   /** The buttons for a row, the one it is most likely selected for marked primary. */
-  const actionsFor = (node: AgentNode): ToolbarAction[] => {
+  const actionsFor = (node: MergedNode): ToolbarAction[] => {
     const isFile = node.type === 'file';
     const { status } = node;
     const actions: ToolbarAction[] = [];
     if (status === 'missing' || status === 'implicit' || status === 'synced') {
       actions.push({
         hotkey: 'Space',
-        label: status === 'synced' ? 'Unlink' : 'Link',
+        label: status === 'synced' ? 'Unlink everywhere' : 'Link everywhere',
         onPress: () => toggle(node),
         tone: status === 'synced' ? 'normal' : 'primary',
       });
     }
-    if (status === 'mismatch' || status === 'implicit') {
+    if (differing(node).length) {
       actions.push({
         hotkey: 'p',
-        label: 'Push .agents → IDE',
+        label: 'Push .agents → IDEs',
         onPress: () => push(node),
         tone: status === 'mismatch' ? 'primary' : 'normal',
       });
     }
-    if (status === 'mismatch' || status === 'orphan' || status === 'implicit') {
+    const from = adoptSource(node);
+    if (from) {
       actions.push({
         hotkey: 'a',
-        label: 'Adopt IDE → .agents',
+        label: `Adopt ${from.inventory.ide.name} → .agents`,
         onPress: () => adopt(node),
         tone: status === 'orphan' ? 'primary' : 'normal',
       });
     }
     if (isFile && status !== 'unused') {
-      actions.push(
-        {
-          hotkey: 'v',
-          label: status === 'mismatch' ? 'Diff' : 'Preview',
-          onPress: togglePreview,
-          isOn: preview,
-          tone: status === 'synced' ? 'primary' : 'normal',
-        },
-        { hotkey: 'e', label: 'Edit', onPress: () => edit(node) },
-      );
-    } else if (isFile) {
-      actions.push({ hotkey: 'e', label: 'Edit', onPress: () => edit(node) });
+      actions.push({
+        hotkey: 'v',
+        label: currentOwn?.status === 'mismatch' ? 'Diff' : 'Preview',
+        onPress: togglePreview,
+        isOn: preview,
+        tone: status === 'synced' ? 'primary' : 'normal',
+      });
     }
+    if (isFile) actions.push({ hotkey: 'e', label: 'Edit', onPress: () => edit(node) });
     actions.push(
       { hotkey: 'o', label: 'Reveal', onPress: () => reveal(node) },
       { hotkey: 'x', label: 'Delete', onPress: () => remove(node), tone: 'danger' },
@@ -481,10 +617,9 @@ export const AgentsView = ({
   useInput(
     (input, key) => {
       if (onInstructions) {
-        const state = instructions;
         if (input === ' ') toggleInstructions();
         else if (input === 'v') togglePreview();
-        else if (input === 'e') handoff({ type: 'edit', path: state.sourcePath });
+        else if (input === 'e') handoff({ type: 'edit', path: scope.instructionsPath });
         else if (input === 'a' || input === 'p') {
           instructionsActions()
             .find((action) => action.hotkey === input)
@@ -492,19 +627,19 @@ export const AgentsView = ({
         }
         return;
       }
-      if (!inventory || !current) return;
+      if (input === 'm' && focused?.canSwitchMode) return switchMode();
+      if (!current) return;
       const node = current;
       if (key.rightArrow || input === 'l') {
-        if (node.type === 'directory') setOpen(node, true);
+        if (node.type === 'directory') setOpen(node.relativePath, true);
       } else if (key.leftArrow || input === 'h') {
-        if (node.type === 'directory') setOpen(node, false);
+        if (node.type === 'directory') setOpen(node.relativePath, false);
       } else if (input === ' ') toggle(node);
       else if (input === 'a') adopt(node);
       else if (input === 'p') push(node);
       else if (input === 'v') togglePreview();
       else if (input === 'e') edit(node);
       else if (input === 'x') remove(node);
-      else if (input === 'm' && inventory.canSwitchMode) switchMode();
       else if (input === 'o') reveal(node);
     },
     { isActive: !prompt.isOpen },
@@ -512,88 +647,117 @@ export const AgentsView = ({
 
   const hints: Hint[] = [
     { key: '←/→', label: 'fold' },
-    { key: 'Space', label: 'link' },
+    { key: 'Space', label: 'link everywhere' },
     { key: 'v', label: 'preview', onPress: togglePreview },
-    ...(inventory?.canSwitchMode
-      ? [{ key: 'm', label: `mode: ${inventory.mode}`, onPress: switchMode }]
+    ...(ides.length > 1 ? [{ key: '[ ]', label: `preview/adopt from ${ide.name}` }] : []),
+    ...(focused?.canSwitchMode
+      ? [{ key: 'm', label: `${focused.ide.name} mode: ${focused.mode}`, onPress: switchMode }]
       : []),
   ];
 
   const header =
     prompt.line ??
-    (inventory ? (
+    (inventories.length ? (
       <Text wrap="truncate" color={colors.muted}>
         {scope.kind === 'user' ? '~/.agents' : '.agents'} →{' '}
-        {inventory.targets.length
-          ? inventory.targets.map((target) => relative(root, target)).join(', ')
-          : `nothing — ${ide.name} keeps no files here`}
-        {inventory.canSwitchMode ? <Text color={colors.accent}> · {inventory.mode}</Text> : null}
-        {inventory.hasSource ? ` · ${summary(inventory)}` : ''}
+        {inventories
+          .map((inventory) =>
+            inventory.targets.length
+              ? `${inventory.ide.name} (${summary(inventory)})`
+              : `${inventory.ide.name} (keeps no files here)`,
+          )
+          .join(' · ')}
       </Text>
     ) : (
       <Text color={colors.muted}>{error ?? 'Reading .agents…'}</Text>
     ));
 
   //? Rows the detail pane can give a preview: everything the chrome leaves,
-  //? less the status lines and the toolbar drawn above it
+  //? less the toolbar, the status line and one line per IDE drawn above it
   const previewRows = Math.max(
     3,
-    //? toolbar (two rows and its rule), three status lines, one blank
-    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 7,
+    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) -
+      6 -
+      ides.length,
   );
 
-  const renderInstructions = () => {
-    const state = instructions;
-    const body = preview ? readPreview(state.sourcePath) : undefined;
-    return (
-      <Box flexDirection="column">
-        <Toolbar actions={instructionsActions()} />
-        <Text color={colors.text} wrap="truncate">
-          {INSTRUCTIONS_BOX[state.status]} {INSTRUCTIONS_DESCRIBE[state.status](ide.name)}
-        </Text>
-        <Text color={colors.muted} wrap="truncate">
-          source {relative(root, state.sourcePath)}
-          {state.sourceExists ? '' : ' (not written yet)'}
-        </Text>
-        {state.targetPath && (
-          <Text color={colors.muted} wrap="truncate">
-            ide{'    '}
-            {relative(root, state.targetPath)} (
-            {state.mode === 'import' ? 'imports it' : 'links to it'})
+  const previewLines = (body: string, diffing: boolean) => (
+    <Box flexDirection="column" marginTop={1}>
+      {body
+        .split('\n')
+        .slice(0, previewRows)
+        .map((line, index) => (
+          <Text
+            key={index}
+            wrap="truncate"
+            color={
+              !diffing
+                ? colors.text
+                : line.startsWith('+')
+                  ? colors.ok
+                  : line.startsWith('-')
+                    ? colors.error
+                    : line.startsWith('@@')
+                      ? colors.accent
+                      : colors.muted
+            }
+          >
+            {line || ' '}
           </Text>
-        )}
-        {body !== undefined && (
-          <Box flexDirection="column" marginTop={1}>
-            {body
-              .split('\n')
-              .slice(0, previewRows)
-              .map((line, index) => (
-                <Text key={index} wrap="truncate" color={colors.text}>
-                  {line || ' '}
-                </Text>
-              ))}
-          </Box>
-        )}
-      </Box>
-    );
-  };
+        ))}
+    </Box>
+  );
 
-  const renderDetail = (item: PickItem<AgentNode> | undefined) => {
+  const renderInstructions = () => (
+    <Box flexDirection="column">
+      <Toolbar actions={instructionsActions()} />
+      <Text color={colors.muted} wrap="truncate">
+        source {relative(root, scope.instructionsPath)}
+        {instructions[0]?.state.sourceExists ? '' : ' (not written yet)'}
+      </Text>
+      {instructions.map(({ ide: one, state }) => (
+        <Text key={one.id} wrap="truncate">
+          <Text color={one.id === ide.id ? colors.accent : colors.muted}>
+            {one.name.padEnd(13)}
+          </Text>
+          <Text
+            color={
+              state.status === 'synced' || state.status === 'native'
+                ? colors.ok
+                : state.status === 'mismatch'
+                  ? colors.warn
+                  : colors.muted
+            }
+          >
+            {INSTRUCTIONS_HINT[state.status] || state.status}
+          </Text>
+          <Text color={colors.muted}>
+            {state.targetPath
+              ? `  ${relative(root, state.targetPath)} (${state.mode === 'import' ? 'imports it' : 'links to it'})`
+              : ''}
+          </Text>
+        </Text>
+      ))}
+      {preview && previewLines(readPreview(scope.instructionsPath), false)}
+    </Box>
+  );
+
+  const renderDetail = (item: PickItem<MergedNode> | undefined) => {
     if (item?.id === INSTRUCTIONS_ID) return renderInstructions();
     const node = item?.value;
     if (!node) return null;
-    const rel = (path: string | undefined) => (path ? relative(root, path) : '—');
-
+    const own = focusedOf(node);
+    const diffing = own?.status === 'mismatch';
     const body =
-      node.type !== 'file' || !preview
+      node.type !== 'file' || !preview || !own
         ? undefined
-        : node.status === 'mismatch'
+        : diffing
           ? //? From the first hunk: git's header repeats both absolute paths, which
             //? the lines above already show, and costs four rows to say it
             (diff.data?.slice(Math.max(0, diff.data.indexOf('@@'))) ??
             (diff.isLoading ? 'Diffing…' : 'No textual difference.'))
           : readPreview(
-              node.status === 'orphan' && node.targetPath ? node.targetPath : node.sourcePath,
+              node.status === 'orphan' && own.targetPath ? own.targetPath : node.sourcePath,
             );
 
     return (
@@ -602,67 +766,49 @@ export const AgentsView = ({
         <Text color={statusColor(node.status, colors)} wrap="truncate">
           {CHECKBOX[node.status]} {DESCRIBE[node.status]}
         </Text>
-        <Text color={colors.muted} wrap="truncate">
-          source {node.status === 'orphan' ? '—' : rel(node.sourcePath)}
-        </Text>
-        <Text color={colors.muted} wrap="truncate">
-          ide{'    '}
-          {rel(node.targetPath)}
-          {node.linkTarget ? ` → ${node.linkTarget}` : ''}
-        </Text>
-        {node.type === 'file' && !preview && (
+        {ides.map((one) => {
+          const mine = node.perIde[one.id];
+          return (
+            <Text key={one.id} wrap="truncate">
+              <Text color={one.id === ide.id ? colors.accent : colors.muted}>
+                {one.name.padEnd(13)}
+              </Text>
+              <Text color={mine ? statusColor(mine.status, colors) : colors.muted}>
+                {mine ? hintFor(mine) : 'nothing here'}
+              </Text>
+              <Text color={colors.muted}>
+                {mine?.targetPath ? `  ${relative(root, mine.targetPath)}` : ''}
+                {mine?.linkTarget ? ` → ${mine.linkTarget}` : ''}
+              </Text>
+            </Text>
+          );
+        })}
+        {node.type === 'file' && !preview && own && (
           <Box marginTop={1}>
             <Text color={colors.muted}>
-              [v] {node.status === 'mismatch' ? 'shows the diff' : 'shows the file'} here
+              [v] {diffing ? `shows ${ide.name}'s diff` : 'shows the file'} here
             </Text>
           </Box>
         )}
-        {body !== undefined && (
-          <Box flexDirection="column" marginTop={1}>
-            {body
-              .split('\n')
-              .slice(0, previewRows)
-              .map((line, index) => (
-                <Text
-                  key={index}
-                  wrap="truncate"
-                  color={
-                    node.status !== 'mismatch'
-                      ? colors.text
-                      : line.startsWith('+')
-                        ? colors.ok
-                        : line.startsWith('-')
-                          ? colors.error
-                          : line.startsWith('@@')
-                            ? colors.accent
-                            : colors.muted
-                  }
-                >
-                  {line || ' '}
-                </Text>
-              ))}
-          </Box>
-        )}
+        {body !== undefined && previewLines(body, diffing)}
       </Box>
     );
   };
 
-  const emptyText = !inventory
+  const emptyText = !inventories.length
     ? isLoading
       ? 'Reading…'
       : (error ?? 'Nothing to show.')
-    : inventory.hasSource
+    : focused?.hasSource
       ? '.agents is empty.'
-      : `No .agents folder here, and nothing in ${ide.folder} to adopt into one.`;
+      : 'No .agents folder here, and nothing in the IDEs to adopt into one.';
 
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
         title={
-          inventory?.hasSource === false
-            ? `${ide.folder} (no .agents yet)`
-            : `.agents (${items.length})`
+          focused?.hasSource === false ? '.agents (not created yet)' : `.agents (${items.length})`
         }
         items={items}
         emptyText={emptyText}
@@ -679,7 +825,8 @@ export const AgentsView = ({
           if (item.id === INSTRUCTIONS_ID) return togglePreview();
           const node = item.value;
           if (!node) return;
-          if (node.type === 'directory') setOpen(node, !expanded.has(node.relativePath));
+          if (node.type === 'directory')
+            setOpen(node.relativePath, !expanded.has(node.relativePath));
           else togglePreview();
         }}
         onSelectionChange={(item) => {

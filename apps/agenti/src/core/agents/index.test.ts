@@ -229,3 +229,52 @@ describe('syncInventory', () => {
     expect(read('.claude/rules/tests.md')).toBe('changed');
   });
 });
+
+describe('several IDEs at once', () => {
+  test('merges inventories and combines statuses, ignoring IDEs that do not read an entry', async () => {
+    const { mergeInventories, flattenMerged } = await import('.');
+    toggleLink(inventory(), node('rules/style.md'), true);
+    const merged = flattenMerged(mergeInventories([inventory(), inventory(cursor)]));
+    const style = merged.find((n) => n.relativePath === 'rules/style.md');
+    expect(style?.perIde['claude-code']?.status).toBe('synced');
+    expect(style?.perIde.cursor?.status).toBe('missing');
+    expect(style?.status).toBe('implicit');
+    //? Only Claude Code reads skills, so its status alone decides
+    expect(merged.find((n) => n.relativePath === 'skills')?.status).toBe('missing');
+    expect(merged.find((n) => n.relativePath === 'knowledge')?.status).toBe('unused');
+  });
+
+  test('links and unlinks in every IDE, each in its own way', async () => {
+    const { mergeInventories, flattenMerged, toggleEverywhere } = await import('.');
+    const both = () => [inventory(), inventory(cursor)];
+    const rules = () =>
+      flattenMerged(mergeInventories(both())).find((n) => n.relativePath === 'rules');
+    const results = toggleEverywhere(both(), rules()!, true);
+    expect(results.map((r) => [r.ide.id, r.result.ok])).toEqual([
+      ['claude-code', true],
+      ['cursor', true],
+    ]);
+    expect(isLink('.claude/rules')).toBe(true);
+    expect(read('.cursor/rules/style.mdc')).toContain('style');
+    expect(rules()?.status).toBe('synced');
+
+    toggleEverywhere(both(), rules()!, false);
+    expect(existsSync(join(root, '.claude/rules'))).toBe(false);
+    expect(existsSync(join(root, '.cursor/rules/style.mdc'))).toBe(false);
+  });
+
+  test('deleting removes the source and every IDE copy of it', async () => {
+    const { mergeInventories, flattenMerged, toggleEverywhere, deleteEverywhere } = await import(
+      '.'
+    );
+    const both = () => [inventory(), inventory(cursor)];
+    const find = (rel: string) =>
+      flattenMerged(mergeInventories(both())).find((n) => n.relativePath === rel);
+    toggleEverywhere(both(), find('rules')!, true);
+    expect(deleteEverywhere(find('rules/style.md')!).ok).toBe(true);
+    expect(existsSync(join(root, '.agents/rules/style.md'))).toBe(false);
+    expect(existsSync(join(root, '.cursor/rules/style.mdc'))).toBe(false);
+    //? The folder link still stands, and no longer lists the deleted file
+    expect(existsSync(join(root, '.claude/rules/style.md'))).toBe(false);
+  });
+});

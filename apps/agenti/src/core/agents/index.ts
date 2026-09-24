@@ -1021,4 +1021,126 @@ export const syncInventory = (inventory: Inventory): { changed: string[]; left: 
   return { changed, left };
 };
 
+// ---------------------------------------------------------------------------
+// Several IDEs at once
+// ---------------------------------------------------------------------------
+
+/**
+ * One `.agents` entry across every IDE a scope is kept in step with: each
+ * IDE's own node for it, and a status that sums them up.
+ */
+export interface MergedNode {
+  name: string;
+  relativePath: string;
+  type: 'file' | 'directory';
+  sourcePath: string;
+  status: AgentStatus;
+  /** Keyed by IDE id; an IDE missing here has nothing at this path at all. */
+  perIde: Record<string, AgentNode>;
+  children?: MergedNode[];
+}
+
+/**
+ * One status for several IDEs' statuses of the same entry. IDEs that do not
+ * read it (`unused`) have no say; the rest must all agree for it to be
+ * `synced` or `missing`, and anything differing anywhere makes it `mismatch`.
+ */
+export const combineStatus = (statuses: AgentStatus[]): AgentStatus => {
+  const relevant = statuses.filter((status) => status !== 'unused');
+  if (relevant.length === 0) return 'unused';
+  if (relevant.some((status) => status === 'mismatch' || status === 'unknown')) return 'mismatch';
+  if (relevant.every((status) => status === 'synced')) return 'synced';
+  if (relevant.every((status) => status === 'missing')) return 'missing';
+  if (relevant.every((status) => status === 'orphan')) return 'orphan';
+  return 'implicit';
+};
+
+const mergeLevel = (lists: { ide: string; nodes: AgentNode[] }[]): MergedNode[] => {
+  const byPath = new Map<string, { ide: string; node: AgentNode }[]>();
+  for (const { ide, nodes } of lists) {
+    for (const node of nodes) {
+      byPath.set(node.relativePath, [...(byPath.get(node.relativePath) ?? []), { ide, node }]);
+    }
+  }
+  return [...byPath.values()]
+    .map((entries): MergedNode => {
+      const first = entries[0]?.node as AgentNode;
+      const perIde = Object.fromEntries(entries.map(({ ide, node }) => [ide, node]));
+      const childLists = entries
+        .filter(({ node }) => node.children)
+        .map(({ ide, node }) => ({ ide, nodes: node.children ?? [] }));
+      const type = entries.some(({ node }) => node.type === 'directory') ? 'directory' : 'file';
+      return {
+        name: first.name,
+        relativePath: first.relativePath,
+        type,
+        sourcePath: first.sourcePath,
+        status: combineStatus(entries.map(({ node }) => node.status)),
+        perIde,
+        children: type === 'directory' ? mergeLevel(childLists) : undefined,
+      };
+    })
+    .sort((a, b) =>
+      a.type !== b.type ? (a.type === 'directory' ? -1 : 1) : a.name.localeCompare(b.name),
+    );
+};
+
+/** Every IDE's inventory as one tree, entry by entry. */
+export const mergeInventories = (inventories: Inventory[]): MergedNode[] =>
+  mergeLevel(inventories.map((inventory) => ({ ide: inventory.ide.id, nodes: inventory.nodes })));
+
+/** Depth-first walk of a merged tree. */
+export const flattenMerged = (nodes: MergedNode[]): MergedNode[] =>
+  nodes.flatMap((node) => [node, ...(node.children ? flattenMerged(node.children) : [])]);
+
+/**
+ * Link (`on`) or unlink a merged entry in every IDE that reads it — the whole
+ * point of keeping several IDEs in step. Each IDE is changed on its own terms
+ * (a link here, a generated copy there) and refuses on its own terms; the
+ * results come back per IDE.
+ */
+export const toggleEverywhere = (
+  inventories: Inventory[],
+  node: MergedNode,
+  on: boolean,
+): { ide: IdeDefinition; result: OperationResult }[] =>
+  inventories.flatMap((inventory) => {
+    const own = node.perIde[inventory.ide.id];
+    if (!own || own.status === 'unused' || own.status === 'orphan') return [];
+    //? Already the way it is being asked to be — nothing to report for this IDE
+    if (on && own.status === 'synced') return [];
+    if (!on && own.status === 'missing') return [];
+    return [{ ide: inventory.ide, result: toggleLink(inventory, own, on) }];
+  });
+
+/** Push `.agents` over every IDE's differing copy of an entry. */
+export const pushEverywhere = (
+  inventories: Inventory[],
+  node: MergedNode,
+): { ide: IdeDefinition; result: OperationResult }[] =>
+  inventories.flatMap((inventory) => {
+    const own = node.perIde[inventory.ide.id];
+    if (!own || (own.status !== 'mismatch' && own.status !== 'implicit')) return [];
+    return [{ ide: inventory.ide, result: syncNode(inventory, own, 'push') }];
+  });
+
+/**
+ * Delete an entry from `.agents`, and every IDE's link or generated copy of it
+ * with it, so none is left dangling. What an IDE made of it by hand stays.
+ */
+export const deleteEverywhere = (node: MergedNode): OperationResult => {
+  try {
+    for (const own of Object.values(node.perIde)) {
+      if (!own.targetPath || own.status === 'orphan') continue;
+      const target = lstatOrUndefined(own.targetPath);
+      if (own.isLinked && target?.isSymbolicLink()) unlinkSync(own.targetPath);
+      else if (target?.isFile() && own.isGenerated) unlinkSync(own.targetPath);
+    }
+    rmSync(node.sourcePath, { recursive: true, force: true });
+    return done(`Deleted ${node.relativePath} from .agents and every IDE`);
+  } catch (error) {
+    return refused((error as Error).message);
+  }
+};
+
 export default getInventory;
