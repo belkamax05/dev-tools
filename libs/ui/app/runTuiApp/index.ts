@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { InkRender } from '../../../types/InkRender';
 import { setTerminalBackground } from '../../terminal/background';
-import { MOUSE_DISABLE, setMouseReporting } from '../../terminal/mouse';
+import { setMouseReporting } from '../../terminal/mouse';
 import { enterAltScreen, leaveAltScreen } from '../../terminal/screen';
 import { createFilteredStdin } from '../../terminal/stdinFilter';
 
@@ -76,7 +76,11 @@ export const runTuiApp = async (
     if (cleanedUp) return;
     cleanedUp = true;
 
-    if (interactive) process.stdout.write(MOUSE_DISABLE);
+    //? Through `setMouseReporting`, not a raw MOUSE_DISABLE write: the module
+    //? remembers whether reporting is on, and a write it never heard about left
+    //? it believing so — the next `runTuiApp` in the same process (a dashboard
+    //? reopening after an editor) then skipped turning the mouse back on
+    setMouseReporting(false);
     setTerminalBackground(null);
     input.dispose();
     leaveAltScreen();

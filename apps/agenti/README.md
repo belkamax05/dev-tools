@@ -20,8 +20,8 @@ and no compare mode — `cd` somewhere else instead.
 | --- | --- | --- | --- |
 | 🤖 Agents | `.agents/` | the IDE's folder (`.claude/`, `.cursor/`, …) | `Space` link/unlink · `a` adopt · `p` push · `e` edit · `x` delete · `m` link mode · `o` reveal · `←/→` fold |
 | 🔌 MCP | `.agents/mcp_config.json`, else `config/mcp_config.json` | the IDE's MCP config | `p` to IDE · `a` to reference · `P` all missing · `d` on/off · `x` remove · `i` list tools · `s` set token · `e`/`E` edit |
-| 🧩 Skills | `.agents/skills` via the `skills` CLI | skills.sh | `/` search · `i` install · `u` update · `x` remove · `e` edit |
-| 💻 IDE | — | — | `Space`/`Enter` use for this repo · `g` logo drawing: auto → kitty → braille → ascii |
+| 🧩 Skills | `.agents/skills` via the `skills` CLI | skills.sh | `/` search · `i` install · `u` update · `x` remove · `e` edit (a click only selects) |
+| 💻 IDE | — | — | `Space`/`Enter` use for this repo · `→` into the details, `↑`/`↓` Enter to open the binary's folder, the MCP file or agenti's config, `←` back · `g` logo drawing: auto → kitty → braille → ascii |
 
 Everywhere: `1-4`/`Tab` switch tab, `r` refresh, `t` theme, `q` quit. Deletes, overwrites and
 mode switches ask first (`y` to confirm). `e` hands the terminal to `$VISUAL`/`$EDITOR` and the
@@ -33,8 +33,9 @@ locale is UTF-8, ASCII otherwise.
 
 ## Where things are kept
 
-- **IDE choice and theme** — `~/.config/agenti/config.json` (the platform's config home), per
-  repository root, never in the repo.
+- **IDE choice, theme, logo drawing, last tab** — `~/.config/agenti/config.json` (the
+  platform's config home); the IDE per repository root, never in the repo. A bare `agenti`
+  opens on the last tab used; `agenti <tab>` opens on that one instead.
 - **Links** — relative symlinks, so they work in every clone when committed.
 - **Tokens** — `.env.user` at the repo root. A server's tokens are the `${NAME}` placeholders in
   its `args`/`env`/`url`, plus any listed in a top-level `requiredEnv` map in the reference

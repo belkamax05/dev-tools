@@ -6,7 +6,8 @@ import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 
 import settingsStore, { hasOwnIde } from '../../config/settings';
 import editFile from '../../utils/editFile';
-import App, { type TabId } from '../App';
+import type { TabId } from '../../config/settings';
+import App from '../App';
 import type { Handoff, Session } from '../types';
 
 /**
@@ -23,12 +24,14 @@ export const renderDashboard = async (root: string, initialTab?: TabId): Promise
   await probeGraphicsSupport();
   let settings = await settingsStore.load();
   const session: Session = {
-    //? A repo that has never picked an IDE opens on the picker, so the first
-    //? thing anyone sees is the question every other tab depends on
-    tab: initialTab ?? (hasOwnIde(settings, root) ? 'agents' : 'ide'),
+    //? `agenti mcp` means the MCP tab, whatever was open last time. Otherwise a
+    //? repo that has never picked an IDE opens on the picker — the question
+    //? every other tab depends on — and one that has opens where the user left off
+    tab: initialTab ?? (hasOwnIde(settings, root) ? settings.lastTab : 'ide'),
     selected: {},
     expanded: new Set(['rules', 'skills', 'workflows']),
     preview: false,
+    ideFocus: { pane: 'list', link: 0 },
   };
   let notice: string | undefined;
 
@@ -57,6 +60,9 @@ export const renderDashboard = async (root: string, initialTab?: TabId): Promise
 
     if (!handoff) return;
     editFile(handoff.path);
+    //? The file edited may have been agenti's own config — reopening with the
+    //? copy from before the edit would undo it on the next save
+    settings = await settingsStore.load();
     notice = `Back from editing ${relative(root, handoff.path)}`;
   }
 };

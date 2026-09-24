@@ -22,6 +22,7 @@ import {
   updateSkill,
 } from '../../../core/skills';
 import revealPath from '../../../utils/revealPath';
+import Toolbar, { type ToolbarAction } from '../../Toolbar';
 import type { ViewProps } from '../../types';
 import useLoader from '../../useLoader';
 import usePrompt from '../../usePrompt';
@@ -127,6 +128,62 @@ export const SkillsView = ({
         .finally(() => setBusy(undefined));
     });
 
+  const install = (result: SkillSearchResult) =>
+    prompt.confirm(`Install ${result.id} into this repository?`, () =>
+      run(
+        `Installing ${result.skillName}`,
+        () => addSkill(result.id, root),
+        () => setSearch(undefined),
+      ),
+    );
+
+  const update = (skill: InstalledSkill) => {
+    const warning = skill.hasLocalChanges ? ' Its local changes will be lost.' : '';
+    prompt.confirm(`Reinstall ${skill.name} from ${skill.source ?? 'its source'}?${warning}`, () =>
+      run(`Updating ${skill.name}`, () => updateSkill(skill.name, root)),
+    );
+  };
+
+  const remove = (skill: InstalledSkill) =>
+    prompt.confirm(`Remove ${skill.name} from this repository?`, () =>
+      run(`Removing ${skill.name}`, () => removeSkill(skill.name, root)),
+    );
+
+  const edit = (skill: InstalledSkill) => handoff({ type: 'edit', path: `${skill.path}/SKILL.md` });
+
+  /** The buttons for a row. Editing is one of them — never what a click on the row does. */
+  const actionsFor = (row: Row): ToolbarAction[] => {
+    if (row.kind === 'result') {
+      return [
+        {
+          hotkey: 'i',
+          label: installedNames.has(row.result.skillName) ? 'Reinstall' : 'Install',
+          onPress: () => install(row.result),
+          tone: 'primary',
+          disabled: Boolean(busy),
+        },
+      ];
+    }
+    const { skill } = row;
+    return [
+      { hotkey: 'e', label: 'Edit SKILL.md', onPress: () => edit(skill), tone: 'primary' },
+      {
+        hotkey: 'u',
+        label: 'Update',
+        onPress: () => update(skill),
+        disabled: Boolean(busy) || !skill.source,
+      },
+      { hotkey: 'o', label: 'Reveal', onPress: () => revealPath(skill.path) },
+      {
+        hotkey: 'x',
+        label: 'Remove',
+        onPress: () => remove(skill),
+        tone: 'danger',
+        disabled: Boolean(busy),
+      },
+    ];
+  };
+
   useInput(
     (input, key) => {
       if (busy) return;
@@ -134,52 +191,26 @@ export const SkillsView = ({
       if (key.escape && search) return setSearch(undefined);
 
       if (current?.kind === 'result') {
-        if (input === 'i') {
-          const { result } = current;
-          prompt.confirm(`Install ${result.id} into this repository?`, () =>
-            run(
-              `Installing ${result.skillName}`,
-              () => addSkill(result.id, root),
-              () => setSearch(undefined),
-            ),
-          );
-        }
+        if (input === 'i') install(current.result);
         return;
       }
       if (current?.kind !== 'installed') return;
       const { skill } = current;
-      if (input === 'u') {
-        const warning = skill.hasLocalChanges ? ' Its local changes will be lost.' : '';
-        prompt.confirm(
-          `Reinstall ${skill.name} from ${skill.source ?? 'its source'}?${warning}`,
-          () => run(`Updating ${skill.name}`, () => updateSkill(skill.name, root)),
-        );
-      } else if (input === 'x') {
-        prompt.confirm(`Remove ${skill.name} from this repository?`, () =>
-          run(`Removing ${skill.name}`, () => removeSkill(skill.name, root)),
-        );
-      } else if (input === 'e') {
-        handoff({ type: 'edit', path: `${skill.path}/SKILL.md` });
-      } else if (input === 'o') {
-        revealPath(skill.path);
-      }
+      if (input === 'u') update(skill);
+      else if (input === 'x') remove(skill);
+      else if (input === 'e') edit(skill);
+      else if (input === 'o') revealPath(skill.path);
     },
     { isActive: !prompt.isOpen },
   );
 
+  //? Row actions are the toolbar's; the strip keeps searching
   const hints: Hint[] = search
     ? [
-        { key: 'i', label: 'install' },
         { key: '/', label: 'search again', onPress: startSearch },
         { key: 'Esc', label: 'installed', onPress: () => setSearch(undefined) },
       ]
-    : [
-        { key: '/', label: 'search registry', onPress: startSearch },
-        { key: 'u', label: 'update' },
-        { key: 'x', label: 'remove' },
-        { key: 'e', label: 'edit' },
-        { key: 'o', label: 'reveal' },
-      ];
+    : [{ key: '/', label: 'search registry', onPress: startSearch }];
 
   const header =
     prompt.line ??
@@ -199,7 +230,8 @@ export const SkillsView = ({
 
   const detailRows = Math.max(
     3,
-    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 2,
+    //? less the toolbar and its rule
+    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 4,
   );
 
   const renderDetail = (item: PickItem<Row> | undefined) => {
@@ -210,6 +242,7 @@ export const SkillsView = ({
       const { result } = row;
       return (
         <Box flexDirection="column">
+          <Toolbar actions={actionsFor(row)} />
           <Text color={colors.text} wrap="truncate">
             {result.id}
           </Text>
@@ -257,6 +290,7 @@ export const SkillsView = ({
 
     return (
       <Box flexDirection="column">
+        <Toolbar actions={actionsFor(row)} />
         {facts.map(([label, value, color]) => (
           <Text key={label} wrap="truncate">
             <Text color={colors.muted}>{label.padEnd(8)}</Text>
@@ -297,16 +331,10 @@ export const SkillsView = ({
         renderDetail={renderDetail}
         hints={hints}
         reservedChrome={['viewHeader']}
-        activateLabel="edit"
+        //? A click selects; editing is the toolbar's [e] Edit
+        activateOnClick={false}
         initialSelectedId={session.selected.skills}
         isInputActive={!prompt.isOpen && !busy}
-        onActivate={(item) => {
-          if (item.value?.kind === 'installed')
-            handoff({
-              type: 'edit',
-              path: `${item.value.skill.path}/SKILL.md`,
-            });
-        }}
         onSelectionChange={(item) => {
           setCurrentId(item?.id);
           session.selected.skills = item?.id;

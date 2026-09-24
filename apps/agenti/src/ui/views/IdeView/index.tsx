@@ -1,9 +1,10 @@
 import { existsSync, lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
-import { useState } from 'react';
 import { Text, useInput } from 'ink';
+import { useState } from 'react';
 
+import { graphicsSupport } from '@/dev-tools/terminal-canvas';
 import Box from '@/dev-tools/ui/components/Box';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
@@ -11,17 +12,22 @@ import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import { findIdeBinary, IDES, type IdeDefinition } from '../../../core/ides';
+import revealPath from '../../../utils/revealPath';
+import LinkRow from '../../LinkRow';
 import { LOGO_MODES, type LogoMode, resolveLogoTechnique } from '../../logo';
 import IdeLogo from '../../logo/IdeLogo';
+import Toolbar from '../../Toolbar';
 import type { ViewProps } from '../../types';
-import { graphicsSupport } from '@/dev-tools/terminal-canvas';
 
 export interface IdeViewProps extends ViewProps {
   onSelectIde: (id: string) => void;
-  /** The settings file the choice is saved to — shown so it is never a mystery. */
+  /** The settings file the choice is saved to — shown, and openable, so it is never a mystery. */
   settingsPath: string;
   /** False while this repo is still on an inherited default rather than its own pick. */
   hasOwnChoice: boolean;
+  /** How logos are drawn — kept in the settings, so `g` is remembered. */
+  logoMode: LogoMode;
+  onLogoModeChange: (mode: LogoMode) => void;
 }
 
 /** Repo-relative for anything in the repo, `~/…` for anything else under home. */
@@ -31,9 +37,23 @@ const shorten = (path: string, root: string) => {
   return path.startsWith(`${home}/`) ? `~/${relative(home, path)}` : path;
 };
 
+/** One line of the detail pane; `open` makes it a link. */
+interface DetailLine {
+  label: string;
+  value: string;
+  color: string;
+  open?: () => void;
+}
+
 /**
  * Which IDE this repository's `.agents` is linked into — the web version's IDE
  * selector, as a tab of its own because every other tab reads its answer.
+ *
+ * Two panes the keyboard moves between: the list of IDEs, and — `→` — the
+ * detail pane's links (the IDE's binary, its MCP file, agenti's own config),
+ * walked with `↑`/`↓` and opened with Enter; `←` goes back. A click on an IDE
+ * only selects it; making it the repo's IDE is the toolbar's button, which is
+ * disabled for the IDE that already is.
  *
  * An IDE that is not installed can still be picked, unlike on the web: the
  * links live in the repository, and setting them up for an IDE a teammate uses
@@ -44,30 +64,106 @@ export const IdeView = ({
   ide,
   session,
   notify,
+  handoff,
   onSelectIde,
   settingsPath,
   hasOwnChoice,
+  logoMode,
+  onLogoModeChange,
 }: IdeViewProps) => {
   const colors = useColors();
   const theme = useTuiTheme();
   const viewport = useViewport();
-  const [logoMode, setLogoMode] = useState<LogoMode>('auto');
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.ide ?? ide.id);
+  //? Kept in the session as well, so opening a link in the editor comes back
+  //? with that same link highlighted rather than the keyboard back on the list
+  const [focus, setFocusState] = useState(session.ideFocus.pane);
+  const [linkIndex, setLinkIndexState] = useState(session.ideFocus.link);
+  const setFocus = (pane: 'list' | 'detail') => {
+    session.ideFocus.pane = pane;
+    setFocusState(pane);
+  };
+  const setLinkIndex = (next: number | ((at: number) => number)) =>
+    setLinkIndexState((at) => {
+      const value = typeof next === 'function' ? next(at) : next;
+      session.ideFocus.link = value;
+      return value;
+    });
+
+  const current = IDES.find((candidate) => candidate.id === currentId);
 
   const choose = (candidate: IdeDefinition | undefined) => {
-    if (!candidate) return;
+    if (!candidate || candidate.id === ide.id) return;
     onSelectIde(candidate.id);
     notify(`${candidate.name} is now this repository's IDE`, 'ok');
   };
 
-  //? Space as well as Enter: this is a radio list, and Space is the key that
-  //? picks an option in one everywhere else
   const cycleLogoMode = () =>
-    setLogoMode((mode) => LOGO_MODES[(LOGO_MODES.indexOf(mode) + 1) % LOGO_MODES.length] ?? 'auto');
+    onLogoModeChange(LOGO_MODES[(LOGO_MODES.indexOf(logoMode) + 1) % LOGO_MODES.length] ?? 'auto');
 
-  useInput((input) => {
-    if (input === ' ') choose(IDES.find((candidate) => candidate.id === currentId));
-    else if (input === 'g') cycleLogoMode();
+  const linesFor = (candidate: IdeDefinition): DetailLine[] => {
+    const binary = findIdeBinary(candidate);
+    const folder = join(root, candidate.folder);
+    const folderState = !existsSync(folder)
+      ? 'not created yet'
+      : lstatSync(folder).isSymbolicLink()
+        ? 'one link to .agents'
+        : 'a folder';
+    const mcpPath = candidate.mcp?.path(root);
+    return [
+      {
+        label: 'binary',
+        value: binary ? shorten(binary, root) : `not found (${candidate.commands.join(', ')})`,
+        color: binary ? colors.ok : colors.warn,
+        //? A binary is not something to edit — its folder is what there is to see
+        open: binary ? () => revealPath(binary) : undefined,
+      },
+      {
+        label: 'folder',
+        value: `${candidate.folder} — ${folderState}`,
+        color: colors.muted,
+        open: existsSync(folder) ? () => revealPath(folder) : undefined,
+      },
+      {
+        label: 'mcp',
+        value: mcpPath
+          ? `${shorten(mcpPath, root)} (${candidate.mcp?.scope === 'user' ? 'every repo' : 'this repo'})`
+          : 'not supported',
+        color: mcpPath ? colors.text : colors.warn,
+        open: mcpPath ? () => handoff({ type: 'edit', path: mcpPath }) : undefined,
+      },
+      {
+        label: 'config',
+        value: shorten(settingsPath, root),
+        color: colors.text,
+        open: () => handoff({ type: 'edit', path: settingsPath }),
+      },
+    ];
+  };
+
+  //? Only the lines that open something are stops for the keyboard
+  const links = current ? linesFor(current).filter((line) => line.open) : [];
+  const focusedLink = focus === 'detail' ? links[Math.min(linkIndex, links.length - 1)] : undefined;
+
+  useInput((input, key) => {
+    if (input === 'g') return cycleLogoMode();
+
+    if (focus === 'detail') {
+      if (key.leftArrow || key.escape) setFocus('list');
+      else if (key.upArrow) setLinkIndex((at) => Math.max(0, at - 1));
+      else if (key.downArrow) setLinkIndex((at) => Math.min(links.length - 1, at + 1));
+      else if (key.return || input === ' ') focusedLink?.open?.();
+      return;
+    }
+
+    if (key.rightArrow && links.length > 0) {
+      setFocus('detail');
+      setLinkIndex((at) => Math.min(at, links.length - 1));
+    } else if (input === ' ') {
+      //? Space as well as Enter: this is a radio list, and Space is the key
+      //? that picks an option in one everywhere else
+      choose(current);
+    }
   });
 
   //? The detail pane's inner size, by the same arithmetic ListDetail lays it
@@ -104,24 +200,23 @@ export const IdeView = ({
       <Box flexShrink={0}>
         <Text color={colors.muted} wrap="truncate">
           {hasOwnChoice
-            ? 'Chosen for this repo'
-            : 'Not chosen for this repo yet — using the last pick'}{' '}
-          · saved in {shorten(settingsPath, root)}
+            ? `${ide.name} is this repo's IDE`
+            : `No IDE chosen for this repo yet — using ${ide.name}, the last pick`}
+          {focus === 'detail' ? ' · ←/Esc back to the list' : ' · → into the details'}
         </Text>
       </Box>
       <ListDetail
         title="IDE"
         items={items}
-        detailTitle="IDE"
+        detailTitle={focus === 'detail' ? 'IDE — ↑/↓ Enter' : 'IDE'}
         reservedChrome={['viewHeader']}
         initialSelectedId={session.selected.ide ?? ide.id}
+        //? A click selects; choosing is the toolbar's button, so the two can
+        //? differ — which is what lets that button be disabled for the chosen one
+        activateOnClick={false}
         activateLabel="use for this repo"
+        isInputActive={focus === 'list'}
         hints={[
-          {
-            key: 'Space',
-            label: 'use for this repo',
-            onPress: () => choose(IDES.find((c) => c.id === currentId)),
-          },
           {
             key: 'g',
             label: `logo: ${logoMode}${logoMode === 'auto' ? ` (${technique.id})` : ''}`,
@@ -136,58 +231,52 @@ export const IdeView = ({
         renderDetail={(item) => {
           const candidate = item?.value;
           if (!candidate) return null;
-          const binary = findIdeBinary(candidate);
-          const folder = join(root, candidate.folder);
-          const folderState = !existsSync(folder)
-            ? 'not created yet'
-            : lstatSync(folder).isSymbolicLink()
-              ? 'one link to .agents'
-              : 'a folder';
-          const facts: [string, string, string][] = [
-            [
-              'binary',
-              binary ? shorten(binary, root) : `not found (${candidate.commands.join(', ')})`,
-              binary ? colors.ok : colors.warn,
-            ],
-            ['folder', `${candidate.folder} — ${folderState}`, colors.muted],
-            [
-              'mcp',
-              candidate.mcp
-                ? `${shorten(candidate.mcp.path(root), root)} (${candidate.mcp.scope === 'user' ? 'every repo' : 'this repo'})`
-                : 'not supported',
-              candidate.mcp ? colors.muted : colors.warn,
-            ],
-          ];
+          const chosen = candidate.id === ide.id;
           return (
             <Box flexDirection="column">
-              <Text bold color={candidate.id === ide.id ? colors.accent : colors.text}>
+              <Toolbar
+                actions={[
+                  {
+                    hotkey: 'Space',
+                    label: chosen ? "Is this repo's IDE" : 'Use for this repo',
+                    onPress: () => choose(candidate),
+                    tone: 'primary',
+                    disabled: chosen,
+                  },
+                  { hotkey: 'g', label: `Logo: ${logoMode}`, onPress: cycleLogoMode },
+                ]}
+              />
+              <Text bold color={chosen ? colors.accent : colors.text}>
                 {candidate.name}
-                {candidate.id === ide.id ? ' — selected' : ''}
+                {chosen ? ' — selected' : ''}
               </Text>
               <Box flexDirection="column" marginTop={1}>
-                {facts.map(([label, value, color]) => (
-                  <Text key={label} wrap="truncate">
-                    <Text color={colors.muted}>{label.padEnd(8)}</Text>
-                    <Text color={color}>{value}</Text>
-                  </Text>
+                {linesFor(candidate).map((line) => (
+                  <LinkRow
+                    key={line.label}
+                    label={line.label}
+                    value={line.value}
+                    color={line.color}
+                    isFocused={focusedLink?.label === line.label}
+                    onOpen={
+                      line.open &&
+                      (() => {
+                        setFocus('detail');
+                        setLinkIndex(links.findIndex((link) => link.label === line.label));
+                        line.open?.();
+                      })
+                    }
+                  />
                 ))}
               </Box>
-              {candidate.id !== ide.id && (
-                <Box marginTop={1}>
-                  <Text color={colors.accent}>
-                    [Space/Enter] makes it this repository's IDE — the Agents and MCP tabs then work
-                    on {candidate.folder}
-                  </Text>
-                </Box>
-              )}
               <Box marginTop={1}>
                 <IdeLogo
                   ide={candidate}
                   mode={logoMode}
                   maxCols={logoCols}
-                  //? What the text above leaves: title, facts and their margins
-                  //? (7 rows), plus the two-line call to action on an unselected IDE
-                  maxRows={Math.min(16, paneRows - (candidate.id === ide.id ? 7 : 10))}
+                  //? What the text above leaves: toolbar and rule (2), name (1),
+                  //? four lines and the margins around them (6)
+                  maxRows={Math.min(16, paneRows - 9)}
                 />
               </Box>
             </Box>

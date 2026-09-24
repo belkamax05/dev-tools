@@ -1,13 +1,10 @@
 import { relative } from 'node:path';
 
-import settingsStore, { resolveIdeId, withRepoIde } from '../config/settings';
+import settingsStore, { resolveIdeId, TAB_IDS, type TabId, withRepoIde } from '../config/settings';
 import { getInventory } from '../core/agents';
 import { getIde, IDES } from '../core/ides';
 import { buildComparisons, readSourceMcp, readTargetMcp } from '../core/mcp';
 import findRepoRoot from '../core/repo';
-
-const TAB_IDS = ['agents', 'mcp', 'skills', 'ide'] as const;
-type TabId = (typeof TAB_IDS)[number];
 
 const HELP = `agenti — .agents, MCP servers and skills for the repository you are in
 

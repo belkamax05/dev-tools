@@ -10,7 +10,10 @@ import {
   type Technique,
 } from '@/dev-tools/terminal-canvas';
 
+import type { LogoMode } from '../../config/settings';
 import { type IdeDefinition, logoPath } from '../../core/ides';
+
+export { LOGO_MODES, type LogoMode } from '../../config/settings';
 
 /** What a monochrome (black) mark is recoloured to: light enough for a dark terminal. */
 const MONO_TINT: readonly [number, number, number] = [210, 210, 210];
@@ -80,10 +83,6 @@ export const loadLogo = (ide: IdeDefinition): Promise<Subject | undefined> => {
   cache.set(ide.id, loading);
   return loading;
 };
-
-/** The order `g` steps through on the IDE tab — `auto` first, which is the default. */
-export const LOGO_MODES = ['auto', 'kitty', 'braille', 'ascii'] as const;
-export type LogoMode = (typeof LOGO_MODES)[number];
 
 /** Whether the locale promises UTF-8, without which braille comes out as mojibake. */
 const hasUtf8 = () =>

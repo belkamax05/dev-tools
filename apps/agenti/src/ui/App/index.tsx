@@ -8,7 +8,13 @@ import type { TabDefinition } from '@/dev-tools/ui/components/TabStrip';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import { nextThemeId } from '@/dev-tools/ui/theme';
 
-import { type AgentiSettings, hasOwnIde, resolveIdeId, withRepoIde } from '../../config/settings';
+import {
+  type AgentiSettings,
+  hasOwnIde,
+  resolveIdeId,
+  type TabId,
+  withRepoIde,
+} from '../../config/settings';
 import { getIde, IDES } from '../../core/ides';
 import agentiTheme from '../theme';
 import type { Handoff, Session, Tone } from '../types';
@@ -16,8 +22,6 @@ import AgentsView from '../views/AgentsView';
 import IdeView from '../views/IdeView';
 import McpView from '../views/McpView';
 import SkillsView from '../views/SkillsView';
-
-export type TabId = 'agents' | 'mcp' | 'skills' | 'ide';
 
 /**
  * The tabs. Every icon's base codepoint is East Asian Width *Wide* and none
@@ -96,6 +100,7 @@ export const App = ({
   const changeTab = (next: TabId) => {
     setTab(next);
     session.tab = next;
+    updateSettings({ ...settings, lastTab: next });
   };
 
   const notify = useCallback((text: string, tone: Tone = 'info') => setStatus({ text, tone }), []);
@@ -198,6 +203,8 @@ export const App = ({
           settingsPath={settingsPath}
           hasOwnChoice={hasOwnIde(settings, root)}
           onSelectIde={(id) => updateSettings(withRepoIde(settings, root, id))}
+          logoMode={settings.logoMode}
+          onLogoModeChange={(logoMode) => updateSettings({ ...settings, logoMode })}
         />
       )}
     </AppShell>

@@ -80,6 +80,18 @@ const summary = (inventory: Inventory) => {
   return parts.join(' · ');
 };
 
+/**
+ * ` [3/15]` after a folder with more than one entry: how many of its direct
+ * entries are in the IDE, out of how many there are. A folder with one entry
+ * says the same thing with its checkbox alone.
+ */
+const countFor = (node: AgentNode): string => {
+  const children = node.children ?? [];
+  if (node.type !== 'directory' || children.length < 2) return '';
+  const inIde = children.filter((child) => child.status === 'synced').length;
+  return ` [${inIde}/${children.length}]`;
+};
+
 /** The width of the fold triangle plus its margin, for rows that have none. */
 const TWISTY_CELLS = 2;
 
@@ -168,8 +180,12 @@ export const AgentsView = ({
       const isOpen = isDir && expanded.has(node.relativePath);
       const row: PickItem<AgentNode> = {
         id: node.relativePath,
-        label: node.name,
+        label: `${node.name}${countFor(node)}`,
         hint: hintFor(node),
+        //? The two hints that mean "in the IDE, at least partly" stand out from
+        //? the dimmed rest; "off" and the others stay as they are
+        hintColor:
+          hintFor(node) === 'linked' || hintFor(node) === 'partly' ? colors.accent : undefined,
         value: node,
         indent: depth * 2 + (isDir ? 0 : TWISTY_CELLS),
         controls: [

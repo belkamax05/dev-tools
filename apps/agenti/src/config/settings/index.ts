@@ -2,6 +2,14 @@ import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import { findIdeBinary, getIde, IDES } from '../../core/ides';
 
+/** The dashboard's tabs, in order — also what `lastTab` may hold. */
+export const TAB_IDS = ['agents', 'mcp', 'skills', 'ide'] as const;
+export type TabId = (typeof TAB_IDS)[number];
+
+/** How the IDE tab draws logos — `g` steps through them, `auto` first. */
+export const LOGO_MODES = ['auto', 'kitty', 'braille', 'ascii'] as const;
+export type LogoMode = (typeof LOGO_MODES)[number];
+
 export interface RepoSettings {
   ide?: string;
 }
@@ -12,12 +20,17 @@ export interface AgentiSettings {
   defaultIde: string;
   /** Keyed by absolute repository root. */
   repos: Record<string, RepoSettings>;
+  /** The tab a bare `agenti` opens on — whichever was open last. */
+  lastTab: TabId;
+  logoMode: LogoMode;
 }
 
 const DEFAULTS: AgentiSettings = {
   theme: 'classic',
   defaultIde: '',
   repos: {},
+  lastTab: 'agents',
+  logoMode: 'auto',
 };
 
 /**
@@ -31,6 +44,8 @@ const DEFAULTS: AgentiSettings = {
 const coerce = (raw: Record<string, unknown>): AgentiSettings => {
   const out: AgentiSettings = { ...DEFAULTS, repos: {} };
   if (typeof raw.theme === 'string') out.theme = raw.theme;
+  if (TAB_IDS.includes(raw.lastTab as TabId)) out.lastTab = raw.lastTab as TabId;
+  if (LOGO_MODES.includes(raw.logoMode as LogoMode)) out.logoMode = raw.logoMode as LogoMode;
   if (typeof raw.defaultIde === 'string' && getIde(raw.defaultIde)) out.defaultIde = raw.defaultIde;
   if (raw.repos && typeof raw.repos === 'object') {
     for (const [root, value] of Object.entries(raw.repos as Record<string, unknown>)) {

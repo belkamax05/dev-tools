@@ -21,6 +21,12 @@ export interface PickItem<T = unknown> {
   label: string;
   /** Secondary text, dimmed. Dropped in grid mode, where there is no room. */
   hint?: string;
+  /**
+   * The hint's colour when the row is neither selected nor hovered — to make
+   * one status stand out from the dimmed rest. The selected and hovered rows
+   * keep their own colours: an accent hint on an accent highlight disappears.
+   */
+  hintColor?: string;
   value?: T;
   isHeader?: boolean;
   disabled?: boolean;
@@ -214,7 +220,16 @@ const PickCell = <T,>({
           {/* Flexing list: the spacer is what puts the hint at the right edge,
               since there is no known width to pad against. */}
           {width === undefined && <Box flexGrow={1} />}
-          <Text color={highlight ? colors.accentText : colors.muted} wrap="truncate">
+          <Text
+            color={
+              highlight
+                ? colors.accentText
+                : isSelected
+                  ? colors.muted
+                  : (item.hintColor ?? colors.muted)
+            }
+            wrap="truncate"
+          >
             {' '}
             {hint}
           </Text>
