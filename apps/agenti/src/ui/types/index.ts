@@ -17,6 +17,8 @@ export interface Session {
   tab: string;
   selected: Record<string, string | undefined>;
   expanded: Set<string>;
+  /** The Agents tab shows file content (or a diff) only once asked to, and keeps showing it. */
+  preview: boolean;
 }
 
 export interface ViewProps {

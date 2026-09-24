@@ -1,5 +1,7 @@
-import { type DOMElement, Text } from 'ink';
+import { type DOMElement, measureElement, Text } from 'ink';
 import { useEffect, useMemo, useRef } from 'react';
+
+import type { TerminalMouseEvent } from '../../terminal/mouse';
 
 import useClickable from '../../hooks/useClickable';
 import useScrollWindow from '../../hooks/useScrollWindow';
@@ -24,7 +26,60 @@ export interface PickItem<T = unknown> {
   disabled?: boolean;
   /** Marks the option that is currently in force, independent of the cursor. */
   isCurrent?: boolean;
+  /**
+   * Small buttons drawn between the cursor marker and the label — a tree's fold
+   * triangle, a checkbox. Each is its own click target: a click on one runs it
+   * and does *not* also count as a click on the row, so a row can be selected
+   * without toggling it and toggled without opening it.
+   */
+  controls?: PickItemControl[];
+  /** Blank cells before the controls — a tree's depth, so its controls line up per level. */
+  indent?: number;
 }
+
+export interface PickItemControl {
+  id: string;
+  /** What is drawn — keep it a fixed width across rows, or the labels stop lining up. */
+  glyph: string;
+  color?: string;
+  onPress: () => void;
+}
+
+/** The same hit test `useClickable` does, for a box that is not itself subscribed. */
+const isInside = (node: DOMElement | null, event: TerminalMouseEvent) => {
+  if (!node) return false;
+  const { x, y, width, height } = measureElement(node);
+  const column = event.column - 1;
+  const row = event.row - 1;
+  return column >= x && column < x + width && row >= y && row < y + height;
+};
+
+const RowControl = ({
+  control,
+  register,
+}: {
+  control: PickItemControl;
+  register: (node: DOMElement | null) => void;
+}) => {
+  const colors = useColors();
+  const ref = useRef<DOMElement>(null);
+  const { isHovered } = useClickable(ref, { onClick: () => control.onPress() });
+  return (
+    <Box
+      ref={(node: DOMElement | null) => {
+        ref.current = node;
+        register(node);
+      }}
+      marginRight={1}
+      flexShrink={0}
+      backgroundColor={isHovered ? colors.accent : undefined}
+    >
+      <Text color={isHovered ? colors.accentText : (control.color ?? colors.muted)}>
+        {control.glyph}
+      </Text>
+    </Box>
+  );
+};
 
 interface PickCellProps<T> {
   item: PickItem<T>;
@@ -41,6 +96,8 @@ interface PickCellProps<T> {
   isFocused: boolean;
   onHover: (hovered: boolean) => void;
   onClick: () => void;
+  /** Select without activating — what a click on one of the row's controls also does. */
+  onSelectOnly: () => void;
 }
 
 const PickCell = <T,>({
@@ -50,11 +107,18 @@ const PickCell = <T,>({
   isFocused,
   onHover,
   onClick,
+  onSelectOnly,
 }: PickCellProps<T>) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
+  const controlNodes = useRef(new Map<string, DOMElement>());
   const { isHovered } = useClickable(ref, {
-    onClick,
+    onClick: (event) => {
+      //? A control handles its own click; the row stepping in too would select
+      //? or open whatever the control was only meant to toggle
+      for (const node of controlNodes.current.values()) if (isInside(node, event)) return;
+      onClick();
+    },
     isActive: !item.isHeader && !item.disabled,
   });
 
@@ -90,6 +154,11 @@ const PickCell = <T,>({
   //? the cursor moves is unreadable while it moves.
   const marker = isSelected ? '❯ ' : item.isCurrent ? '• ' : '  ';
   const hint = item.hint ?? '';
+  const controls = item.controls ?? [];
+  //? Each control is its glyph plus the one-cell margin after it
+  const indent = ' '.repeat(item.indent ?? 0);
+  const controlsWidth =
+    indent.length + controls.reduce((total, control) => total + control.glyph.length + 1, 0);
 
   //? Measured list: pad the label so the hints line up into a column. The
   //? separating space is only spent when there is a hint to separate from —
@@ -97,7 +166,10 @@ const PickCell = <T,>({
   //? no hint, which is exactly enough to truncate the longest category name.
   let labelText = item.label;
   if (width !== undefined) {
-    const room = Math.max(1, width - marker.length - (hint === '' ? 0 : hint.length + 1));
+    const room = Math.max(
+      1,
+      width - marker.length - controlsWidth - (hint === '' ? 0 : hint.length + 1),
+    );
     labelText = item.label.length > room ? item.label.slice(0, room) : item.label.padEnd(room);
   }
 
@@ -112,8 +184,29 @@ const PickCell = <T,>({
       flexGrow={width === undefined ? 1 : 0}
       backgroundColor={highlight ? colors.accent : undefined}
     >
-      <Text color={color} bold={isSelected || item.isCurrent} wrap="truncate">
+      <Text color={color} bold={isSelected || item.isCurrent}>
         {marker}
+        {indent}
+      </Text>
+      {controls.map((control) => (
+        <RowControl
+          key={control.id}
+          //? The row the control is on becomes the selection too, so the detail
+          //? pane describes what was just toggled rather than whatever it was on
+          control={{
+            ...control,
+            onPress: () => {
+              onSelectOnly();
+              control.onPress();
+            },
+          }}
+          register={(node) => {
+            if (node) controlNodes.current.set(control.id, node);
+            else controlNodes.current.delete(control.id);
+          }}
+        />
+      ))}
+      <Text color={color} bold={isSelected || item.isCurrent} wrap="truncate">
         {labelText}
       </Text>
       {hint !== '' && (
@@ -182,6 +275,12 @@ export interface PickListProps<T> {
   onSelect: (index: number) => void;
   onActivate: (index: number) => void;
   onHover?: (index: number | null) => void;
+  /**
+   * Whether a click on a row activates it as well as selecting it. Off for a
+   * list whose rows carry their own controls, where the row itself should only
+   * ever be a selection and the controls are the actions.
+   */
+  activateOnClick?: boolean;
 }
 
 /**
@@ -206,6 +305,7 @@ export const PickList = <T,>({
   onSelect,
   onActivate,
   onHover,
+  activateOnClick = true,
 }: PickListProps<T>) => {
   const colors = useColors();
   const rows = useMemo(() => packRows(items, columns), [items, columns]);
@@ -281,8 +381,9 @@ export const PickList = <T,>({
                   onHover={(hovered) => onHover?.(hovered ? index : null)}
                   onClick={() => {
                     onSelect(index);
-                    onActivate(index);
+                    if (activateOnClick) onActivate(index);
                   }}
+                  onSelectOnly={() => onSelect(index)}
                 />
               );
             })}

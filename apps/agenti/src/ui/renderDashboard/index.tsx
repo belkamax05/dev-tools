@@ -24,6 +24,7 @@ export const renderDashboard = async (root: string, initialTab?: TabId): Promise
     tab: initialTab ?? (hasOwnIde(settings, root) ? 'agents' : 'ide'),
     selected: {},
     expanded: new Set(['rules', 'skills', 'workflows']),
+    preview: false,
   };
   let notice: string | undefined;
 

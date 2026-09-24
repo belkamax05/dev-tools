@@ -27,6 +27,7 @@ import {
   writeServers,
 } from '../../../core/mcp';
 import revealPath from '../../../utils/revealPath';
+import Toolbar, { type ToolbarAction } from '../../Toolbar';
 import type { ViewProps } from '../../types';
 import useLoader from '../../useLoader';
 import usePrompt from '../../usePrompt';
@@ -207,6 +208,86 @@ export const McpView = ({
       { secret: true },
     );
 
+  const toggleDisabled = (c: McpServerComparison) => {
+    if (!target || !c.targetEntry)
+      return notify(`${c.name} is not in ${ide.name}'s config`, 'warn');
+    const disabled = !c.targetEntry.disabled;
+    save(
+      'target',
+      { ...target.servers, [c.name]: { ...c.targetEntry, disabled: disabled || undefined } },
+      `${disabled ? 'Disabled' : 'Enabled'} ${c.name} in ${ide.name}`,
+    );
+  };
+
+  const removeFromIde = (c: McpServerComparison) => {
+    if (!target || !c.targetEntry)
+      return notify(`${c.name} is not in ${ide.name}'s config`, 'warn');
+    prompt.confirm(`Remove ${c.name} from ${ide.name}'s config?`, () => {
+      const { [c.name]: _removed, ...rest } = target.servers;
+      save('target', rest, `Removed ${c.name} from ${ide.name}`);
+    });
+  };
+
+  const missingCount = comparisons.filter((c) => c.status === 'missing-in-target').length;
+
+  /**
+   * The buttons for a row. The primary one follows the status: a server only
+   * the reference has wants copying to the IDE, one only the IDE has wants
+   * adopting, one that differs wants the reference pushed (the reference is the
+   * source of truth), and one already in sync is most likely being looked at
+   * for its tools.
+   */
+  const actionsFor = (row: Row): ToolbarAction[] => {
+    if (row.kind === 'token') {
+      return [
+        { hotkey: 's', label: 'Set token', onPress: () => setToken(row.token), tone: 'primary' },
+      ];
+    }
+    const c = row.comparison;
+    const actions: ToolbarAction[] = [];
+    if (c.sourceEntry && c.status !== 'synced') {
+      actions.push({
+        hotkey: 'p',
+        label: c.status === 'diff' ? 'Overwrite IDE with reference' : 'Copy to IDE',
+        onPress: () => push(c),
+        tone: 'primary',
+      });
+    }
+    if (c.targetEntry && c.status !== 'synced') {
+      actions.push({
+        hotkey: 'a',
+        label: c.status === 'diff' ? 'Overwrite reference with IDE' : 'Copy to reference',
+        onPress: () => adopt(c),
+        tone: c.status === 'target-only' ? 'primary' : 'normal',
+      });
+    }
+    actions.push({
+      hotkey: 'i',
+      label: tools[c.name] === 'loading' ? 'Listing tools…' : 'List tools',
+      onPress: () => loadTools(c),
+      disabled: tools[c.name] === 'loading',
+      tone: c.status === 'synced' ? 'primary' : 'normal',
+    });
+    if (c.targetEntry) {
+      actions.push(
+        {
+          hotkey: 'd',
+          label: c.targetEntry.disabled ? 'Enable in IDE' : 'Disable in IDE',
+          onPress: () => toggleDisabled(c),
+        },
+        { hotkey: 'x', label: 'Remove from IDE', onPress: () => removeFromIde(c), tone: 'danger' },
+      );
+    }
+    if (missingCount > 1) {
+      actions.push({
+        hotkey: 'P',
+        label: `Copy all ${missingCount} missing`,
+        onPress: pushAllMissing,
+      });
+    }
+    return actions;
+  };
+
   useInput(
     (input) => {
       if (!source || !target) return;
@@ -226,46 +307,26 @@ export const McpView = ({
       else if (input === 'a') adopt(c);
       else if (input === 'i') loadTools(c);
       else if (input === 'o') revealPath(c.targetEntry ? target.path : source.path);
-      else if (input === 'd') {
-        if (!c.targetEntry) return notify(`${c.name} is not in ${ide.name}'s config`, 'warn');
-        const disabled = !c.targetEntry.disabled;
-        save(
-          'target',
-          {
-            ...target.servers,
-            [c.name]: { ...c.targetEntry, disabled: disabled || undefined },
-          },
-          `${disabled ? 'Disabled' : 'Enabled'} ${c.name} in ${ide.name}`,
-        );
-      } else if (input === 'x') {
-        if (!c.targetEntry) return notify(`${c.name} is not in ${ide.name}'s config`, 'warn');
-        prompt.confirm(`Remove ${c.name} from ${ide.name}'s config?`, () => {
-          const { [c.name]: _removed, ...rest } = target.servers;
-          save('target', rest, `Removed ${c.name} from ${ide.name}`);
-        });
-      }
+      else if (input === 'd') toggleDisabled(c);
+      else if (input === 'x') removeFromIde(c);
     },
     { isActive: !prompt.isOpen && Boolean(ide.mcp) },
   );
 
-  const hints: Hint[] =
-    current?.kind === 'token'
-      ? [
-          {
-            key: 's',
-            label: 'set token',
-            onPress: () => setToken(current.token),
-          },
-        ]
-      : [
-          { key: 'p', label: 'to IDE' },
-          { key: 'a', label: 'to reference' },
-          { key: 'P', label: 'all missing', onPress: pushAllMissing },
-          { key: 'd', label: 'on/off' },
-          { key: 'x', label: 'remove' },
-          { key: 'i', label: 'tools' },
-          { key: 'e/E', label: 'edit ref/IDE' },
-        ];
+  //? Row actions are the toolbar's; the strip keeps the ones about the files
+  const hints: Hint[] = [
+    {
+      key: 'e',
+      label: 'edit reference',
+      onPress: source ? () => handoff({ type: 'edit', path: source.path }) : undefined,
+    },
+    {
+      key: 'E',
+      label: 'edit IDE config',
+      onPress: target ? () => handoff({ type: 'edit', path: target.path }) : undefined,
+    },
+    ...(target && !target.exists ? [{ key: 'n', label: 'create IDE config' }] : []),
+  ];
 
   const scope = ide.mcp?.scope === 'user' ? 'every repo' : 'this repo';
   const header =
@@ -285,7 +346,8 @@ export const McpView = ({
 
   const detailRows = Math.max(
     3,
-    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 2,
+    //? less the toolbar and its rule
+    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 5,
   );
 
   const lines = (row: Row): { text: string; color: string }[] => {
@@ -336,11 +398,6 @@ export const McpView = ({
           color: colors.muted,
         });
       }
-    } else {
-      out.push({
-        text: '[i] or Enter starts it and lists its tools',
-        color: colors.muted,
-      });
     }
     if (c.status === 'diff' && c.sourceEntry && c.targetEntry) {
       for (const field of getDiffFields(c.sourceEntry, c.targetEntry)) {
@@ -380,6 +437,7 @@ export const McpView = ({
         renderDetail={(item) =>
           item?.value ? (
             <Box flexDirection="column">
+              <Toolbar actions={actionsFor(item.value)} />
               {lines(item.value)
                 .slice(0, detailRows)
                 .map((line, index) => (

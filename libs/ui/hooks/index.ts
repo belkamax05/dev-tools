@@ -3,6 +3,11 @@ export { default as useClickable } from './useClickable';
 export type { ClickableOptions, ClickableState } from './useClickable';
 export { default as useHeldFlag } from './useHeldFlag';
 export { default as useHoveredId } from './useHoveredId';
+export {
+  default as useRasterOverlay,
+  rasterPixelSize,
+  type RasterOverlayOptions,
+} from './useRasterOverlay';
 export { default as useResizeFlash } from './useResizeFlash';
 export { default as useScrollWindow } from './useScrollWindow';
 export { default as useTerminalSize } from './useTerminalSize';

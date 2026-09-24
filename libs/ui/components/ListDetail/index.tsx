@@ -66,6 +66,8 @@ export interface ListDetailProps<T> {
   initialSelectedId?: string;
   /** What Enter is called in the hints, when "open" is not what it does. */
   activateLabel?: string;
+  /** See `PickList`'s own — false makes a click select only, leaving Enter to activate. */
+  activateOnClick?: boolean;
 }
 
 /**
@@ -95,6 +97,7 @@ export const ListDetail = <T,>({
   reservedChrome = [],
   initialSelectedId,
   activateLabel = 'open',
+  activateOnClick = true,
 }: ListDetailProps<T>) => {
   const colors = useColors();
   const theme = useTuiTheme();
@@ -210,6 +213,7 @@ export const ListDetail = <T,>({
           width={listWidth}
           emptyText={emptyText ?? 'Nothing to show.'}
           onSelect={setSelected}
+          activateOnClick={activateOnClick}
           onActivate={(index) => {
             const item = items[index];
             if (!item) return;

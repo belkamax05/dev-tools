@@ -1,7 +1,8 @@
 import { existsSync, lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
-import { Text } from 'ink';
+import { useState } from 'react';
+import { Text, useInput } from 'ink';
 
 import Box from '@/dev-tools/ui/components/Box';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
@@ -44,6 +45,19 @@ export const IdeView = ({
   hasOwnChoice,
 }: IdeViewProps) => {
   const colors = useColors();
+  const [currentId, setCurrentId] = useState<string | undefined>(session.selected.ide ?? ide.id);
+
+  const choose = (candidate: IdeDefinition | undefined) => {
+    if (!candidate) return;
+    onSelectIde(candidate.id);
+    notify(`${candidate.name} is now this repository's IDE`, 'ok');
+  };
+
+  //? Space as well as Enter: this is a radio list, and Space is the key that
+  //? picks an option in one everywhere else
+  useInput((input) => {
+    if (input === ' ') choose(IDES.find((candidate) => candidate.id === currentId));
+  });
 
   const items: PickItem<IdeDefinition>[] = IDES.map((candidate) => {
     const binary = findIdeBinary(candidate);
@@ -76,12 +90,16 @@ export const IdeView = ({
         reservedChrome={['viewHeader']}
         initialSelectedId={session.selected.ide ?? ide.id}
         activateLabel="use for this repo"
-        onActivate={(item) => {
-          if (!item.value) return;
-          onSelectIde(item.value.id);
-          notify(`${item.value.name} is now this repository's IDE`, 'ok');
-        }}
+        hints={[
+          {
+            key: 'Space',
+            label: 'use for this repo',
+            onPress: () => choose(IDES.find((c) => c.id === currentId)),
+          },
+        ]}
+        onActivate={(item) => choose(item.value)}
         onSelectionChange={(item) => {
+          setCurrentId(item?.id);
           session.selected.ide = item?.id;
         }}
         renderDetail={(item) => {
@@ -126,8 +144,8 @@ export const IdeView = ({
               {candidate.id !== ide.id && (
                 <Box marginTop={1}>
                   <Text color={colors.accent}>
-                    [Enter] makes it this repository's IDE — the Agents and MCP tabs then work on{' '}
-                    {candidate.folder}
+                    [Space/Enter] makes it this repository's IDE — the Agents and MCP tabs then work
+                    on {candidate.folder}
                   </Text>
                 </Box>
               )}

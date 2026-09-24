@@ -13,6 +13,7 @@ export type { Chip, ChipRowProps } from './ChipRow';
 export { default as ClickableTab } from './ClickableTab';
 export type { ClickableTabProps } from './ClickableTab';
 export { default as Footer } from './Footer';
+export { default as GraphicsCanvas } from './GraphicsCanvas';
 export type { FooterAction, FooterProps } from './Footer';
 export { default as HintBar, fitHints, hintWidth } from './HintBar';
 export type { Hint, HintBarProps } from './HintBar';
@@ -25,7 +26,7 @@ export {
   nextSelectable,
   packRows,
 } from './PickList';
-export type { PickItem, PickListProps } from './PickList';
+export type { PickItem, PickItemControl, PickListProps } from './PickList';
 export { default as Panel } from './Panel';
 export type { PanelProps } from './Panel';
 export { default as Popover } from './Popover';

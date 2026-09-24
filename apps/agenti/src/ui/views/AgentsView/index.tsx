@@ -7,7 +7,7 @@ import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import { type ThemeColors, useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
   type AgentNode,
@@ -23,18 +23,22 @@ import {
   toggleLink,
 } from '../../../core/agents';
 import revealPath from '../../../utils/revealPath';
+import Toolbar, { type ToolbarAction } from '../../Toolbar';
 import type { ViewProps } from '../../types';
 import useLoader from '../../useLoader';
 import usePrompt from '../../usePrompt';
 
-/** One glyph per status, drawn where the web version had a checkbox. */
-const MARK: Record<AgentStatus, string> = {
-  synced: '●',
-  implicit: '◐',
-  missing: '○',
-  mismatch: '≠',
-  orphan: '+',
-  unknown: '?',
+/**
+ * The checkbox each row carries, one per status — three cells wide on every
+ * row so the names after it line up.
+ */
+const CHECKBOX: Record<AgentStatus, string> = {
+  synced: '[x]',
+  implicit: '[~]',
+  missing: '[ ]',
+  mismatch: '[!]',
+  orphan: '[+]',
+  unknown: '[?]',
 };
 
 const DESCRIBE: Record<AgentStatus, string> = {
@@ -46,6 +50,15 @@ const DESCRIBE: Record<AgentStatus, string> = {
   unknown: 'something unexpected is in the way',
 };
 
+const statusColor = (status: AgentStatus, colors: ThemeColors) =>
+  status === 'synced'
+    ? colors.ok
+    : status === 'mismatch' || status === 'unknown'
+      ? colors.warn
+      : status === 'orphan'
+        ? colors.highlight
+        : colors.muted;
+
 const hintFor = (node: AgentNode): string => {
   if (node.status === 'synced') return node.linkTarget || node.isLinked ? 'linked' : 'copy';
   if (node.status === 'mismatch') return 'differs';
@@ -54,19 +67,6 @@ const hintFor = (node: AgentNode): string => {
   if (node.status === 'unknown') return '?';
   return 'off';
 };
-
-const toRows = (nodes: AgentNode[], expanded: Set<string>, depth = 0): PickItem<AgentNode>[] =>
-  nodes.flatMap((node) => {
-    const isOpen = node.type === 'directory' && expanded.has(node.relativePath);
-    const twisty = node.type === 'directory' ? (isOpen ? '▾ ' : '▸ ') : '  ';
-    const row: PickItem<AgentNode> = {
-      id: node.relativePath,
-      label: `${'  '.repeat(depth)}${twisty}${MARK[node.status]} ${node.name}`,
-      hint: hintFor(node),
-      value: node,
-    };
-    return [row, ...(isOpen && node.children ? toRows(node.children, expanded, depth + 1) : [])];
-  });
 
 const summary = (inventory: Inventory) => {
   const { counts } = inventory;
@@ -80,15 +80,19 @@ const summary = (inventory: Inventory) => {
   return parts.join(' · ');
 };
 
+/** The width of the fold triangle plus its margin, for rows that have none. */
+const TWISTY_CELLS = 2;
+
 /**
  * `.agents` against the IDE's folder: the web version's Agents page, for the
  * one repository agenti was started in.
  *
- * A tree rather than two: the web version's second tree was for comparing two
- * repositories, which a single-repo tool has no use for. What each row can do
- * follows its status, as the web version's buttons did — link or unlink what
- * is in sync or missing, push or adopt what differs, adopt what only the IDE
- * has.
+ * Every row has explicit controls rather than one big click target: a fold
+ * triangle on folders and a checkbox that links or unlinks, each clickable on
+ * its own. A click anywhere else on the row only selects it — opening a file
+ * is never a side effect of pointing at it. What a file contains is shown on
+ * request (`v` / Preview), and the actions for the selected row are buttons
+ * in the detail pane, the likeliest one first and highlighted.
  */
 export const AgentsView = ({
   root,
@@ -105,9 +109,10 @@ export const AgentsView = ({
   //? The id, not the node: the node object is replaced on every reload, and a
   //? kept reference would go on describing the file as it was before the action
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.agents);
-  //? A copy of the session's set, so expanding re-renders; written back so an
-  //? editor handoff comes back to the same folders open
+  //? Copies of the session's state, so changing them re-renders; written back
+  //? so an editor handoff comes back with the same folders open
   const [expanded, setExpanded] = useState(() => new Set(session.expanded));
+  const [preview, setPreviewState] = useState(session.preview);
 
   const {
     data: inventory,
@@ -115,14 +120,6 @@ export const AgentsView = ({
     error,
     reload,
   } = useLoader(() => getInventory(root, ide), [root, ide.id, refreshKey]);
-  const items = inventory ? toRows(inventory.nodes, expanded) : [];
-  const current = items.find((item) => item.id === currentId)?.value;
-
-  const diff = useLoader(
-    () =>
-      current?.status === 'mismatch' && current.type === 'file' ? getNodeDiff(current) : undefined,
-    [current?.relativePath, current?.status, inventory],
-  );
 
   const setOpen = useCallback(
     (node: AgentNode, open: boolean) => {
@@ -136,6 +133,13 @@ export const AgentsView = ({
     },
     [session],
   );
+
+  const togglePreview = () => {
+    setPreviewState((on) => {
+      session.preview = !on;
+      return !on;
+    });
+  };
 
   const apply = (result: OperationResult) => {
     notify(result.message, result.ok ? 'ok' : 'warn');
@@ -158,12 +162,143 @@ export const AgentsView = ({
     apply(toggleLink(inventory, node, node.status === 'missing' || node.status === 'implicit'));
   };
 
+  const toRows = (nodes: AgentNode[], depth = 0): PickItem<AgentNode>[] =>
+    nodes.flatMap((node) => {
+      const isDir = node.type === 'directory';
+      const isOpen = isDir && expanded.has(node.relativePath);
+      const row: PickItem<AgentNode> = {
+        id: node.relativePath,
+        label: node.name,
+        hint: hintFor(node),
+        value: node,
+        indent: depth * 2 + (isDir ? 0 : TWISTY_CELLS),
+        controls: [
+          ...(isDir
+            ? [
+                {
+                  id: 'fold',
+                  glyph: isOpen ? '▾' : '▸',
+                  color: colors.text,
+                  onPress: () => setOpen(node, !isOpen),
+                },
+              ]
+            : []),
+          {
+            id: 'link',
+            glyph: CHECKBOX[node.status],
+            color: statusColor(node.status, colors),
+            onPress: () => toggle(node),
+          },
+        ],
+      };
+      return [row, ...(isOpen && node.children ? toRows(node.children, depth + 1) : [])];
+    });
+
+  const items = inventory ? toRows(inventory.nodes) : [];
+  const current = items.find((item) => item.id === currentId)?.value;
+
+  const diff = useLoader(
+    () =>
+      preview && current?.status === 'mismatch' && current.type === 'file'
+        ? getNodeDiff(current)
+        : undefined,
+    [current?.relativePath, current?.status, inventory, preview],
+  );
+
   const edit = (node: AgentNode) => {
     if (node.type !== 'file') return;
-    handoff({
-      type: 'edit',
-      path: node.status === 'orphan' ? node.targetPath : node.sourcePath,
-    });
+    handoff({ type: 'edit', path: node.status === 'orphan' ? node.targetPath : node.sourcePath });
+  };
+
+  const adopt = (node: AgentNode) => {
+    if (!inventory) return;
+    if (node.status !== 'mismatch' && node.status !== 'orphan' && node.status !== 'implicit') {
+      notify('Nothing to adopt — only differing or IDE-only entries can be', 'warn');
+      return;
+    }
+    const overwrite = node.status === 'orphan' ? '' : ', overwriting it there';
+    prompt.confirm(`Adopt the IDE's ${node.relativePath} into .agents${overwrite}?`, () =>
+      apply(syncNode(inventory, node, 'pull')),
+    );
+  };
+
+  const push = (node: AgentNode) => {
+    if (!inventory) return;
+    if (node.status !== 'mismatch' && node.status !== 'implicit') {
+      notify('Nothing to push — only differing entries can be', 'warn');
+      return;
+    }
+    prompt.confirm(`Push .agents/${node.relativePath} over the IDE's copy?`, () =>
+      apply(syncNode(inventory, node, 'push')),
+    );
+  };
+
+  const remove = (node: AgentNode) => {
+    const where = node.status === 'orphan' ? `${ide.folder}/` : '.agents/';
+    prompt.confirm(`Delete ${where}${node.relativePath} for good?`, () => apply(deleteNode(node)));
+  };
+
+  const switchMode = () => {
+    if (!inventory) return;
+    const next = inventory.mode === 'directory' ? 'granular' : 'directory';
+    const message =
+      next === 'directory'
+        ? `Replace ${ide.folder} with one link to .agents?`
+        : `Replace the ${ide.folder} link with a folder of per-entry links?`;
+    prompt.confirm(message, () => apply(setLinkMode(inventory, next)));
+  };
+
+  const reveal = (node: AgentNode) =>
+    revealPath(
+      node.status === 'orphan' || node.status === 'synced' ? node.targetPath : node.sourcePath,
+    );
+
+  /** The buttons for a row, the one it is most likely selected for marked primary. */
+  const actionsFor = (node: AgentNode): ToolbarAction[] => {
+    const isFile = node.type === 'file';
+    const { status } = node;
+    const actions: ToolbarAction[] = [];
+    if (status === 'missing' || status === 'implicit' || status === 'synced') {
+      actions.push({
+        hotkey: 'Space',
+        label: status === 'synced' ? 'Unlink' : 'Link',
+        onPress: () => toggle(node),
+        tone: status === 'synced' ? 'normal' : 'primary',
+      });
+    }
+    if (status === 'mismatch' || status === 'implicit') {
+      actions.push({
+        hotkey: 'p',
+        label: 'Push .agents → IDE',
+        onPress: () => push(node),
+        tone: status === 'mismatch' ? 'primary' : 'normal',
+      });
+    }
+    if (status === 'mismatch' || status === 'orphan' || status === 'implicit') {
+      actions.push({
+        hotkey: 'a',
+        label: 'Adopt IDE → .agents',
+        onPress: () => adopt(node),
+        tone: status === 'orphan' ? 'primary' : 'normal',
+      });
+    }
+    if (isFile) {
+      actions.push(
+        {
+          hotkey: 'v',
+          label: status === 'mismatch' ? 'Diff' : 'Preview',
+          onPress: togglePreview,
+          isOn: preview,
+          tone: status === 'synced' ? 'primary' : 'normal',
+        },
+        { hotkey: 'e', label: 'Edit', onPress: () => edit(node) },
+      );
+    }
+    actions.push(
+      { hotkey: 'o', label: 'Reveal', onPress: () => reveal(node) },
+      { hotkey: 'x', label: 'Delete', onPress: () => remove(node), tone: 'danger' },
+    );
+    return actions;
   };
 
   useInput(
@@ -174,65 +309,23 @@ export const AgentsView = ({
         if (node.type === 'directory') setOpen(node, true);
       } else if (key.leftArrow || input === 'h') {
         if (node.type === 'directory') setOpen(node, false);
-      } else if (input === ' ') {
-        toggle(node);
-      } else if (input === 'a') {
-        if (node.status !== 'mismatch' && node.status !== 'orphan' && node.status !== 'implicit') {
-          notify('Nothing to adopt — only differing or IDE-only entries can be', 'warn');
-          return;
-        }
-        const overwrite = node.status === 'orphan' ? '' : ', overwriting it there';
-        prompt.confirm(`Adopt the IDE's ${node.relativePath} into .agents${overwrite}?`, () =>
-          apply(syncNode(inventory, node, 'pull')),
-        );
-      } else if (input === 'p') {
-        if (node.status !== 'mismatch' && node.status !== 'implicit') {
-          notify('Nothing to push — only differing entries can be', 'warn');
-          return;
-        }
-        prompt.confirm(`Push .agents/${node.relativePath} over the IDE's copy?`, () =>
-          apply(syncNode(inventory, node, 'push')),
-        );
-      } else if (input === 'e') {
-        edit(node);
-      } else if (input === 'x') {
-        const where = node.status === 'orphan' ? `${ide.folder}/` : '.agents/';
-        prompt.confirm(`Delete ${where}${node.relativePath} for good?`, () =>
-          apply(deleteNode(node)),
-        );
-      } else if (input === 'm') {
-        const next = inventory.mode === 'directory' ? 'granular' : 'directory';
-        const message =
-          next === 'directory'
-            ? `Replace ${ide.folder} with one link to .agents?`
-            : `Replace the ${ide.folder} link with a folder of per-entry links?`;
-        prompt.confirm(message, () => apply(setLinkMode(inventory, next)));
-      } else if (input === 'o') {
-        revealPath(
-          node.status === 'orphan' || node.status === 'synced' ? node.targetPath : node.sourcePath,
-        );
-      }
+      } else if (input === ' ') toggle(node);
+      else if (input === 'a') adopt(node);
+      else if (input === 'p') push(node);
+      else if (input === 'v') togglePreview();
+      else if (input === 'e') edit(node);
+      else if (input === 'x') remove(node);
+      else if (input === 'm') switchMode();
+      else if (input === 'o') reveal(node);
     },
     { isActive: !prompt.isOpen },
   );
 
   const hints: Hint[] = [
     { key: '←/→', label: 'fold' },
-    {
-      key: 'Space',
-      label: 'link',
-      onPress: current ? () => toggle(current) : undefined,
-    },
-    { key: 'a', label: 'adopt' },
-    { key: 'p', label: 'push' },
-    {
-      key: 'e',
-      label: 'edit',
-      onPress: current ? () => edit(current) : undefined,
-    },
-    { key: 'x', label: 'delete' },
-    { key: 'm', label: 'mode' },
-    { key: 'o', label: 'reveal' },
+    { key: 'Space', label: 'link' },
+    { key: 'v', label: 'preview', onPress: togglePreview },
+    { key: 'm', label: `mode: ${inventory?.mode ?? '…'}`, onPress: switchMode },
   ];
 
   const header =
@@ -247,9 +340,10 @@ export const AgentsView = ({
     ));
 
   //? Rows the detail pane can give a preview: everything the chrome leaves,
-  //? less the status lines drawn above it
+  //? less the status lines and the toolbar drawn above it
   const previewRows = Math.max(
     3,
+    //? toolbar (two rows and its rule), three status lines, one blank
     viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 7,
   );
 
@@ -257,26 +351,22 @@ export const AgentsView = ({
     const node = item?.value;
     if (!node) return null;
     const rel = (path: string) => relative(root, path);
-    const tone =
-      node.status === 'synced'
-        ? colors.ok
-        : node.status === 'mismatch' || node.status === 'unknown'
-          ? colors.warn
-          : node.status === 'orphan'
-            ? colors.highlight
-            : colors.muted;
 
     const body =
-      node.type !== 'file'
+      node.type !== 'file' || !preview
         ? undefined
         : node.status === 'mismatch'
-          ? (diff.data ?? (diff.isLoading ? 'Diffing…' : 'No textual difference.'))
+          ? //? From the first hunk: git's header repeats both absolute paths, which
+            //? the lines above already show, and costs four rows to say it
+            (diff.data?.slice(Math.max(0, diff.data.indexOf('@@'))) ??
+            (diff.isLoading ? 'Diffing…' : 'No textual difference.'))
           : readPreview(node.status === 'orphan' ? node.targetPath : node.sourcePath);
 
     return (
       <Box flexDirection="column">
-        <Text color={tone} wrap="truncate">
-          {MARK[node.status]} {DESCRIBE[node.status]}
+        <Toolbar actions={actionsFor(node)} />
+        <Text color={statusColor(node.status, colors)} wrap="truncate">
+          {CHECKBOX[node.status]} {DESCRIBE[node.status]}
         </Text>
         <Text color={colors.muted} wrap="truncate">
           source {node.status === 'orphan' ? '—' : rel(node.sourcePath)}
@@ -286,6 +376,13 @@ export const AgentsView = ({
           {rel(node.targetPath)}
           {node.linkTarget ? ` → ${node.linkTarget}` : ''}
         </Text>
+        {node.type === 'file' && !preview && (
+          <Box marginTop={1}>
+            <Text color={colors.muted}>
+              [v] {node.status === 'mismatch' ? 'shows the diff' : 'shows the file'} here
+            </Text>
+          </Box>
+        )}
         {body !== undefined && (
           <Box flexDirection="column" marginTop={1}>
             {body
@@ -339,14 +436,16 @@ export const AgentsView = ({
         renderDetail={renderDetail}
         hints={hints}
         reservedChrome={['viewHeader']}
-        activateLabel="fold / edit"
+        activateLabel="fold / preview"
+        //? A click selects; the row's own triangle and checkbox are the actions
+        activateOnClick={false}
         initialSelectedId={session.selected.agents}
         isInputActive={!prompt.isOpen}
         onActivate={(item) => {
           const node = item.value;
           if (!node) return;
           if (node.type === 'directory') setOpen(node, !expanded.has(node.relativePath));
-          else edit(node);
+          else togglePreview();
         }}
         onSelectionChange={(item) => {
           setCurrentId(item?.id);
