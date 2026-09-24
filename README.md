@@ -53,16 +53,15 @@ using and its hooks find their dispatcher. There are two ways to be one:
 - this repo's own `apps/*` (`giti`, `agenti`), with this repo as the workspace root —
   `bun install` here;
 - a repo that checks this one out as a git submodule at `libs/dev-tools` and lists it in its
-  own `workspaces` — how `dygma-hacking` does it. (Both used to be members of the retired
-  `~/dev/shulker` umbrella's workspace instead.)
+  own `workspaces`.
 
 **Anything outside the workspace** installs its own `react` and `ink` and therefore does **not**
 share a copy. A component authored here would be mounted by a reconciler holding a *different*
 React, and every hook in it would throw. Such a consumer is limited to:
 
 - `ui/dialogs/*` — which mount and tear down a complete Ink tree with *this* lib's ink, and
-  exchange plain data with the caller (see `PickerItem`). `repos/shulker-controller` uses it
-  this way;
+  exchange plain data with the caller (see `PickerItem`) — the way to use this from an app with
+  its own React;
 - `ui/terminal/*`, `ui/theme/*`, and everything under `utils/` — no React in any of it;
 - `ui/app/runTuiApp` and `ui/utils/renderInkImmediate` — both take the caller's own `render` as
   an argument for exactly this reason.

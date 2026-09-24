@@ -7,7 +7,7 @@
  *
  * Import from here or from the module folders directly; both resolve to the same
  * files. Everything below is safe to render inside a consumer's own Ink tree
- * **as long as the consumer is a workspace member of `~/dev/shulker`**, which is
+ * **as long as the consumer is a member of the same Bun workspace**, which is
  * what makes it share this lib's single copy of `react` and `ink`. A repo that
  * installs its own copies must stay on the data-in/value-out boundary in
  * `ui/dialogs` instead — see the README.

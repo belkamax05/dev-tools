@@ -10,20 +10,26 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
+import { mcpTargetsFor } from '../../../core/ides';
 import {
+  type ApprovalState,
   buildComparisons,
   ENV_FILE,
   getDiffFields,
+  getMcpApprovals,
   getRequiredTokens,
   listServerTools,
   type McpServerComparison,
+  type McpServerEntry,
   type McpServerStatus,
   type McpToolsResult,
-  type RequiredToken,
   readEnvFile,
+  readMcpTarget,
   readSourceMcp,
-  readTargetMcp,
+  type RequiredToken,
   setEnvValue,
+  setMcpApproval,
+  setMcpServer,
   writeServers,
 } from '../../../core/mcp';
 import revealPath from '../../../utils/revealPath';
@@ -60,7 +66,15 @@ const mask = (value: string) => (value.length <= 4 ? '••••' : `•••
  * version's did; there is no pending state to save or lose. The env tokens
  * servers need are listed under the servers, set in `.env.user` from here.
  */
+/** Who sees a scope's servers, in the words the header has room for. */
+const SCOPE_LABEL = {
+  project: 'this repo, shared',
+  local: 'this repo, only you',
+  user: 'every repo',
+};
+
 export const McpView = ({
+  scope,
   root,
   ide,
   session,
@@ -75,17 +89,34 @@ export const McpView = ({
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.mcp);
   const [tools, setTools] = useState<Record<string, McpToolsResult | 'loading'>>({});
 
-  const { data, error, reload } = useLoader(
-    () => ({
+  const targets = mcpTargetsFor(ide, scope.kind);
+  const [targetIndex, setTargetIndex] = useState(0);
+  const targetDef = targets[Math.min(targetIndex, targets.length - 1)];
+  //? Claude Code ignores `disabled` in .mcp.json; what it honours for a project
+  //? server is each user's approval, so that is what this scope shows and sets
+  const hasApprovals =
+    ide.id === 'claude-code' && targetDef?.kind === 'file' && targetDef.scope === 'project';
+
+  const { data, error, reload } = useLoader(() => {
+    const target = targetDef ? readMcpTarget(root, targetDef) : undefined;
+    return {
       source: readSourceMcp(root),
-      target: readTargetMcp(root, ide),
+      target,
       env: readEnvFile(root),
-    }),
-    [root, ide.id, refreshKey],
-  );
+      approvals:
+        hasApprovals && target
+          ? getMcpApprovals(root, Object.keys(target.servers))
+          : ({} as Record<string, ApprovalState>),
+    };
+  }, [root, ide.id, targetIndex, refreshKey]);
 
   const source = data?.source;
   const target = data?.target;
+  const approvals = data?.approvals ?? {};
+  const cycleScope = () => {
+    if (targets.length < 2) return notify(`${ide.name} has one MCP scope here`, 'info');
+    setTargetIndex((at) => (at + 1) % targets.length);
+  };
   const comparisons = source && target ? buildComparisons(source.servers, target.servers) : [];
   const tokens = source ? getRequiredTokens(source) : [];
   const tokenValue = (key: string) => data?.env[key] ?? process.env[key];
@@ -109,7 +140,12 @@ export const McpView = ({
       return {
         id: `server:${comparison.name}`,
         label: comparison.name,
-        hint: `${STATUS_LABEL[comparison.status]}${comparison.targetEntry?.disabled ? ' · off' : ''}${toolsHint}`,
+        hint: `${STATUS_LABEL[comparison.status]}${comparison.targetEntry?.disabled ? ' · off' : ''}${
+          approvals[comparison.name] && approvals[comparison.name] !== 'approved'
+            ? ` · ${approvals[comparison.name]}`
+            : ''
+        }${toolsHint}`,
+        hintColor: approvals[comparison.name] === 'pending' ? colors.warn : undefined,
         value: { kind: 'server', comparison },
       };
     }),
@@ -133,11 +169,10 @@ export const McpView = ({
   ];
   const current = items.find((item) => item.id === currentId)?.value;
 
-  const save = (which: 'source' | 'target', servers: Record<string, unknown>, message: string) => {
-    const file = which === 'source' ? source : target;
-    if (!file) return;
+  const saveSource = (servers: Record<string, McpServerEntry>, message: string) => {
+    if (!source) return;
     try {
-      writeServers(file, servers as never);
+      writeServers(source, servers);
       notify(message, 'ok');
     } catch (cause) {
       notify((cause as Error).message, 'error');
@@ -145,21 +180,24 @@ export const McpView = ({
     reload();
   };
 
+  /** One server into (or, with no entry, out of) the IDE's scope — a file write, or `claude mcp`. */
+  const saveTarget = async (name: string, entry: McpServerEntry | undefined, message: string) => {
+    if (!target) return;
+    const result = await setMcpServer(root, target, name, entry);
+    notify(result.ok ? message : result.message, result.ok ? 'ok' : 'error');
+    reload();
+  };
+
   const push = (c: McpServerComparison) => {
     if (!target || !c.sourceEntry)
       return notify(`${c.name} is not in the reference config`, 'warn');
-    const run = () =>
-      save(
-        'target',
-        {
-          ...target.servers,
-          [c.name]: { ...c.sourceEntry, disabled: c.targetEntry?.disabled },
-        },
-        `Copied ${c.name} to ${ide.name}`,
-      );
-    if (c.status === 'diff')
+    const entry = target.supportsDisabled
+      ? { ...c.sourceEntry, disabled: c.targetEntry?.disabled }
+      : c.sourceEntry;
+    const run = () => void saveTarget(c.name, entry, `Copied ${c.name} to ${ide.name}`);
+    if (c.status === 'diff') {
       prompt.confirm(`Overwrite ${c.name} in ${ide.name}'s config with the reference?`, run);
-    else if (c.status === 'synced') notify(`${c.name} is already the same in both`, 'info');
+    } else if (c.status === 'synced') notify(`${c.name} is already the same in both`, 'info');
     else run();
   };
 
@@ -168,10 +206,10 @@ export const McpView = ({
       return notify(`${c.name} is not in ${ide.name}'s config`, 'warn');
     const { disabled: _off, ...entry } = c.targetEntry;
     const run = () =>
-      save('source', { ...source.servers, [c.name]: entry }, `Copied ${c.name} into the reference`);
-    if (c.status === 'diff')
+      saveSource({ ...source.servers, [c.name]: entry }, `Copied ${c.name} into the reference`);
+    if (c.status === 'diff') {
       prompt.confirm(`Overwrite ${c.name} in the reference with ${ide.name}'s?`, run);
-    else if (c.status === 'synced') notify(`${c.name} is already the same in both`, 'info');
+    } else if (c.status === 'synced') notify(`${c.name} is already the same in both`, 'info');
     else run();
   };
 
@@ -179,11 +217,21 @@ export const McpView = ({
     if (!target) return;
     const missing = comparisons.filter((c) => c.status === 'missing-in-target');
     if (missing.length === 0) return notify('Every reference server is already in the IDE', 'info');
-    const servers = { ...target.servers };
-    for (const c of missing) if (c.sourceEntry) servers[c.name] = c.sourceEntry;
-    prompt.confirm(`Copy ${missing.length} missing server(s) to ${ide.name}?`, () =>
-      save('target', servers, `Copied ${missing.length} server(s) to ${ide.name}`),
-    );
+    prompt.confirm(`Copy ${missing.length} missing server(s) to ${ide.name}?`, async () => {
+      let copied = 0;
+      for (const c of missing) {
+        //? One at a time, re-reading between: each write replaces the file, and
+        //? Claude Code's CLI must not be run in parallel against its own config
+        const fresh = targetDef ? readMcpTarget(root, targetDef) : undefined;
+        if (!fresh || !c.sourceEntry) continue;
+        if ((await setMcpServer(root, fresh, c.name, c.sourceEntry)).ok) copied += 1;
+      }
+      notify(
+        `Copied ${copied} of ${missing.length} server(s) to ${ide.name}`,
+        copied ? 'ok' : 'error',
+      );
+      reload();
+    });
   };
 
   const loadTools = (c: McpServerComparison) => {
@@ -211,21 +259,31 @@ export const McpView = ({
   const toggleDisabled = (c: McpServerComparison) => {
     if (!target || !c.targetEntry)
       return notify(`${c.name} is not in ${ide.name}'s config`, 'warn');
+    if (!target.supportsDisabled || hasApprovals) {
+      return notify(`${ide.name} has no per-server switch here — remove it, or deny it`, 'warn');
+    }
     const disabled = !c.targetEntry.disabled;
-    save(
-      'target',
-      { ...target.servers, [c.name]: { ...c.targetEntry, disabled: disabled || undefined } },
+    void saveTarget(
+      c.name,
+      { ...c.targetEntry, disabled: disabled || undefined },
       `${disabled ? 'Disabled' : 'Enabled'} ${c.name} in ${ide.name}`,
     );
+  };
+
+  const approve = (c: McpServerComparison, yes: boolean) => {
+    if (!hasApprovals || !c.targetEntry) return;
+    const result = setMcpApproval(root, c.name, yes);
+    notify(result.message, result.ok ? 'ok' : 'error');
+    reload();
   };
 
   const removeFromIde = (c: McpServerComparison) => {
     if (!target || !c.targetEntry)
       return notify(`${c.name} is not in ${ide.name}'s config`, 'warn');
-    prompt.confirm(`Remove ${c.name} from ${ide.name}'s config?`, () => {
-      const { [c.name]: _removed, ...rest } = target.servers;
-      save('target', rest, `Removed ${c.name} from ${ide.name}`);
-    });
+    prompt.confirm(
+      `Remove ${c.name} from ${ide.name}'s config?`,
+      () => void saveTarget(c.name, undefined, `Removed ${c.name} from ${ide.name}`),
+    );
   };
 
   const missingCount = comparisons.filter((c) => c.status === 'missing-in-target').length;
@@ -266,17 +324,40 @@ export const McpView = ({
       label: tools[c.name] === 'loading' ? 'Listing tools…' : 'List tools',
       onPress: () => loadTools(c),
       disabled: tools[c.name] === 'loading',
-      tone: c.status === 'synced' ? 'primary' : 'normal',
+      //? Unless approving is what it is waiting for — one primary per row
+      tone: c.status === 'synced' && approvals[c.name] !== 'pending' ? 'primary' : 'normal',
     });
-    if (c.targetEntry) {
+    if (c.targetEntry && hasApprovals) {
+      const state = approvals[c.name];
       actions.push(
         {
-          hotkey: 'd',
-          label: c.targetEntry.disabled ? 'Enable in IDE' : 'Disable in IDE',
-          onPress: () => toggleDisabled(c),
+          hotkey: 'y',
+          label: 'Approve',
+          onPress: () => approve(c, true),
+          disabled: state === 'approved',
+          tone: state === 'pending' ? 'primary' : 'normal',
         },
-        { hotkey: 'x', label: 'Remove from IDE', onPress: () => removeFromIde(c), tone: 'danger' },
+        {
+          hotkey: 'n',
+          label: 'Deny',
+          onPress: () => approve(c, false),
+          disabled: state === 'denied',
+        },
       );
+    } else if (c.targetEntry && target?.supportsDisabled) {
+      actions.push({
+        hotkey: 'd',
+        label: c.targetEntry.disabled ? 'Enable in IDE' : 'Disable in IDE',
+        onPress: () => toggleDisabled(c),
+      });
+    }
+    if (c.targetEntry) {
+      actions.push({
+        hotkey: 'x',
+        label: 'Remove from IDE',
+        onPress: () => removeFromIde(c),
+        tone: 'danger',
+      });
     }
     if (missingCount > 1) {
       actions.push({
@@ -291,11 +372,16 @@ export const McpView = ({
   useInput(
     (input) => {
       if (!source || !target) return;
-      if (input === 'P') pushAllMissing();
-      else if (input === 'e') handoff({ type: 'edit', path: source.path });
-      else if (input === 'E') handoff({ type: 'edit', path: target.path });
-      else if (input === 'n' && !target.exists)
-        save('target', {}, `Created ${displayPath(target.path, root)}`);
+      if (input === 'P') return pushAllMissing();
+      if (input === 'S') return cycleScope();
+      if (input === 'e') return handoff({ type: 'edit', path: source.path });
+      //? Claude Code's own ~/.claude.json is not for hand-editing while it runs
+      if (input === 'E' && target.file) return handoff({ type: 'edit', path: target.location });
+      if (input === 'n' && target.file && !target.exists) {
+        writeServers(target.file, {});
+        notify(`Created ${displayPath(target.location, root)}`, 'ok');
+        return reload();
+      }
 
       if (current?.kind === 'token') {
         if (input === 's') setToken(current.token);
@@ -306,11 +392,13 @@ export const McpView = ({
       if (input === 'p') push(c);
       else if (input === 'a') adopt(c);
       else if (input === 'i') loadTools(c);
-      else if (input === 'o') revealPath(c.targetEntry ? target.path : source.path);
+      else if (input === 'o') revealPath(c.targetEntry ? target.location : source.path);
       else if (input === 'd') toggleDisabled(c);
+      else if (input === 'y') approve(c, true);
+      else if (input === 'n') approve(c, false);
       else if (input === 'x') removeFromIde(c);
     },
-    { isActive: !prompt.isOpen && Boolean(ide.mcp) },
+    { isActive: !prompt.isOpen && Boolean(targetDef) },
   );
 
   //? Row actions are the toolbar's; the strip keeps the ones about the files
@@ -320,23 +408,35 @@ export const McpView = ({
       label: 'edit reference',
       onPress: source ? () => handoff({ type: 'edit', path: source.path }) : undefined,
     },
-    {
-      key: 'E',
-      label: 'edit IDE config',
-      onPress: target ? () => handoff({ type: 'edit', path: target.path }) : undefined,
-    },
-    ...(target && !target.exists ? [{ key: 'n', label: 'create IDE config' }] : []),
+    ...(target?.file
+      ? [
+          {
+            key: 'E',
+            label: 'edit IDE config',
+            onPress: () => handoff({ type: 'edit', path: target.location }),
+          },
+        ]
+      : []),
+    ...(targets.length > 1
+      ? [{ key: 'S', label: `scope: ${targetDef?.scope}`, onPress: cycleScope }]
+      : []),
+    ...(target?.file && !target.exists ? [{ key: 'n', label: 'create IDE config' }] : []),
   ];
 
-  const scope = ide.mcp?.scope === 'user' ? 'every repo' : 'this repo';
   const header =
     prompt.line ??
     (source && target ? (
       <Text wrap="truncate" color={colors.muted}>
         {source.exists ? displayPath(source.path, root) : 'no reference yet'} →{' '}
-        {displayPath(target.path, root)}
-        <Text color={ide.mcp?.scope === 'user' ? colors.warn : colors.muted}> ({scope})</Text>
-        {!target.exists && <Text color={colors.warn}> · missing, [n] creates it</Text>}
+        {displayPath(target.location, root)}
+        {target.file ? '' : ` (${targetDef?.scope} scope, via claude mcp)`}
+        <Text color={target.scope === 'user' ? colors.warn : colors.muted}>
+          {' '}
+          ({SCOPE_LABEL[target.scope]})
+        </Text>
+        {target.file && !target.exists && (
+          <Text color={colors.warn}> · missing, [n] creates it</Text>
+        )}
         {source.error && <Text color={colors.error}> · reference is not valid JSON</Text>}
         {target.error && <Text color={colors.error}> · IDE config is not valid JSON</Text>}
       </Text>
@@ -371,7 +471,9 @@ export const McpView = ({
     const c = row.comparison;
     const out: { text: string; color: string }[] = [
       {
-        text: `${STATUS_LABEL[c.status]}${c.targetEntry?.disabled ? ' · disabled in the IDE' : ''}`,
+        text: `${STATUS_LABEL[c.status]}${c.targetEntry?.disabled ? ' · disabled in the IDE' : ''}${
+          approvals[c.name] ? ` · ${approvals[c.name]} for you` : ''
+        }`,
         color:
           c.status === 'synced' ? colors.ok : c.status === 'diff' ? colors.warn : colors.highlight,
       },
@@ -415,10 +517,13 @@ export const McpView = ({
 
   //? After every hook, not before them: switching IDE on the IDE tab changes
   //? this answer without remounting the view
-  if (!ide.mcp) {
+  if (!targetDef) {
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Text>{ide.name} has no MCP config agenti knows how to manage.</Text>
+        <Text>
+          {ide.name} keeps no MCP servers {scope.kind === 'user' ? 'per user' : 'per repository'}{' '}
+          that agenti knows how to manage.
+        </Text>
         <Text color={colors.muted}>Pick another IDE on the IDE tab to compare its servers.</Text>
       </Box>
     );

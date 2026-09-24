@@ -4,7 +4,10 @@ import { render } from 'ink';
 import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
 import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 
+import { spawnSync } from 'node:child_process';
+
 import settingsStore, { hasOwnIde } from '../../config/settings';
+import type { Scope } from '../../core/scope';
 import editFile from '../../utils/editFile';
 import type { TabId } from '../../config/settings';
 import App from '../App';
@@ -18,7 +21,8 @@ import type { Handoff, Session } from '../types';
  * the dashboard comes back up on the same tab, row and open folders — all of
  * which live in `session` for exactly this reason.
  */
-export const renderDashboard = async (root: string, initialTab?: TabId): Promise<void> => {
+export const renderDashboard = async (scope: Scope, initialTab?: TabId): Promise<void> => {
+  const { root } = scope;
   //? Before Ink is handed stdin: the probe reads the terminal's replies off it,
   //? and once the TUI owns stdin a reply arrives as a burst of garbage keys
   await probeGraphicsSupport();
@@ -40,7 +44,7 @@ export const renderDashboard = async (root: string, initialTab?: TabId): Promise
 
     await runTuiApp(
       <App
-        root={root}
+        scope={scope}
         settings={settings}
         settingsPath={settingsStore.path}
         session={session}
@@ -59,11 +63,18 @@ export const renderDashboard = async (root: string, initialTab?: TabId): Promise
     );
 
     if (!handoff) return;
-    editFile(handoff.path);
+    const intent = handoff as Handoff;
+    if (intent.type === 'edit') {
+      editFile(intent.path);
+      notice = `Back from editing ${relative(root, intent.path)}`;
+    } else {
+      const [bin = '', ...args] = intent.command;
+      spawnSync(bin, args, { cwd: intent.cwd, stdio: 'inherit' });
+      notice = `Back from ${intent.label}`;
+    }
     //? The file edited may have been agenti's own config — reopening with the
     //? copy from before the edit would undo it on the next save
     settings = await settingsStore.load();
-    notice = `Back from editing ${relative(root, handoff.path)}`;
   }
 };
 

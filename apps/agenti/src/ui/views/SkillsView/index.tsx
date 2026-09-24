@@ -13,8 +13,10 @@ import {
   addSkill,
   type InstalledSkill,
   listSkills,
+  missingFromLock,
   readSkillDoc,
   removeSkill,
+  restoreSkills,
   type SkillActionResult,
   type SkillSearchResult,
   searchSkills,
@@ -58,6 +60,7 @@ const installedHint = (skill: InstalledSkill) =>
  * a second install behind the first.
  */
 export const SkillsView = ({
+  scope,
   root,
   session,
   notify,
@@ -74,7 +77,18 @@ export const SkillsView = ({
     undefined,
   );
 
-  const installed = useLoader(() => listSkills(root), [root, refreshKey]);
+  //? The user scope starts on the user's own skills; a repository on its own
+  const [global, setGlobal] = useState(scope.kind === 'user');
+  const installed = useLoader(() => listSkills(root, global), [root, global, refreshKey]);
+  const missing = global ? [] : missingFromLock(root);
+  const restore = () =>
+    prompt.confirm(`Reinstall ${missing.length} skill(s) listed in skills-lock.json?`, () =>
+      run('Restoring skills', () => restoreSkills(root)),
+    );
+  const toggleGlobal = () => {
+    setGlobal((on) => !on);
+    setSearch(undefined);
+  };
   const skills = installed.data ?? [];
   const installedNames = new Set(skills.map((skill) => skill.name));
 
@@ -132,7 +146,7 @@ export const SkillsView = ({
     prompt.confirm(`Install ${result.id} into this repository?`, () =>
       run(
         `Installing ${result.skillName}`,
-        () => addSkill(result.id, root),
+        () => addSkill(result.id, root, global),
         () => setSearch(undefined),
       ),
     );
@@ -146,7 +160,7 @@ export const SkillsView = ({
 
   const remove = (skill: InstalledSkill) =>
     prompt.confirm(`Remove ${skill.name} from this repository?`, () =>
-      run(`Removing ${skill.name}`, () => removeSkill(skill.name, root)),
+      run(`Removing ${skill.name}`, () => removeSkill(skill.name, root, global)),
     );
 
   const edit = (skill: InstalledSkill) => handoff({ type: 'edit', path: `${skill.path}/SKILL.md` });
@@ -171,7 +185,8 @@ export const SkillsView = ({
         hotkey: 'u',
         label: 'Update',
         onPress: () => update(skill),
-        disabled: Boolean(busy) || !skill.source,
+        //? Reinstalling goes by the repository's lock file; a user-wide skill has none
+        disabled: Boolean(busy) || !skill.source || global,
       },
       { hotkey: 'o', label: 'Reveal', onPress: () => revealPath(skill.path) },
       {
@@ -188,6 +203,8 @@ export const SkillsView = ({
     (input, key) => {
       if (busy) return;
       if (input === '/') return startSearch();
+      if (input === 'G') return toggleGlobal();
+      if (input === 'R' && missing.length) return restore();
       if (key.escape && search) return setSearch(undefined);
 
       if (current?.kind === 'result') {
@@ -210,7 +227,17 @@ export const SkillsView = ({
         { key: '/', label: 'search again', onPress: startSearch },
         { key: 'Esc', label: 'installed', onPress: () => setSearch(undefined) },
       ]
-    : [{ key: '/', label: 'search registry', onPress: startSearch }];
+    : [
+        { key: '/', label: 'search registry', onPress: startSearch },
+        {
+          key: 'G',
+          label: global ? 'showing: user-wide' : 'showing: this repo',
+          onPress: toggleGlobal,
+        },
+        ...(missing.length
+          ? [{ key: 'R', label: `restore ${missing.length}`, onPress: restore }]
+          : []),
+      ];
 
   const header =
     prompt.line ??
@@ -224,7 +251,13 @@ export const SkillsView = ({
           ? `skills.sh results for "${search.query}" · Esc back to installed`
           : installed.isLoading && !installed.data
             ? 'Asking the skills CLI what is installed…'
-            : `${skills.length} project skill(s) in .agents/skills`}
+            : global
+              ? `${skills.length} user-wide skill(s) — in every repository`
+              : `${skills.length} project skill(s) in .agents/skills${
+                  missing.length
+                    ? ` · ${missing.length} locked but not installed — [R] restores`
+                    : ''
+                }`}
       </Text>
     ));
 

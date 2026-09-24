@@ -1,8 +1,7 @@
 # terminal-canvas — how much picture fits in a terminal
 
-Drawing pixels into a text terminal. Moved here from dygma-hacking so every
-repo can draw with it: dygma's Debug tab compares the techniques side by side,
-agenti draws each IDE's logo with the best one the terminal supports.
+Drawing pixels into a text terminal — for any app that shows a picture, or
+wants to compare what each technique can do on the terminal it is running in.
 
 The TUI side lives with the rest of the UI kit: `ui/components/GraphicsCanvas`
 draws a subject with a text technique (and reserves the blank rectangle a raster

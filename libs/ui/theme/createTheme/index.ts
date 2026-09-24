@@ -51,8 +51,8 @@ export interface TuiThemeOverrides {
  * Key order is not cosmetic in `display`: it is the order elements are shed as
  * the terminal shrinks, and `hiddenLabels` reports them in it. A plain spread
  * puts the stock `barBorders` first, which silently reorders an app's carefully
- * argued shed order behind its back — dygma's "hand captions before bar frames"
- * became "bar frames before hand captions" with no code saying so.
+ * argued shed order behind its back — an app's "captions before bar frames"
+ * becomes "bar frames before captions" with no code saying so.
  *
  * So the override's keys come first, in its order, and anything the app did not
  * mention is appended.

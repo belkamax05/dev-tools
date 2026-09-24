@@ -1,7 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import type { IdeDefinition } from '../ides';
+import { homedir } from 'node:os';
+
+import exec from '@/dev-tools/utils/process/exec';
+
+import type { OperationResult } from '../agents';
+import type { IdeMcpTarget } from '../ides';
 import { AGENTS_DIR } from '../repo';
 
 /**
@@ -46,9 +51,9 @@ export interface McpServerComparison {
  * Where a repository keeps its reference MCP config, in order of preference.
  *
  * `.agents/mcp_config.json` first, so everything agent-related lives in one
- * folder; `config/mcp_config.json` second because that is where
- * shulker-controller and dfs-fe-internal already keep theirs, and a repo that
- * adopts this tool should not have to move a file to do it.
+ * folder; `config/mcp_config.json` second, a common home for it in repositories
+ * that kept a reference config before adopting this tool — they should not have
+ * to move a file to do it.
  */
 export const SOURCE_CANDIDATES = [
   join(AGENTS_DIR, 'mcp_config.json'),
@@ -84,10 +89,6 @@ export const readSourceMcp = (root: string): McpFile => {
   const found = SOURCE_CANDIDATES.map((rel) => join(root, rel)).find((path) => existsSync(path));
   return readMcpFile(found ?? join(root, SOURCE_CANDIDATES[0] ?? ''), 'mcpServers');
 };
-
-/** The IDE's own config, or undefined for an IDE with no MCP support here. */
-export const readTargetMcp = (root: string, ide: IdeDefinition): McpFile | undefined =>
-  ide.mcp ? readMcpFile(ide.mcp.path(root), ide.mcp.key) : undefined;
 
 /**
  * Replace the servers in `file`, keeping every other top-level key it had.
@@ -167,8 +168,7 @@ export const buildComparisons = (source: McpServers, target: McpServers): McpSer
 
 /**
  * The per-user secrets file MCP servers read tokens from, at the repo root.
- * Same name shulker-controller and dfs-fe-internal use, and expected to be
- * git-ignored there.
+ * Expected to be git-ignored — the Health tab checks that it is.
  */
 export const ENV_FILE = '.env.user';
 
@@ -198,11 +198,11 @@ export interface RequiredToken {
  * a top-level `requiredEnv` map in the reference file:
  *
  * ```json
- * { "requiredEnv": { "dfs-jira": ["JIRA_PERSONAL_TOKEN"] }, "mcpServers": { … } }
+ * { "requiredEnv": { "issue-tracker": ["TRACKER_TOKEN"] }, "mcpServers": { … } }
  * ```
  *
- * That replaces shulker-controller's hard-coded server-to-token table, which
- * only ever knew about two dfs servers.
+ * Declared in the data rather than in code, so any repository can say what its
+ * servers need without this tool knowing about them.
  */
 export const getRequiredTokens = (source: McpFile): RequiredToken[] => {
   const byKey = new Map<string, Set<string>>();
@@ -347,6 +347,203 @@ export const listServerTools = async (
   } finally {
     await client.close().catch(() => {});
   }
+};
+
+// ---------------------------------------------------------------------------
+// IDE targets — files, and Claude Code's CLI-managed scopes
+// ---------------------------------------------------------------------------
+
+export interface McpTargetState {
+  target: IdeMcpTarget;
+  /** "project", "local" or "user" — who sees these servers. */
+  scope: IdeMcpTarget['scope'];
+  /** Where they live, for display: a file path, or `~/.claude.json` for Claude's own scopes. */
+  location: string;
+  exists: boolean;
+  servers: McpServers;
+  error?: string;
+  /** Whether `disabled` on an entry means anything here — Claude Code's scopes have no such flag. */
+  supportsDisabled: boolean;
+  /** For a file target, the file as read, so writes keep what else it holds. */
+  file?: McpFile;
+}
+
+/** `~/.claude.json`, where Claude Code keeps its local- and user-scope servers. */
+export const claudeJsonPath = () => join(homedir(), '.claude.json');
+
+const readClaudeJson = (): Record<string, unknown> | undefined => {
+  try {
+    return JSON.parse(readFileSync(claudeJsonPath(), 'utf-8')) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+};
+
+/** What an IDE has configured at one of its MCP scopes. */
+export const readMcpTarget = (root: string, target: IdeMcpTarget): McpTargetState => {
+  if (target.kind === 'file') {
+    const file = readMcpFile(target.path(root), target.key);
+    return {
+      target,
+      scope: target.scope,
+      location: file.path,
+      exists: file.exists,
+      servers: file.servers,
+      error: file.error,
+      supportsDisabled: true,
+      file,
+    };
+  }
+  const json = readClaudeJson();
+  const holder =
+    target.scope === 'user'
+      ? json
+      : ((json?.projects as Record<string, Record<string, unknown>> | undefined)?.[root] ??
+        undefined);
+  const servers = (holder?.mcpServers as McpServers | undefined) ?? {};
+  return {
+    target,
+    scope: target.scope,
+    location: claudeJsonPath(),
+    exists: Boolean(json),
+    servers,
+    supportsDisabled: false,
+  };
+};
+
+/**
+ * Add, replace (`entry`) or remove (`undefined`) one server at a target.
+ *
+ * A file is read-modified-written, keeping every other key. Claude Code's own
+ * scopes go through its CLI — `claude mcp add-json` / `claude mcp remove` —
+ * because `~/.claude.json` is rewritten by every running Claude Code, and a
+ * write from here would race it.
+ */
+export const setMcpServer = async (
+  root: string,
+  state: McpTargetState,
+  name: string,
+  entry: McpServerEntry | undefined,
+): Promise<OperationResult> => {
+  if (state.target.kind === 'file') {
+    if (!state.file) return { ok: false, message: 'Not a file target' };
+    const servers = { ...state.servers };
+    if (entry) servers[name] = entry;
+    else delete servers[name];
+    try {
+      writeServers(state.file, servers);
+      return { ok: true, message: entry ? `Saved ${name}` : `Removed ${name}` };
+    } catch (error) {
+      return { ok: false, message: (error as Error).message };
+    }
+  }
+
+  const scope = state.target.scope;
+  if (name in state.servers) {
+    const removed = await exec(['claude', 'mcp', 'remove', '-s', scope, name], { cwd: root });
+    if (removed.exitCode !== 0) return { ok: false, message: removed.stderr || removed.stdout };
+  }
+  if (!entry) return { ok: true, message: `Removed ${name} from Claude Code's ${scope} scope` };
+  const { disabled: _off, ...json } = entry;
+  const added = await exec(['claude', 'mcp', 'add-json', '-s', scope, name, JSON.stringify(json)], {
+    cwd: root,
+  });
+  return added.exitCode === 0
+    ? { ok: true, message: `Added ${name} to Claude Code's ${scope} scope` }
+    : { ok: false, message: added.stderr || added.stdout || 'claude mcp add-json failed' };
+};
+
+// ---------------------------------------------------------------------------
+// Claude Code's approval of project servers
+// ---------------------------------------------------------------------------
+
+export type ApprovalState = 'approved' | 'denied' | 'pending';
+
+const readJson = (path: string): Record<string, unknown> => {
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+};
+
+const localSettingsPath = (root: string) => join(root, '.claude', 'settings.local.json');
+
+/**
+ * Whether Claude Code will start each of a repository's `.mcp.json` servers.
+ *
+ * Claude Code asks once per server and remembers the answer; a server copied
+ * into `.mcp.json` does nothing until someone says yes. The answers can come
+ * from `enableAllProjectMcpServers`, `enabledMcpjsonServers` or
+ * `disabledMcpjsonServers` in the shared or local settings, or from the choice
+ * Claude Code stored for this project in `~/.claude.json` — later sources win.
+ */
+export const getMcpApprovals = (root: string, names: string[]): Record<string, ApprovalState> => {
+  const project = (
+    readClaudeJson()?.projects as Record<string, Record<string, unknown>> | undefined
+  )?.[root];
+  const sources = [
+    project ?? {},
+    readJson(join(root, '.claude', 'settings.json')),
+    readJson(localSettingsPath(root)),
+  ];
+  const approvals: Record<string, ApprovalState> = {};
+  for (const name of names) approvals[name] = 'pending';
+  for (const source of sources) {
+    if (source.enableAllProjectMcpServers === true)
+      for (const name of names) approvals[name] = 'approved';
+    for (const name of (source.enabledMcpjsonServers as string[] | undefined) ?? []) {
+      if (name in approvals) approvals[name] = 'approved';
+    }
+    for (const name of (source.disabledMcpjsonServers as string[] | undefined) ?? []) {
+      if (name in approvals) approvals[name] = 'denied';
+    }
+  }
+  return approvals;
+};
+
+/**
+ * Approve or deny a project server for this user, in `.claude/settings.local.json`
+ * — the per-user settings file Claude Code reads, never committed — rather than
+ * in `~/.claude.json`, which Claude Code owns.
+ */
+export const setMcpApproval = (root: string, name: string, approve: boolean): OperationResult => {
+  const path = localSettingsPath(root);
+  const settings = readJson(path);
+  const enabled = new Set((settings.enabledMcpjsonServers as string[] | undefined) ?? []);
+  const disabled = new Set((settings.disabledMcpjsonServers as string[] | undefined) ?? []);
+  (approve ? enabled : disabled).add(name);
+  (approve ? disabled : enabled).delete(name);
+  settings.enabledMcpjsonServers = [...enabled].sort();
+  settings.disabledMcpjsonServers = [...disabled].sort();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`);
+  return {
+    ok: true,
+    message: `${approve ? 'Approved' : 'Denied'} ${name} for Claude Code (settings.local.json)`,
+  };
+};
+
+/**
+ * Values in a shared MCP file that look like secrets written in plain text:
+ * an `env` value, header or argument next to a key that says token, key,
+ * secret or password, which is not a `${NAME}` placeholder.
+ */
+export const findLiteralSecrets = (servers: McpServers): string[] => {
+  const found: string[] = [];
+  const secretish = /token|secret|password|passwd|api[-_]?key|auth/i;
+  for (const [name, entry] of Object.entries(servers)) {
+    for (const [key, value] of Object.entries(entry.env ?? {})) {
+      if (secretish.test(key) && value && !/^\$\{[^}]+\}$/.test(value))
+        found.push(`${name}: env ${key}`);
+    }
+    const headers = (entry.headers as Record<string, string> | undefined) ?? {};
+    for (const [key, value] of Object.entries(headers)) {
+      if (secretish.test(key) && value && !value.includes('${'))
+        found.push(`${name}: header ${key}`);
+    }
+  }
+  return found;
 };
 
 export default buildComparisons;

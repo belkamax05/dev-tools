@@ -153,8 +153,8 @@ const writeLock = (root: string, lock: LockFile) =>
  * a plain listing, which put a new tracked file into repos that had never
  * installed anything from a registry.
  */
-export const listSkills = async (root: string): Promise<InstalledSkill[]> => {
-  const result = await runSkills(['list', '--json', '-p'], root);
+export const listSkills = async (root: string, global = false): Promise<InstalledSkill[]> => {
+  const result = await runSkills(['list', '--json', scopeFlag(global)], root);
   if (!result.ok || !result.stdout.trim()) return [];
 
   let skills: InstalledSkill[];
@@ -208,8 +208,8 @@ export const listSkills = async (root: string): Promise<InstalledSkill[]> => {
  * a new or reinstalled skill lands in the same places as the rest rather than
  * wherever the CLI guesses.
  */
-const agentFlags = async (root: string): Promise<string[]> => {
-  const result = await runSkills(['list', '--json', '-p'], root);
+const agentFlags = async (root: string, global = false): Promise<string[]> => {
+  const result = await runSkills(['list', '--json', scopeFlag(global)], root);
   try {
     const skills = JSON.parse(result.stdout.slice(result.stdout.indexOf('['))) as InstalledSkill[];
     const agents = [...new Set(skills.flatMap((skill) => skill.agents))];
@@ -239,14 +239,29 @@ const recordInLock = (root: string, source: string) => {
 };
 
 /** Install `owner/repo@skill` (or anything else `skills add` accepts) into the project. */
-export const addSkill = async (source: string, root: string): Promise<SkillActionResult> => {
-  const result = await runSkills(['add', source, '-y', ...(await agentFlags(root))], root);
-  if (result.ok) recordInLock(root, source);
+export const addSkill = async (
+  source: string,
+  root: string,
+  global = false,
+): Promise<SkillActionResult> => {
+  const result = await runSkills(
+    ['add', source, '-y', ...(global ? ['-g'] : []), ...(await agentFlags(root, global))],
+    root,
+  );
+  //? The lock file is the repository's; a user-wide install has none
+  if (result.ok && !global) recordInLock(root, source);
   return { ok: result.ok, output: combined(result) };
 };
 
-export const removeSkill = async (name: string, root: string): Promise<SkillActionResult> => {
-  const result = await runSkills(['remove', '-s', name, '-y', ...(await agentFlags(root))], root);
+export const removeSkill = async (
+  name: string,
+  root: string,
+  global = false,
+): Promise<SkillActionResult> => {
+  const result = await runSkills(
+    ['remove', '-s', name, '-y', ...(global ? ['-g'] : []), ...(await agentFlags(root, global))],
+    root,
+  );
   return { ok: result.ok, output: combined(result) };
 };
 
@@ -305,6 +320,26 @@ export const searchSkills = async (query: string, root: string): Promise<SkillSe
   });
 
   return found;
+};
+
+/** The CLI's scope flag: project skills, or the user's own (`-g`). */
+const scopeFlag = (global: boolean) => (global ? '-g' : '-p');
+
+/**
+ * Skills the lock file records that are not on disk — a fresh clone of a
+ * repository whose skills are ignored rather than committed, say.
+ */
+export const missingFromLock = (root: string): string[] => {
+  const lock = readLock(root);
+  return Object.keys(lock?.skills ?? {})
+    .filter((name) => !existsSync(join(root, AGENTS_DIR, 'skills', name)))
+    .sort();
+};
+
+/** Reinstall everything `skills-lock.json` lists, the way the CLI does for a fresh clone. */
+export const restoreSkills = async (root: string): Promise<SkillActionResult> => {
+  const result = await runSkills(['experimental_install'], root);
+  return { ok: result.ok, output: combined(result) };
 };
 
 /** A skill's SKILL.md, for the detail pane. */

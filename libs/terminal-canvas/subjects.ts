@@ -11,7 +11,7 @@ import renderSphereScene from './scenes/renderSphereScene.ts';
  * A subject knows nothing about the app drawing it — it is handed a surface
  * and a time, and that is the whole contract that lets the same picture come
  * out of ASCII, braille, or a kitty bitmap. The procedural ones live here; an
- * app's own images (dygma's Sailor Moon, agenti's IDE logos) are loaded with
+ * app's own images (agenti's IDE logos, say) are loaded with
  * `loadImageSubject` from files the app keeps itself.
  */
 

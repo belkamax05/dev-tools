@@ -28,7 +28,7 @@
     "noPropertyAccessFromIndexSignature": false,
 
     // Same convention as apps/giti: @/dev-tools/agenti/* is how an outside
-    // consumer (dfs-fe-internal, later) reaches this app's core, and
+    // consumer (another repository adopting it) reaches this app's core, and
     // @/dev-tools/* is the lib's own shared code, two levels up.
     "paths": {
       "@/dev-tools/agenti/*": ["./src/*"],

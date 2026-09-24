@@ -11,14 +11,17 @@ import { nextThemeId } from '@/dev-tools/ui/theme';
 import {
   type AgentiSettings,
   hasOwnIde,
-  resolveIdeId,
+  ideIdsFor,
   type TabId,
+  toggleRepoIde,
   withRepoIde,
 } from '../../config/settings';
-import { getIde, IDES } from '../../core/ides';
+import { getIde, type IdeDefinition } from '../../core/ides';
+import type { Scope } from '../../core/scope';
 import agentiTheme from '../theme';
 import type { Handoff, Session, Tone } from '../types';
 import AgentsView from '../views/AgentsView';
+import HealthView from '../views/HealthView';
 import IdeView from '../views/IdeView';
 import McpView from '../views/McpView';
 import SkillsView from '../views/SkillsView';
@@ -33,6 +36,7 @@ export const TABS: readonly TabDefinition<TabId>[] = [
   { id: 'agents', icon: '🤖', label: '🤖 Agents' },
   { id: 'mcp', icon: '🔌', label: '🔌 MCP' },
   { id: 'skills', icon: '🧩', label: '🧩 Skills' },
+  { id: 'health', icon: '🩺', label: '🩺 Health' },
   { id: 'ide', icon: '💻', label: '💻 IDE' },
 ];
 
@@ -40,7 +44,7 @@ export const isTabId = (value: string | undefined): value is TabId =>
   TABS.some((tab) => tab.id === value);
 
 export interface AppProps {
-  root: string;
+  scope: Scope;
   settings: AgentiSettings;
   settingsPath: string;
   session: Session;
@@ -69,15 +73,15 @@ const StatusNote = ({ text, tone }: { text: string; tone: Tone }) => {
 };
 
 /**
- * agenti's dashboard: one repository's `.agents`, MCP servers and skills,
- * against the IDE picked for it.
+ * agenti's dashboard: one scope's `.agents`, instructions, MCP servers and
+ * skills, against every IDE it is kept in step with.
  *
- * The shell is `dev-tools`'s `AppShell`, as in giti; what lives here is the IDE
- * every tab shares, the status line every action reports into, and the
- * handoff that lets a tab borrow the terminal for an editor.
+ * The shell is `dev-tools`'s `AppShell`, as in giti; what lives here is the set
+ * of IDEs and which one the tabs are showing (`[` / `]`), the status line every
+ * action reports into, and the handoff that lets a tab borrow the terminal.
  */
 export const App = ({
-  root,
+  scope,
   settings: initialSettings,
   settingsPath,
   session,
@@ -95,7 +99,18 @@ export const App = ({
   const [footerHint, setFooterHint] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const ide = getIde(resolveIdeId(settings, root)) ?? IDES[0];
+  const { root } = scope;
+  const ides = ideIdsFor(settings, root)
+    .map((id) => getIde(id))
+    .filter((known): known is IdeDefinition => Boolean(known));
+  const [activeId, setActiveId] = useState(session.activeIde);
+  const ide = ides.find((candidate) => candidate.id === activeId) ?? ides[0];
+  const showIde = (step: number) => {
+    if (ides.length < 2 || !ide) return;
+    const next = ides[(ides.indexOf(ide) + step + ides.length) % ides.length];
+    setActiveId(next?.id);
+    session.activeIde = next?.id;
+  };
 
   const changeTab = (next: TabId) => {
     setTab(next);
@@ -135,6 +150,8 @@ export const App = ({
       if (input === 'q' || input === 'Q') exit();
       else if (input === 'r' || input === 'R') refresh();
       else if (input === 't' || input === 'T') cycleTheme();
+      else if (input === ']') showIde(1);
+      else if (input === '[') showIde(-1);
     },
     { isActive: !isInputCaptured },
   );
@@ -166,8 +183,10 @@ export const App = ({
   if (!ide) return null;
 
   const viewProps = {
+    scope,
     root,
     ide,
+    ides,
     session,
     notify,
     onCaptureInput: setIsInputCaptured,
@@ -177,8 +196,12 @@ export const App = ({
 
   return (
     <AppShell
-      title={`agenti — ${basename(root)}`}
-      detail={`${ide.name} · .agents → ${ide.folder}`}
+      title={scope.kind === 'user' ? 'agenti — user scope' : `agenti — ${basename(root)}`}
+      detail={
+        ides.length > 1
+          ? `${ides.map((candidate) => (candidate.id === ide.id ? `[${candidate.name}]` : candidate.name)).join(' · ')}  [ ] switch`
+          : ide.name
+      }
       note={status ? <StatusNote text={status.text} tone={status.tone} /> : root}
       tabs={TABS}
       activeTab={tab}
@@ -187,7 +210,8 @@ export const App = ({
       palette={settings.theme}
       isInputCaptured={isInputCaptured}
       footerHints={
-        footerHint ?? `[1-${TABS.length}] / Tab switch tab · [r] refresh · [t] theme · [q] quit`
+        footerHint ??
+        `[1-${TABS.length}] / Tab switch tab${ides.length > 1 ? ' · [ ] IDE' : ''} · [r] refresh · [t] theme · [q] quit`
       }
       footerActions={footerActions}
       onHoverFooterAction={(action) => setFooterHint(action?.tooltip ?? null)}
@@ -197,12 +221,18 @@ export const App = ({
       {tab === 'agents' && <AgentsView key={ide.id} {...viewProps} />}
       {tab === 'mcp' && <McpView key={ide.id} {...viewProps} />}
       {tab === 'skills' && <SkillsView {...viewProps} />}
+      {tab === 'health' && <HealthView {...viewProps} />}
       {tab === 'ide' && (
         <IdeView
           {...viewProps}
           settingsPath={settingsPath}
           hasOwnChoice={hasOwnIde(settings, root)}
-          onSelectIde={(id) => updateSettings(withRepoIde(settings, root, id))}
+          onSelectIde={(id) => {
+            updateSettings(withRepoIde(settings, root, id));
+            setActiveId(id);
+            session.activeIde = id;
+          }}
+          onToggleIde={(id) => updateSettings(toggleRepoIde(settings, root, id))}
           logoMode={settings.logoMode}
           onLogoModeChange={(logoMode) => updateSettings({ ...settings, logoMode })}
         />

@@ -12,6 +12,7 @@ import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import { findIdeBinary, IDES, type IdeDefinition } from '../../../core/ides';
+import { launchDetached, launchPlan } from '../../../core/launch';
 import revealPath from '../../../utils/revealPath';
 import LinkRow from '../../LinkRow';
 import { LOGO_MODES, type LogoMode, resolveLogoTechnique } from '../../logo';
@@ -20,7 +21,10 @@ import Toolbar from '../../Toolbar';
 import type { ViewProps } from '../../types';
 
 export interface IdeViewProps extends ViewProps {
+  /** Make an IDE the primary one — adding it if it was not in the set. */
   onSelectIde: (id: string) => void;
+  /** Add an IDE to the set kept in step, or take it out (never the last one). */
+  onToggleIde: (id: string) => void;
   /** The settings file the choice is saved to — shown, and openable, so it is never a mystery. */
   settingsPath: string;
   /** False while this repo is still on an inherited default rather than its own pick. */
@@ -61,11 +65,12 @@ interface DetailLine {
  */
 export const IdeView = ({
   root,
-  ide,
+  ides,
   session,
   notify,
   handoff,
   onSelectIde,
+  onToggleIde,
   settingsPath,
   hasOwnChoice,
   logoMode,
@@ -74,7 +79,9 @@ export const IdeView = ({
   const colors = useColors();
   const theme = useTuiTheme();
   const viewport = useViewport();
-  const [currentId, setCurrentId] = useState<string | undefined>(session.selected.ide ?? ide.id);
+  const [currentId, setCurrentId] = useState<string | undefined>(
+    session.selected.ide ?? ides[0]?.id,
+  );
   //? Kept in the session as well, so opening a link in the editor comes back
   //? with that same link highlighted rather than the keyboard back on the list
   const [focus, setFocusState] = useState(session.ideFocus.pane);
@@ -92,10 +99,40 @@ export const IdeView = ({
 
   const current = IDES.find((candidate) => candidate.id === currentId);
 
+  const primary = ides[0];
+  const included = (candidate: IdeDefinition) => ides.some((one) => one.id === candidate.id);
+
   const choose = (candidate: IdeDefinition | undefined) => {
-    if (!candidate || candidate.id === ide.id) return;
+    if (!candidate || candidate.id === primary?.id) return;
     onSelectIde(candidate.id);
-    notify(`${candidate.name} is now this repository's IDE`, 'ok');
+    notify(`${candidate.name} is now the primary IDE`, 'ok');
+  };
+
+  const toggle = (candidate: IdeDefinition | undefined) => {
+    if (!candidate) return;
+    if (included(candidate) && ides.length === 1) {
+      notify('Keep at least one IDE — add another before removing this one', 'warn');
+      return;
+    }
+    onToggleIde(candidate.id);
+    notify(
+      included(candidate)
+        ? `${candidate.name} is no longer kept in step`
+        : `${candidate.name} is now kept in step too`,
+      'ok',
+    );
+  };
+
+  const launch = (candidate: IdeDefinition | undefined) => {
+    if (!candidate) return;
+    const plan = launchPlan(candidate, root);
+    if (!plan) return notify(`${candidate.name} is not installed`, 'warn');
+    if (plan.terminal)
+      handoff({ type: 'run', command: plan.command, cwd: plan.cwd, label: candidate.name });
+    else {
+      const result = launchDetached(plan);
+      notify(result.message, result.ok ? 'ok' : 'error');
+    }
   };
 
   const cycleLogoMode = () =>
@@ -109,7 +146,8 @@ export const IdeView = ({
       : lstatSync(folder).isSymbolicLink()
         ? 'one link to .agents'
         : 'a folder';
-    const mcpPath = candidate.mcp?.path(root);
+    const mcpFile = candidate.mcp.find((target) => target.kind === 'file');
+    const mcpPath = mcpFile?.kind === 'file' ? mcpFile.path(root) : undefined;
     return [
       {
         label: 'binary',
@@ -127,7 +165,7 @@ export const IdeView = ({
       {
         label: 'mcp',
         value: mcpPath
-          ? `${shorten(mcpPath, root)} (${candidate.mcp?.scope === 'user' ? 'every repo' : 'this repo'})`
+          ? `${shorten(mcpPath, root)} (${mcpFile?.scope === 'user' ? 'every repo' : 'this repo'})`
           : 'not supported',
         color: mcpPath ? colors.text : colors.warn,
         open: mcpPath ? () => handoff({ type: 'edit', path: mcpPath }) : undefined,
@@ -147,6 +185,7 @@ export const IdeView = ({
 
   useInput((input, key) => {
     if (input === 'g') return cycleLogoMode();
+    if (input === 'l') return launch(current);
 
     if (focus === 'detail') {
       if (key.leftArrow || key.escape) setFocus('list');
@@ -160,9 +199,8 @@ export const IdeView = ({
       setFocus('detail');
       setLinkIndex((at) => Math.min(at, links.length - 1));
     } else if (input === ' ') {
-      //? Space as well as Enter: this is a radio list, and Space is the key
-      //? that picks an option in one everywhere else
-      choose(current);
+      //? Space ticks, as in any checklist; Enter (ListDetail's) makes primary
+      toggle(current);
     }
   });
 
@@ -183,15 +221,24 @@ export const IdeView = ({
 
   const items: PickItem<IdeDefinition>[] = IDES.map((candidate) => {
     const binary = findIdeBinary(candidate);
-    const hasFolder = existsSync(join(root, candidate.folder));
+    const isPrimary = candidate.id === primary?.id;
     return {
       id: candidate.id,
-      label: `${candidate.id === ide.id ? '●' : '○'} ${candidate.name}`,
-      hint: [binary ? 'installed' : 'not installed', hasFolder && candidate.folder]
+      label: candidate.name,
+      hint: [isPrimary ? 'primary' : undefined, binary ? undefined : 'not installed']
         .filter(Boolean)
         .join(' · '),
+      hintColor: isPrimary ? colors.accent : undefined,
       value: candidate,
-      isCurrent: candidate.id === ide.id,
+      isCurrent: isPrimary,
+      controls: [
+        {
+          id: 'include',
+          glyph: included(candidate) ? '[x]' : '[ ]',
+          color: included(candidate) ? colors.ok : colors.muted,
+          onPress: () => toggle(candidate),
+        },
+      ],
     };
   });
 
@@ -200,8 +247,8 @@ export const IdeView = ({
       <Box flexShrink={0}>
         <Text color={colors.muted} wrap="truncate">
           {hasOwnChoice
-            ? `${ide.name} is this repo's IDE`
-            : `No IDE chosen for this repo yet — using ${ide.name}, the last pick`}
+            ? `Kept in step: ${ides.map((one) => one.name).join(', ')}`
+            : `No IDE chosen here yet — using ${primary?.name ?? 'none'}, the last pick`}
           {focus === 'detail' ? ' · ←/Esc back to the list' : ' · → into the details'}
         </Text>
       </Box>
@@ -210,13 +257,14 @@ export const IdeView = ({
         items={items}
         detailTitle={focus === 'detail' ? 'IDE — ↑/↓ Enter' : 'IDE'}
         reservedChrome={['viewHeader']}
-        initialSelectedId={session.selected.ide ?? ide.id}
+        initialSelectedId={session.selected.ide ?? ides[0]?.id}
         //? A click selects; choosing is the toolbar's button, so the two can
         //? differ — which is what lets that button be disabled for the chosen one
         activateOnClick={false}
-        activateLabel="use for this repo"
+        activateLabel="make primary"
         isInputActive={focus === 'list'}
         hints={[
+          { key: 'Space', label: 'include' },
           {
             key: 'g',
             label: `logo: ${logoMode}${logoMode === 'auto' ? ` (${technique.id})` : ''}`,
@@ -231,17 +279,32 @@ export const IdeView = ({
         renderDetail={(item) => {
           const candidate = item?.value;
           if (!candidate) return null;
-          const chosen = candidate.id === ide.id;
+          const chosen = candidate.id === primary?.id;
+          const isIncluded = included(candidate);
+          const installed = Boolean(findIdeBinary(candidate));
           return (
             <Box flexDirection="column">
               <Toolbar
                 actions={[
                   {
                     hotkey: 'Space',
-                    label: chosen ? "Is this repo's IDE" : 'Use for this repo',
+                    label: isIncluded ? 'Stop keeping in step' : 'Keep in step',
+                    onPress: () => toggle(candidate),
+                    tone: isIncluded ? 'normal' : 'primary',
+                    disabled: isIncluded && ides.length === 1,
+                  },
+                  {
+                    hotkey: 'Enter',
+                    label: chosen ? 'Is the primary IDE' : 'Make primary',
                     onPress: () => choose(candidate),
-                    tone: 'primary',
                     disabled: chosen,
+                  },
+                  {
+                    hotkey: 'l',
+                    label: `Launch here`,
+                    onPress: () => launch(candidate),
+                    tone: installed && isIncluded ? 'primary' : 'normal',
+                    disabled: !installed,
                   },
                   { hotkey: 'g', label: `Logo: ${logoMode}`, onPress: cycleLogoMode },
                 ]}

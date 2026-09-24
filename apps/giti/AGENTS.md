@@ -7,14 +7,11 @@ backed by Ink TUIs. It ships as a `giti` binary on `PATH` plus a `.gitconfig` th
 command onto a `git <name>` alias, so the same code is reachable as `giti status`,
 `git giti status`, or `git status` (the alias).
 
-This lives at `apps/giti` inside `dev-tools` (itself a submodule of the `shulker` umbrella
-repo), as a subproject sharing `dev-tools`'s own libs directly rather than through a cross-repo
-alias. It used to be copied from an independent `libs/giti` submodule; that submodule has since
-been removed, so this is now the only `giti` and the canonical one. It is **not** its own repo: it
-is a member of the root `shulker` package.json's Bun workspace (`libs/dev-tools/apps/*`), which is
-what gives it the same physical `react`/`ink` copy as `dev-tools`'s shared UI components — install
-and typecheck it via the root (`bun install` at `~/dev/shulker`, `bunx tsc --noEmit` from here).
-Read `../../../../AGENTS.md` for umbrella-wide conventions.
+This lives at `apps/giti` inside `dev-tools`, as a subproject sharing `dev-tools`'s own libs
+directly rather than through a cross-repo alias. It is **not** its own repo: it is a member of
+`dev-tools`' own Bun workspace (`apps/*`), which is what gives it the same physical `react`/`ink`
+copy as the shared UI components — install from the `dev-tools` root (`bun install` there) and
+typecheck from here (`bunx tsc --noEmit`).
 
 ## Commands
 

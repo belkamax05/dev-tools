@@ -22,6 +22,13 @@ import {
   syncNode,
   toggleLink,
 } from '../../../core/agents';
+import {
+  adoptInstructions,
+  getInstructions,
+  type InstructionsStatus,
+  linkInstructions,
+  unlinkInstructions,
+} from '../../../core/instructions';
 import revealPath from '../../../utils/revealPath';
 import Toolbar, { type ToolbarAction } from '../../Toolbar';
 import type { ViewProps } from '../../types';
@@ -39,6 +46,7 @@ const CHECKBOX: Record<AgentStatus, string> = {
   mismatch: '[!]',
   orphan: '[+]',
   unknown: '[?]',
+  unused: '[-]',
 };
 
 const DESCRIBE: Record<AgentStatus, string> = {
@@ -48,6 +56,7 @@ const DESCRIBE: Record<AgentStatus, string> = {
   mismatch: 'the IDE copy differs from .agents',
   orphan: 'only in the IDE folder, not in .agents',
   unknown: 'something unexpected is in the way',
+  unused: 'not read by this IDE',
 };
 
 const statusColor = (status: AgentStatus, colors: ThemeColors) =>
@@ -59,12 +68,26 @@ const statusColor = (status: AgentStatus, colors: ThemeColors) =>
         ? colors.highlight
         : colors.muted;
 
+/**
+ * How something in step got there: a link, a generated conversion, or a plain
+ * copy. A folder is described by what is in it — a real folder of links (a
+ * shared target like `.claude/commands`) is as linked as a folder link.
+ */
+const syncedKind = (node: AgentNode): string => {
+  if (node.linkTarget || node.isLinked) return 'linked';
+  //? In step and converted means it matches the rendering, marker included
+  if (node.type === 'file') return node.isGenerated ? 'generated' : 'copy';
+  const kinds = new Set((node.children ?? []).filter((c) => c.status === 'synced').map(syncedKind));
+  return kinds.size === 1 ? ([...kinds][0] ?? 'copy') : kinds.size ? 'mixed' : 'copy';
+};
+
 const hintFor = (node: AgentNode): string => {
-  if (node.status === 'synced') return node.linkTarget || node.isLinked ? 'linked' : 'copy';
+  if (node.status === 'synced') return syncedKind(node);
   if (node.status === 'mismatch') return 'differs';
   if (node.status === 'orphan') return 'IDE only';
   if (node.status === 'implicit') return 'partly';
   if (node.status === 'unknown') return '?';
+  if (node.status === 'unused') return 'unused';
   return 'off';
 };
 
@@ -92,6 +115,35 @@ const countFor = (node: AgentNode): string => {
   return ` [${inIde}/${children.length}]`;
 };
 
+const INSTRUCTIONS_ID = '::instructions';
+
+const INSTRUCTIONS_BOX: Record<InstructionsStatus, string> = {
+  native: '[x]',
+  synced: '[x]',
+  missing: '[ ]',
+  mismatch: '[!]',
+  'no-source': '[+]',
+  none: '[-]',
+};
+
+const INSTRUCTIONS_HINT: Record<InstructionsStatus, string> = {
+  native: 'read natively',
+  synced: 'linked',
+  missing: 'off',
+  mismatch: 'differs',
+  'no-source': 'no AGENTS.md',
+  none: '',
+};
+
+const INSTRUCTIONS_DESCRIBE: Record<InstructionsStatus, (ide: string) => string> = {
+  native: (ide) => `${ide} reads AGENTS.md itself — nothing to keep in step`,
+  synced: (ide) => `${ide}'s instructions point at AGENTS.md`,
+  missing: (ide) => `${ide} does not see AGENTS.md yet`,
+  mismatch: (ide) => `${ide}'s instructions file does not point at AGENTS.md`,
+  'no-source': () => 'There is no AGENTS.md — the shared instructions every IDE reads',
+  none: () => '',
+};
+
 /** The width of the fold triangle plus its margin, for rows that have none. */
 const TWISTY_CELLS = 2;
 
@@ -107,6 +159,7 @@ const TWISTY_CELLS = 2;
  * in the detail pane, the likeliest one first and highlighted.
  */
 export const AgentsView = ({
+  scope,
   root,
   ide,
   session,
@@ -131,7 +184,10 @@ export const AgentsView = ({
     isLoading,
     error,
     reload,
-  } = useLoader(() => getInventory(root, ide), [root, ide.id, refreshKey]);
+  } = useLoader(() => getInventory(scope, ide), [root, scope.kind, ide.id, refreshKey]);
+  //? Cheap — a couple of stats — so read fresh on every render rather than
+  //? loaded, which keeps it in step after any action without a reload of its own
+  const instructions = getInstructions(scope, ide);
 
   const setOpen = useCallback(
     (node: AgentNode, open: boolean) => {
@@ -171,6 +227,10 @@ export const AgentsView = ({
       notify(`${node.relativePath} is only in the IDE — [a] adopts it into .agents`, 'warn');
       return;
     }
+    if (node.status === 'unused') {
+      notify(`${ide.name} has nowhere that reads ${node.relativePath}`, 'warn');
+      return;
+    }
     apply(toggleLink(inventory, node, node.status === 'missing' || node.status === 'implicit'));
   };
 
@@ -184,8 +244,9 @@ export const AgentsView = ({
         hint: hintFor(node),
         //? The two hints that mean "in the IDE, at least partly" stand out from
         //? the dimmed rest; "off" and the others stay as they are
-        hintColor:
-          hintFor(node) === 'linked' || hintFor(node) === 'partly' ? colors.accent : undefined,
+        hintColor: ['linked', 'generated', 'partly'].includes(hintFor(node))
+          ? colors.accent
+          : undefined,
         value: node,
         indent: depth * 2 + (isDir ? 0 : TWISTY_CELLS),
         controls: [
@@ -210,8 +271,101 @@ export const AgentsView = ({
       return [row, ...(isOpen && node.children ? toRows(node.children, depth + 1) : [])];
     });
 
-  const items = inventory ? toRows(inventory.nodes) : [];
+  const instructionsRow: PickItem<AgentNode>[] =
+    instructions.status === 'none'
+      ? []
+      : [
+          {
+            id: INSTRUCTIONS_ID,
+            label: 'AGENTS.md',
+            hint: INSTRUCTIONS_HINT[instructions.status],
+            hintColor: instructions.status === 'synced' ? colors.accent : undefined,
+            indent: TWISTY_CELLS,
+            controls: [
+              {
+                id: 'link',
+                glyph: INSTRUCTIONS_BOX[instructions.status],
+                color:
+                  instructions.status === 'synced' || instructions.status === 'native'
+                    ? colors.ok
+                    : instructions.status === 'mismatch'
+                      ? colors.warn
+                      : colors.muted,
+                onPress: () => toggleInstructions(),
+              },
+            ],
+          },
+        ];
+  const items = [...instructionsRow, ...(inventory ? toRows(inventory.nodes) : [])];
+  const onInstructions = currentId === INSTRUCTIONS_ID;
   const current = items.find((item) => item.id === currentId)?.value;
+
+  const toggleInstructions = () => {
+    const state = instructions;
+    if (state.status === 'native') return notify(`${ide.name} reads AGENTS.md itself`, 'info');
+    if (state.status === 'synced') return apply(unlinkInstructions(state));
+    if (state.status === 'no-source') {
+      return notify(
+        state.targetHasContent
+          ? '[a] adopts the IDE file as AGENTS.md'
+          : 'Write an AGENTS.md first ([e])',
+        'warn',
+      );
+    }
+    if (state.status === 'mismatch' && state.mode === 'link') {
+      return notify(
+        `${state.targetPath} has its own content — [p] replaces it with a link`,
+        'warn',
+      );
+    }
+    apply(linkInstructions(state));
+  };
+
+  const instructionsActions = (): ToolbarAction[] => {
+    const state = instructions;
+    const target = state.targetPath ? relative(root, state.targetPath) : undefined;
+    const actions: ToolbarAction[] = [];
+    if (state.status === 'missing' || (state.status === 'mismatch' && state.mode === 'import')) {
+      actions.push({
+        hotkey: 'Space',
+        label: state.mode === 'import' ? `Import from ${target}` : `Link ${target}`,
+        onPress: toggleInstructions,
+        tone: 'primary',
+      });
+    }
+    if (state.status === 'synced') {
+      actions.push({ hotkey: 'Space', label: `Remove ${target}`, onPress: toggleInstructions });
+    }
+    if (state.status === 'no-source' && state.targetHasContent) {
+      actions.push({
+        hotkey: 'a',
+        label: `Adopt ${target} as AGENTS.md`,
+        onPress: () => apply(adoptInstructions(state)),
+        tone: 'primary',
+      });
+    }
+    if (state.status === 'mismatch' && state.mode === 'link') {
+      actions.push({
+        hotkey: 'p',
+        label: `Replace ${target} with a link`,
+        onPress: () =>
+          prompt.confirm(`Replace ${target} (and what it says) with a link to AGENTS.md?`, () =>
+            apply(linkInstructions(state, { force: true })),
+          ),
+        tone: 'danger',
+      });
+    }
+    actions.push(
+      { hotkey: 'v', label: 'Preview', onPress: togglePreview, isOn: preview },
+      {
+        hotkey: 'e',
+        label: state.sourceExists ? 'Edit AGENTS.md' : 'Write AGENTS.md',
+        onPress: () => handoff({ type: 'edit', path: state.sourcePath }),
+        tone: state.status === 'no-source' && !state.targetHasContent ? 'primary' : 'normal',
+      },
+    );
+    return actions;
+  };
 
   const diff = useLoader(
     () =>
@@ -223,7 +377,10 @@ export const AgentsView = ({
 
   const edit = (node: AgentNode) => {
     if (node.type !== 'file') return;
-    handoff({ type: 'edit', path: node.status === 'orphan' ? node.targetPath : node.sourcePath });
+    handoff({
+      type: 'edit',
+      path: node.status === 'orphan' && node.targetPath ? node.targetPath : node.sourcePath,
+    });
   };
 
   const adopt = (node: AgentNode) => {
@@ -266,7 +423,9 @@ export const AgentsView = ({
 
   const reveal = (node: AgentNode) =>
     revealPath(
-      node.status === 'orphan' || node.status === 'synced' ? node.targetPath : node.sourcePath,
+      (node.status === 'orphan' || node.status === 'synced') && node.targetPath
+        ? node.targetPath
+        : node.sourcePath,
     );
 
   /** The buttons for a row, the one it is most likely selected for marked primary. */
@@ -298,7 +457,7 @@ export const AgentsView = ({
         tone: status === 'orphan' ? 'primary' : 'normal',
       });
     }
-    if (isFile) {
+    if (isFile && status !== 'unused') {
       actions.push(
         {
           hotkey: 'v',
@@ -309,6 +468,8 @@ export const AgentsView = ({
         },
         { hotkey: 'e', label: 'Edit', onPress: () => edit(node) },
       );
+    } else if (isFile) {
+      actions.push({ hotkey: 'e', label: 'Edit', onPress: () => edit(node) });
     }
     actions.push(
       { hotkey: 'o', label: 'Reveal', onPress: () => reveal(node) },
@@ -319,6 +480,18 @@ export const AgentsView = ({
 
   useInput(
     (input, key) => {
+      if (onInstructions) {
+        const state = instructions;
+        if (input === ' ') toggleInstructions();
+        else if (input === 'v') togglePreview();
+        else if (input === 'e') handoff({ type: 'edit', path: state.sourcePath });
+        else if (input === 'a' || input === 'p') {
+          instructionsActions()
+            .find((action) => action.hotkey === input)
+            ?.onPress();
+        }
+        return;
+      }
       if (!inventory || !current) return;
       const node = current;
       if (key.rightArrow || input === 'l') {
@@ -331,7 +504,7 @@ export const AgentsView = ({
       else if (input === 'v') togglePreview();
       else if (input === 'e') edit(node);
       else if (input === 'x') remove(node);
-      else if (input === 'm') switchMode();
+      else if (input === 'm' && inventory.canSwitchMode) switchMode();
       else if (input === 'o') reveal(node);
     },
     { isActive: !prompt.isOpen },
@@ -341,14 +514,20 @@ export const AgentsView = ({
     { key: '←/→', label: 'fold' },
     { key: 'Space', label: 'link' },
     { key: 'v', label: 'preview', onPress: togglePreview },
-    { key: 'm', label: `mode: ${inventory?.mode ?? '…'}`, onPress: switchMode },
+    ...(inventory?.canSwitchMode
+      ? [{ key: 'm', label: `mode: ${inventory.mode}`, onPress: switchMode }]
+      : []),
   ];
 
   const header =
     prompt.line ??
     (inventory ? (
       <Text wrap="truncate" color={colors.muted}>
-        .agents → {ide.folder} · <Text color={colors.accent}>{inventory.mode}</Text>
+        {scope.kind === 'user' ? '~/.agents' : '.agents'} →{' '}
+        {inventory.targets.length
+          ? inventory.targets.map((target) => relative(root, target)).join(', ')
+          : `nothing — ${ide.name} keeps no files here`}
+        {inventory.canSwitchMode ? <Text color={colors.accent}> · {inventory.mode}</Text> : null}
         {inventory.hasSource ? ` · ${summary(inventory)}` : ''}
       </Text>
     ) : (
@@ -363,10 +542,47 @@ export const AgentsView = ({
     viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 7,
   );
 
+  const renderInstructions = () => {
+    const state = instructions;
+    const body = preview ? readPreview(state.sourcePath) : undefined;
+    return (
+      <Box flexDirection="column">
+        <Toolbar actions={instructionsActions()} />
+        <Text color={colors.text} wrap="truncate">
+          {INSTRUCTIONS_BOX[state.status]} {INSTRUCTIONS_DESCRIBE[state.status](ide.name)}
+        </Text>
+        <Text color={colors.muted} wrap="truncate">
+          source {relative(root, state.sourcePath)}
+          {state.sourceExists ? '' : ' (not written yet)'}
+        </Text>
+        {state.targetPath && (
+          <Text color={colors.muted} wrap="truncate">
+            ide{'    '}
+            {relative(root, state.targetPath)} (
+            {state.mode === 'import' ? 'imports it' : 'links to it'})
+          </Text>
+        )}
+        {body !== undefined && (
+          <Box flexDirection="column" marginTop={1}>
+            {body
+              .split('\n')
+              .slice(0, previewRows)
+              .map((line, index) => (
+                <Text key={index} wrap="truncate" color={colors.text}>
+                  {line || ' '}
+                </Text>
+              ))}
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
   const renderDetail = (item: PickItem<AgentNode> | undefined) => {
+    if (item?.id === INSTRUCTIONS_ID) return renderInstructions();
     const node = item?.value;
     if (!node) return null;
-    const rel = (path: string) => relative(root, path);
+    const rel = (path: string | undefined) => (path ? relative(root, path) : '—');
 
     const body =
       node.type !== 'file' || !preview
@@ -376,7 +592,9 @@ export const AgentsView = ({
             //? the lines above already show, and costs four rows to say it
             (diff.data?.slice(Math.max(0, diff.data.indexOf('@@'))) ??
             (diff.isLoading ? 'Diffing…' : 'No textual difference.'))
-          : readPreview(node.status === 'orphan' ? node.targetPath : node.sourcePath);
+          : readPreview(
+              node.status === 'orphan' && node.targetPath ? node.targetPath : node.sourcePath,
+            );
 
     return (
       <Box flexDirection="column">
@@ -448,7 +666,7 @@ export const AgentsView = ({
         }
         items={items}
         emptyText={emptyText}
-        detailTitle={current?.relativePath ?? 'Entry'}
+        detailTitle={onInstructions ? 'Instructions' : (current?.relativePath ?? 'Entry')}
         renderDetail={renderDetail}
         hints={hints}
         reservedChrome={['viewHeader']}
@@ -458,6 +676,7 @@ export const AgentsView = ({
         initialSelectedId={session.selected.agents}
         isInputActive={!prompt.isOpen}
         onActivate={(item) => {
+          if (item.id === INSTRUCTIONS_ID) return togglePreview();
           const node = item.value;
           if (!node) return;
           if (node.type === 'directory') setOpen(node, !expanded.has(node.relativePath));

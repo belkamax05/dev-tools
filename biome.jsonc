@@ -1,7 +1,7 @@
 {
-  //? The root now: this used to sit under shulker's own root config, and with
-  //? that gone a nested (root: false) config here means biome finds no root at
-  //? all and formats with its defaults — tabs and double quotes.
+  //? The root: a nested (root: false) config here would leave biome with no
+  //? root at all when this repository is checked out on its own, and it would
+  //? format with its defaults — tabs and double quotes.
   "root": true,
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "extends": ["./biome.local.jsonc"],

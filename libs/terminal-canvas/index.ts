@@ -52,7 +52,7 @@ export type { SphereSceneOptions } from './scenes/renderSphereScene.ts';
  * What there is to draw, how it can be drawn, and the two of them together.
  *
  * The catalogue lives here rather than in an app because more than one draws
- * it: dygma's Debug tab and agenti's IDE logos.
+ * it: agenti's IDE logos, and any app that shows pictures or compares techniques.
  */
 export {
   BALL_SUBJECT,

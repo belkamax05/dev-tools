@@ -3,7 +3,7 @@ import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 import { findIdeBinary, getIde, IDES } from '../../core/ides';
 
 /** The dashboard's tabs, in order — also what `lastTab` may hold. */
-export const TAB_IDS = ['agents', 'mcp', 'skills', 'ide'] as const;
+export const TAB_IDS = ['agents', 'mcp', 'skills', 'health', 'ide'] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
 /** How the IDE tab draws logos — `g` steps through them, `auto` first. */
@@ -11,7 +11,8 @@ export const LOGO_MODES = ['auto', 'kitty', 'braille', 'ascii'] as const;
 export type LogoMode = (typeof LOGO_MODES)[number];
 
 export interface RepoSettings {
-  ide?: string;
+  /** The IDEs this repository is kept in step with; the first is the one tabs open on. */
+  ides: string[];
 }
 
 export interface AgentiSettings {
@@ -49,8 +50,13 @@ const coerce = (raw: Record<string, unknown>): AgentiSettings => {
   if (typeof raw.defaultIde === 'string' && getIde(raw.defaultIde)) out.defaultIde = raw.defaultIde;
   if (raw.repos && typeof raw.repos === 'object') {
     for (const [root, value] of Object.entries(raw.repos as Record<string, unknown>)) {
-      const ide = (value as RepoSettings | null)?.ide;
-      if (typeof ide === 'string' && getIde(ide)) out.repos[root] = { ide };
+      const entry = value as { ide?: unknown; ides?: unknown } | null;
+      //? `{ ide }` is the single-IDE shape this file had before; read as a list of one
+      const listed = Array.isArray(entry?.ides) ? entry.ides : entry?.ide ? [entry.ide] : [];
+      const ides = listed.filter(
+        (id): id is string => typeof id === 'string' && Boolean(getIde(id)),
+      );
+      if (ides.length) out.repos[root] = { ides: [...new Set(ides)] };
     }
   }
   return out;
@@ -71,28 +77,55 @@ export const settingsStore = createConfigStore<AgentiSettings>({
 });
 
 /**
- * The IDE a repository is on: its own choice, else the last one picked
- * anywhere, else the first installed, else the first known.
+ * The IDEs a repository (or, keyed by the home directory, the user scope) is
+ * kept in step with: its own list, else the last one picked anywhere, else the
+ * first installed, else the first known. Never empty.
  */
-export const resolveIdeId = (settings: AgentiSettings, root: string): string => {
-  const own = settings.repos[root]?.ide;
-  if (own && getIde(own)) return own;
-  if (settings.defaultIde && getIde(settings.defaultIde)) return settings.defaultIde;
-  return (IDES.find((ide) => findIdeBinary(ide)) ?? IDES[0])?.id ?? '';
+export const ideIdsFor = (settings: AgentiSettings, root: string): string[] => {
+  const own = settings.repos[root]?.ides.filter((id) => getIde(id)) ?? [];
+  if (own.length) return own;
+  if (settings.defaultIde && getIde(settings.defaultIde)) return [settings.defaultIde];
+  const fallback = (IDES.find((ide) => findIdeBinary(ide)) ?? IDES[0])?.id;
+  return fallback ? [fallback] : [];
 };
+
+/** The one the tabs open on — the first of `ideIdsFor`. */
+export const resolveIdeId = (settings: AgentiSettings, root: string): string =>
+  ideIdsFor(settings, root)[0] ?? '';
 
 /** Whether this repository has made a choice yet, as opposed to inheriting one. */
 export const hasOwnIde = (settings: AgentiSettings, root: string): boolean =>
-  Boolean(settings.repos[root]?.ide);
+  Boolean(settings.repos[root]?.ides.length);
 
-export const withRepoIde = (
+const withIds = (settings: AgentiSettings, root: string, ides: string[]): AgentiSettings => ({
+  ...settings,
+  defaultIde: ides[0] ?? settings.defaultIde,
+  repos: { ...settings.repos, [root]: { ides } },
+});
+
+/** Make `ide` the primary, adding it if it was not in the list. */
+export const withRepoIde = (settings: AgentiSettings, root: string, ide: string): AgentiSettings =>
+  //? The repository's own list only — a first pick replaces an inherited
+  //? default rather than joining it
+  withIds(settings, root, [ide, ...(settings.repos[root]?.ides ?? []).filter((id) => id !== ide)]);
+
+/**
+ * Add or remove one IDE from the repository's list. The last one cannot be
+ * removed — a repository with no IDE has nothing for the other tabs to show.
+ */
+export const toggleRepoIde = (
   settings: AgentiSettings,
   root: string,
   ide: string,
-): AgentiSettings => ({
-  ...settings,
-  defaultIde: ide,
-  repos: { ...settings.repos, [root]: { ...settings.repos[root], ide } },
-});
+): AgentiSettings => {
+  const current = ideIdsFor(settings, root);
+  if (!current.includes(ide)) return withIds(settings, root, [...current, ide]);
+  if (current.length === 1) return settings;
+  return withIds(
+    settings,
+    root,
+    current.filter((id) => id !== ide),
+  );
+};
 
 export default settingsStore;

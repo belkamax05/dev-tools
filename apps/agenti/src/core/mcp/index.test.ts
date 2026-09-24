@@ -11,9 +11,9 @@ import {
   listServerTools,
   readEnvFile,
   readSourceMcp,
-  readTargetMcp,
+  readMcpTarget,
+  setMcpServer,
   setEnvValue,
-  writeServers,
 } from '.';
 
 let root: string;
@@ -36,21 +36,26 @@ describe('reading configs', () => {
     expect(Object.keys(readSourceMcp(root).servers)).toEqual(['b']);
   });
 
-  test("uses VS Code's `servers` key", () => {
+  test("uses VS Code's `servers` key", async () => {
     write('.vscode/mcp.json', { servers: { a: { command: 'a' } }, inputs: [] });
-    const file = readTargetMcp(root, getIde('vscode')!)!;
-    expect(Object.keys(file.servers)).toEqual(['a']);
-    writeServers(file, { b: { command: 'b' } });
-    const written = JSON.parse(readFileSync(file.path, 'utf-8'));
+    const vscode = getIde('vscode')?.mcp[0];
+    if (!vscode) throw new Error('no vscode target');
+    const state = readMcpTarget(root, vscode);
+    expect(Object.keys(state.servers)).toEqual(['a']);
+    await setMcpServer(root, state, 'a', undefined);
+    await setMcpServer(root, readMcpTarget(root, vscode), 'b', { command: 'b' });
+    const written = JSON.parse(readFileSync(state.location, 'utf-8'));
     expect(written).toEqual({ servers: { b: { command: 'b' } }, inputs: [] });
   });
 
-  test('never writes over a file it could not parse', () => {
+  test('never writes over a file it could not parse', async () => {
     write('.mcp.json', '{ not json');
-    const file = readTargetMcp(root, getIde('claude-code')!)!;
-    expect(file.error).toBeDefined();
-    expect(() => writeServers(file, {})).toThrow();
-    expect(readFileSync(file.path, 'utf-8')).toBe('{ not json');
+    const project = getIde('claude-code')?.mcp[0];
+    if (!project) throw new Error('no claude target');
+    const state = readMcpTarget(root, project);
+    expect(state.error).toBeDefined();
+    expect((await setMcpServer(root, state, 'x', { command: 'x' })).ok).toBe(false);
+    expect(readFileSync(state.location, 'utf-8')).toBe('{ not json');
   });
 });
 
@@ -85,7 +90,7 @@ describe('env tokens', () => {
     write('.agents/mcp_config.json', {
       requiredEnv: { jira: ['JIRA_TOKEN'] },
       mcpServers: {
-        jira: { command: 'dfs', args: ['mcp', 'jira'] },
+        jira: { command: 'tracker-mcp', args: ['serve'] },
         // biome-ignore lint/suspicious/noTemplateCurlyInString: a literal ${VAR} placeholder is what is under test
         gh: { command: 'gh-mcp', env: { TOKEN: '${GH_TOKEN}' } },
         // biome-ignore lint/suspicious/noTemplateCurlyInString: a literal ${VAR} placeholder is what is under test

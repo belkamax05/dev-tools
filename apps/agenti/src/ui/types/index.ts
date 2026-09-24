@@ -1,4 +1,5 @@
 import type { IdeDefinition } from '../../core/ides';
+import type { Scope } from '../../core/scope';
 
 export type Tone = 'ok' | 'warn' | 'error' | 'info';
 
@@ -6,7 +7,10 @@ export type Tone = 'ok' | 'warn' | 'error' | 'info';
  * Something the dashboard cannot do inside its own frame, handed back to the
  * CLI to do on a real terminal before the dashboard reopens.
  */
-export type Handoff = { type: 'edit'; path: string };
+export type Handoff =
+  | { type: 'edit'; path: string }
+  /** A terminal program — Claude Code — run in the foreground until it exits. */
+  | { type: 'run'; command: string[]; cwd: string; label: string };
 
 /**
  * What a view keeps across a handoff. The dashboard is unmounted while an
@@ -21,11 +25,19 @@ export interface Session {
   preview: boolean;
   /** Where the IDE tab's keyboard was: the list, or which link in the detail pane. */
   ideFocus: { pane: 'list' | 'detail'; link: number };
+  /** Which of the scope's IDEs the tabs are showing. */
+  activeIde?: string;
 }
 
 export interface ViewProps {
+  /** The repository, or the user's home for the user scope. */
+  scope: Scope;
+  /** `scope.root`, for the many places that only need the path. */
   root: string;
+  /** The IDE the tab is showing — one of `ides`, switched with `[` / `]`. */
   ide: IdeDefinition;
+  /** Every IDE this scope is kept in step with. */
+  ides: IdeDefinition[];
   session: Session;
   /** Report the outcome of an action in the header. */
   notify: (message: string, tone?: Tone) => void;
