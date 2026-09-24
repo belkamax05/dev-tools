@@ -1,6 +1,7 @@
 import { relative } from 'node:path';
 import { render } from 'ink';
 
+import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
 import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 
 import settingsStore, { hasOwnIde } from '../../config/settings';
@@ -17,6 +18,9 @@ import type { Handoff, Session } from '../types';
  * which live in `session` for exactly this reason.
  */
 export const renderDashboard = async (root: string, initialTab?: TabId): Promise<void> => {
+  //? Before Ink is handed stdin: the probe reads the terminal's replies off it,
+  //? and once the TUI owns stdin a reply arrives as a burst of garbage keys
+  await probeGraphicsSupport();
   let settings = await settingsStore.load();
   const session: Session = {
     //? A repo that has never picked an IDE opens on the picker, so the first

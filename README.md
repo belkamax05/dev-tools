@@ -11,6 +11,8 @@ dotfiles' mr `link_bins`).
 ```
 libs/
 ├── config/color/     Palette, standard variants, ANSI style codes
+├── terminal-canvas/  Pixels in a terminal: PNG decode, braille/half-block/ASCII canvases,
+│                     kitty/sixel/iTerm2 encoders, capability probe — see its README
 ├── types/            Default-exported interfaces (ExecResult, PickerItem, InkRender, …)
 ├── ui/
 │   ├── app/          runTuiApp — own the terminal, mount an app, put it all back

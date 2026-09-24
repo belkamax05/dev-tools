@@ -306,8 +306,8 @@ describe('encodeKittyImage', () => {
 describe('decodePng', () => {
   // The real-file case — dygma's moon.png, which exercises all four
   // non-trivial scanline filters — lives with that asset in dygma-hacking
-  // (apps/dygma-cli/tui/moonAsset.test.ts). The logo test below covers the
-  // same decoder on a file this repo owns.
+  // (apps/dygma-cli/tui/moonAsset.test.ts), and agenti decodes its own logos
+  // in src/ui/logo/index.test.ts.
 
   test('round-trips through encodePng', () => {
     const width = 23;

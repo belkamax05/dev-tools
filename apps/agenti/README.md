@@ -21,11 +21,15 @@ and no compare mode — `cd` somewhere else instead.
 | 🤖 Agents | `.agents/` | the IDE's folder (`.claude/`, `.cursor/`, …) | `Space` link/unlink · `a` adopt · `p` push · `e` edit · `x` delete · `m` link mode · `o` reveal · `←/→` fold |
 | 🔌 MCP | `.agents/mcp_config.json`, else `config/mcp_config.json` | the IDE's MCP config | `p` to IDE · `a` to reference · `P` all missing · `d` on/off · `x` remove · `i` list tools · `s` set token · `e`/`E` edit |
 | 🧩 Skills | `.agents/skills` via the `skills` CLI | skills.sh | `/` search · `i` install · `u` update · `x` remove · `e` edit |
-| 💻 IDE | — | — | `Enter` use for this repo |
+| 💻 IDE | — | — | `Space`/`Enter` use for this repo · `g` logo drawing: auto → kitty → braille → ascii |
 
 Everywhere: `1-4`/`Tab` switch tab, `r` refresh, `t` theme, `q` quit. Deletes, overwrites and
 mode switches ask first (`y` to confirm). `e` hands the terminal to `$VISUAL`/`$EDITOR` and the
 dashboard comes back where it was.
+
+The IDE tab draws each IDE's logo (`assets/img`, see the README there) with dev-tools'
+`terminal-canvas`: kitty graphics when the terminal answers the probe for them, braille when the
+locale is UTF-8, ASCII otherwise.
 
 ## Where things are kept
 

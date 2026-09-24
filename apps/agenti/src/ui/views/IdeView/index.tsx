@@ -7,10 +7,14 @@ import { Text, useInput } from 'ink';
 import Box from '@/dev-tools/ui/components/Box';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import useViewport from '@/dev-tools/ui/hooks/useViewport';
+import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import { findIdeBinary, IDES, type IdeDefinition } from '../../../core/ides';
+import { LOGO_MODES, type LogoMode, resolveLogoTechnique } from '../../logo';
+import IdeLogo from '../../logo/IdeLogo';
 import type { ViewProps } from '../../types';
+import { graphicsSupport } from '@/dev-tools/terminal-canvas';
 
 export interface IdeViewProps extends ViewProps {
   onSelectIde: (id: string) => void;
@@ -45,6 +49,9 @@ export const IdeView = ({
   hasOwnChoice,
 }: IdeViewProps) => {
   const colors = useColors();
+  const theme = useTuiTheme();
+  const viewport = useViewport();
+  const [logoMode, setLogoMode] = useState<LogoMode>('auto');
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.ide ?? ide.id);
 
   const choose = (candidate: IdeDefinition | undefined) => {
@@ -55,9 +62,28 @@ export const IdeView = ({
 
   //? Space as well as Enter: this is a radio list, and Space is the key that
   //? picks an option in one everywhere else
+  const cycleLogoMode = () =>
+    setLogoMode((mode) => LOGO_MODES[(LOGO_MODES.indexOf(mode) + 1) % LOGO_MODES.length] ?? 'auto');
+
   useInput((input) => {
     if (input === ' ') choose(IDES.find((candidate) => candidate.id === currentId));
+    else if (input === 'g') cycleLogoMode();
   });
+
+  //? The detail pane's inner size, by the same arithmetic ListDetail lays it
+  //? out with: the list takes 42% side by side (from 96 columns), and the
+  //? pane's border and padding take four columns. Its rows are the list's —
+  //? ListDetail prices the list with two "N more" rows and a spare one the
+  //? detail pane does not draw, so the pane holds two more than the list.
+  const appWidth = Math.max(
+    viewport.columns - theme.sizes.app.horizontalMargin,
+    theme.sizes.app.minWidth,
+  );
+  const detailWidth = viewport.columns >= 96 ? appWidth - Math.floor(appWidth * 0.42) : appWidth;
+  const logoCols = detailWidth - 4;
+  const paneRows =
+    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 0) + 2;
+  const technique = resolveLogoTechnique(logoMode, graphicsSupport());
 
   const items: PickItem<IdeDefinition>[] = IDES.map((candidate) => {
     const binary = findIdeBinary(candidate);
@@ -95,6 +121,11 @@ export const IdeView = ({
             key: 'Space',
             label: 'use for this repo',
             onPress: () => choose(IDES.find((c) => c.id === currentId)),
+          },
+          {
+            key: 'g',
+            label: `logo: ${logoMode}${logoMode === 'auto' ? ` (${technique.id})` : ''}`,
+            onPress: cycleLogoMode,
           },
         ]}
         onActivate={(item) => choose(item.value)}
@@ -149,6 +180,16 @@ export const IdeView = ({
                   </Text>
                 </Box>
               )}
+              <Box marginTop={1}>
+                <IdeLogo
+                  ide={candidate}
+                  mode={logoMode}
+                  maxCols={logoCols}
+                  //? What the text above leaves: title, facts and their margins
+                  //? (7 rows), plus the two-line call to action on an unselected IDE
+                  maxRows={Math.min(16, paneRows - (candidate.id === ide.id ? 7 : 10))}
+                />
+              </Box>
             </Box>
           );
         }}

@@ -32,7 +32,16 @@ export interface IdeDefinition {
   commands: string[];
   /** Undefined for an IDE with no MCP config this tool knows how to manage. */
   mcp?: IdeMcpTarget;
+  /**
+   * The logo is a single-colour mark in black (Cursor's and Devin's are), which
+   * a dark terminal would show as nothing — drawn tinted instead.
+   */
+  monochromeLogo?: boolean;
 }
+
+/** `assets/img/<id>.png` in this app — 512px, transparent; see the README there. */
+export const logoPath = (ide: IdeDefinition): string =>
+  join(import.meta.dir, '..', '..', '..', 'assets', 'img', `${ide.id}.png`);
 
 /**
  * The IDEs agenti can link `.agents` into.
@@ -60,6 +69,7 @@ export const IDES: readonly IdeDefinition[] = [
     name: 'Cursor',
     folder: '.cursor',
     commands: ['cursor'],
+    monochromeLogo: true,
     mcp: {
       scope: 'project',
       key: 'mcpServers',
@@ -82,6 +92,7 @@ export const IDES: readonly IdeDefinition[] = [
     name: 'Devin',
     folder: '.devin',
     commands: ['devin-desktop', 'devin'],
+    monochromeLogo: true,
     mcp: {
       scope: 'user',
       key: 'mcpServers',
