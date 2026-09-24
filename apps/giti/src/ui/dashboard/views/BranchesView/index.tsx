@@ -5,7 +5,7 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
-import ListDetail from '../../components/ListDetail';
+import ListDetail from '@/dev-tools/ui/components/ListDetail';
 
 interface BranchRow {
   name: string;

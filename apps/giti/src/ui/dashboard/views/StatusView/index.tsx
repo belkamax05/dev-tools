@@ -5,7 +5,7 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RepoSnapshot, SnapshotFile } from '../../../../utils/getRepoSnapshot';
-import ListDetail from '../../components/ListDetail';
+import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import { STATUS_LABEL, statusColor } from '../../fileStatus';
 
 /** Which column of the porcelain pair describes a file in a given section. */

@@ -2,14 +2,14 @@ import { Text, useInput } from 'ink';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
-import Box from '@/dev-tools/ui/components/Box';
-import type { Hint } from '@/dev-tools/ui/components/HintBar';
-import HintBar from '@/dev-tools/ui/components/HintBar';
-import Panel from '@/dev-tools/ui/components/Panel';
-import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import PickList, { firstSelectable, moveInList } from '@/dev-tools/ui/components/PickList';
-import useViewport from '@/dev-tools/ui/hooks/useViewport';
-import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import useViewport from '../../hooks/useViewport';
+import { useColors, useTuiTheme } from '../../providers/TuiThemeProvider';
+import Box from '../Box';
+import type { Hint } from '../HintBar';
+import HintBar from '../HintBar';
+import Panel from '../Panel';
+import type { PickItem } from '../PickList';
+import PickList, { firstSelectable, moveInList } from '../PickList';
 
 /** Share of the app's width the list gets, with the detail pane taking the rest. */
 const LIST_SHARE = 0.42;
@@ -52,15 +52,30 @@ export interface ListDetailProps<T> {
    * is unaffected either way.
    */
   confirmClick?: boolean;
+  /**
+   * Chrome parts the caller draws around this, by name in the theme's
+   * `chrome` table — a search line, a status row — so the list is sized to
+   * what is really left rather than running past the bottom of the terminal.
+   */
+  reservedChrome?: readonly string[];
+  /**
+   * The row to start on, by id — for a view that is remounted (after handing
+   * the terminal to an editor, say) and should come back where it was.
+   * Falls back to the first selectable row when it is gone.
+   */
+  initialSelectedId?: string;
+  /** What Enter is called in the hints, when "open" is not what it does. */
+  activateLabel?: string;
 }
 
 /**
  * A scrolling list beside a pane describing whatever it is pointing at.
  *
- * Five of giti's seven views are this shape — files, commits, branches, remotes,
- * vendored directories — and they differ only in what goes in the two panes. The
- * cursor, the scroll window, the key handling and the row budget are the same
- * problem every time, so they are solved once here.
+ * Most dashboard views are this shape — giti's files, commits, branches and
+ * remotes, agenti's agent files, MCP servers and skills — and they differ only
+ * in what goes in the two panes. The cursor, the scroll window, the key handling
+ * and the row budget are the same problem every time, so they are solved once
+ * here. It prices its own hint strip as the `viewHints` chrome part.
  *
  * The panes stack on a narrow terminal rather than shrinking. Two panes at 40
  * columns are two columns of ellipses; one pane at 80 is a pane you can read,
@@ -77,11 +92,17 @@ export const ListDetail = <T,>({
   onSelectionChange,
   isInputActive = true,
   confirmClick = false,
+  reservedChrome = [],
+  initialSelectedId,
+  activateLabel = 'open',
 }: ListDetailProps<T>) => {
   const colors = useColors();
   const theme = useTuiTheme();
   const viewport = useViewport();
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(() => {
+    const at = initialSelectedId ? items.findIndex((item) => item.id === initialSelectedId) : -1;
+    return at >= 0 ? at : firstSelectable(items);
+  });
 
   /**
    * The rows, reachable from an effect without being one of its dependencies.
@@ -100,9 +121,19 @@ export const ListDetail = <T,>({
   //? A list that changed under the cursor — a refresh, a different filter — can
   //? leave it past the end or parked on a header. Re-homing on the first
   //? selectable row is the only answer that is right for both.
+  //? Held until the rows it names exist: a view that loads its data
+  //? asynchronously mounts with an empty list, and resolving the id then would
+  //? find nothing and lose it for good
+  const pendingInitialId = useRef(initialSelectedId);
+
   useEffect(() => {
     setSelected((at) => {
       const rows = itemsRef.current;
+      if (pendingInitialId.current !== undefined && rows.length > 0) {
+        const wanted = rows.findIndex((row) => row.id === pendingInitialId.current);
+        pendingInitialId.current = undefined;
+        if (wanted >= 0) return wanted;
+      }
       //? Clamped first, then checked. A list that got shorter leaves the cursor
       //? past the end, and `rows[at]` there is undefined — which would send it
       //? all the way back to the top rather than to the nearest row that still
@@ -121,9 +152,14 @@ export const ListDetail = <T,>({
   //? inline, so as a dependency it would re-report on every render.
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
+  //? Keyed on the id under the cursor as well as its index: a refresh that
+  //? deletes or inserts rows above the cursor puts a different row at the same
+  //? index, and a caller mirroring the selection would go on acting on the old one
+  const currentId = current?.id;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentId is the trigger, read via the ref
   useEffect(() => {
     onSelectionChangeRef.current?.(itemsRef.current[selected], selected);
-  }, [selected]);
+  }, [selected, currentId]);
 
   //? Read during a click, where it still holds the selection as it was *before*
   //? the click moved it — which is what `confirmClick` compares against.
@@ -151,12 +187,15 @@ export const ListDetail = <T,>({
   //? Stacked, the two panes share the rows; side by side they each get all of
   //? them. `panelFrame` is charged once either way — the detail pane's own frame
   //? is inside the budget the row count is measured against.
-  const contentRows = viewport.contentRows(['appShell', 'viewHints', 'panelFrame'], 3);
+  const contentRows = viewport.contentRows(
+    ['appShell', 'viewHints', 'panelFrame', ...reservedChrome],
+    3,
+  );
   const listRows = sideBySide ? contentRows : Math.max(2, Math.floor(contentRows / 2));
 
   const navigationHints: Hint[] = [
     { key: '↑/↓', label: 'move' },
-    ...(onActivate ? [{ key: 'Enter', label: 'open' }] : []),
+    ...(onActivate ? [{ key: 'Enter', label: activateLabel }] : []),
     ...hints,
   ];
 

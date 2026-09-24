@@ -16,6 +16,8 @@ export { default as Footer } from './Footer';
 export type { FooterAction, FooterProps } from './Footer';
 export { default as HintBar, fitHints, hintWidth } from './HintBar';
 export type { Hint, HintBarProps } from './HintBar';
+export { default as ListDetail } from './ListDetail';
+export type { ListDetailProps } from './ListDetail';
 export {
   default as PickList,
   firstSelectable,

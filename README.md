@@ -1,8 +1,10 @@
 # dev-tools
 
-Reusable terminal building blocks shared by the sibling repos in `~/dev/shulker` — colour and
+Reusable terminal building blocks shared by the sibling repos in `~/dev` — colour and
 formatting helpers, process/install utilities, a config store, and a full terminal-UI kit:
-components, hooks, theming, and the mouse/alternate-screen layer under them.
+components, hooks, theming, and the mouse/alternate-screen layer under them — plus the two apps
+built on them, `giti` and `agenti`, whose binaries are linked from `bin/` (and onto `PATH` by
+dotfiles' mr `link_bins`).
 
 ## Layout
 
@@ -41,14 +43,16 @@ dependency, because these libs are separate git repos:
 
 What you may import depends on whether you share this lib's copy of `react` and `ink`.
 
-**Workspace members** — everything the root `package.json` lists under `workspaces`, currently
-`apps/*`, `libs/*`, `libs/dev-tools/apps/*`, and `repos/dygma-hacking` — may import and render
-**anything**, components included. Bun's isolated
+**Workspace members** may import and render **anything**, components included. Bun's isolated
 linker points every member's `node_modules/react` and `node_modules/ink` at one physical copy in
 the root store, so a component authored here is reconciled by the same React the consumer is
-using and its hooks find their dispatcher. `apps/os-configure`, `repos/dygma-hacking`, and this
-lib's own `apps/giti` are all built this way, and between them they are where every component
-here came from.
+using and its hooks find their dispatcher. There are two ways to be one:
+
+- this repo's own `apps/*` (`giti`, `agenti`), with this repo as the workspace root —
+  `bun install` here;
+- a repo that checks this one out as a git submodule at `libs/dev-tools` and lists it in its
+  own `workspaces` — how `dygma-hacking` does it. (Both used to be members of the retired
+  `~/dev/shulker` umbrella's workspace instead.)
 
 **Anything outside the workspace** installs its own `react` and `ink` and therefore does **not**
 share a copy. A component authored here would be mounted by a reconciler holding a *different*
@@ -61,8 +65,8 @@ React, and every hook in it would throw. Such a consumer is limited to:
 - `ui/app/runTuiApp` and `ui/utils/renderInkImmediate` — both take the caller's own `render` as
   an argument for exactly this reason.
 
-To move a repo into the first column, add it to the root `workspaces` array, delete its
-`node_modules`, and re-run `bun install` from `~/dev/shulker`. Expect to have to *declare* a
+To move a repo into the first column, add this repo as a submodule, list it in that repo's
+`workspaces`, delete its `node_modules`, and re-run `bun install` there. Expect to have to *declare* a
 dependency or two it was getting by accident: a flat install hoists a package's transitive deps
 to the top level, and the isolated linker does not.
 

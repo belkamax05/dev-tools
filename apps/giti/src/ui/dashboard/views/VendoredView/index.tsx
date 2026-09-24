@@ -6,7 +6,7 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
 import type { Vendored } from '../../../../utils/vendored';
-import ListDetail from '../../components/ListDetail';
+import ListDetail from '@/dev-tools/ui/components/ListDetail';
 
 export interface VendoredViewProps {
   snapshot: RepoSnapshot;

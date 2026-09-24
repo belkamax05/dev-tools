@@ -6,7 +6,7 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RemoteDetail } from '../../../../types/RemoteDetail';
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
-import ListDetail from '../../components/ListDetail';
+import ListDetail from '@/dev-tools/ui/components/ListDetail';
 
 export interface RemotesViewProps {
   snapshot: RepoSnapshot;

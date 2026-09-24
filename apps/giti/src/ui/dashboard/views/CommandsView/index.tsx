@@ -10,7 +10,7 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import type PickerItem from '@/dev-tools/types/PickerItem';
 import resolvePickerChildren from '@/dev-tools/utils/picker/resolvePickerChildren';
 
-import ListDetail from '../../components/ListDetail';
+import ListDetail from '@/dev-tools/ui/components/ListDetail';
 
 export interface CommandsViewProps {
   /** The command tree, already folded into groups by `getCommandPickerItems`. */

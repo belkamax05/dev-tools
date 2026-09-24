@@ -37,6 +37,12 @@ export const chrome = {
    * two panels sitting side by side apart.
    */
   panelFrame: 6,
+  /**
+   * `ListDetail`'s hint strip: the row of hints and the blank row above it.
+   * Unframed at every size — it sits directly under panes that already have a
+   * border of their own, and a second frame there reads as a box in a box.
+   */
+  viewHints: 2,
 } satisfies ChromeTable;
 
 /** What one part costs on a terminal that is or is not drawing bar frames. */
