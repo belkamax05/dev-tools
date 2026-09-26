@@ -1,11 +1,9 @@
 import { type DOMElement, measureElement, Text } from 'ink';
 import { useEffect, useMemo, useRef } from 'react';
-
-import type { TerminalMouseEvent } from '../../terminal/mouse';
-
 import useClickable from '../../hooks/useClickable';
 import useScrollWindow from '../../hooks/useScrollWindow';
 import { useColors } from '../../providers/TuiThemeProvider';
+import type { TerminalMouseEvent } from '../../terminal/mouse';
 import Box from '../Box';
 
 /**

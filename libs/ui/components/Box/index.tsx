@@ -1,4 +1,4 @@
-import { Box as InkBox, type BoxProps, type DOMElement } from 'ink';
+import { type BoxProps, type DOMElement, Box as InkBox } from 'ink';
 import type { ReactNode, Ref } from 'react';
 
 import { useColors } from '../../providers/TuiThemeProvider';

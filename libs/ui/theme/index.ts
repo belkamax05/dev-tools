@@ -1,29 +1,23 @@
-export { default as breakpoints, ascending, pickByTier, tierFor } from './breakpoints';
 export type { Breakpoints, TierTable } from './breakpoints';
-
-export { default as chrome, chromeCost, contentRows } from './chrome';
+export { ascending, default as breakpoints, pickByTier, tierFor } from './breakpoints';
 export type { ChromeCost, ChromeTable } from './chrome';
-
-export { default as display, hiddenLabels, resolveDisplay } from './display';
+export { chromeCost, contentRows, default as chrome } from './chrome';
+export type { TuiTheme, TuiThemeOverrides } from './createTheme';
+export { default as createTheme, defaultTheme } from './createTheme';
 export type { DisplayRule, DisplayTable } from './display';
-
+export { default as display, hiddenLabels, resolveDisplay } from './display';
+export type { ColorRole, Palette, ThemeDefinition } from './palettes';
 export {
-  default as palettes,
   DEFAULT_THEME_ID,
+  default as palettes,
   isThemeId,
   nextThemeId,
   paletteFor,
-  themeById,
   THEMES,
   TRANSPARENT,
+  themeById,
 } from './palettes';
-export type { ColorRole, Palette, ThemeDefinition } from './palettes';
-
-export { default as sizes, barInnerWidth } from './sizes';
 export type { AppSizes, Sizes } from './sizes';
-
-export { default as timings } from './timings';
+export { barInnerWidth, default as sizes } from './sizes';
 export type { Timings } from './timings';
-
-export { default as createTheme, defaultTheme } from './createTheme';
-export type { TuiTheme, TuiThemeOverrides } from './createTheme';
+export { default as timings } from './timings';

@@ -1,12 +1,12 @@
-import React, { useMemo, type Ref } from 'react';
 import { type DOMElement, Text } from 'ink';
-import { Box } from '../Box';
+import React, { type Ref, useMemo } from 'react';
 import {
   renderSubjectPanel,
   renderTechniqueComparison,
   type Subject,
   type Technique,
 } from '../../../terminal-canvas/index.ts';
+import { Box } from '../Box';
 
 interface GraphicsCanvasProps {
   technique: Technique;

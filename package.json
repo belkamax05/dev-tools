@@ -3,7 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "lint": "bun biome check .",
     "format": "bun biome check --write --unsafe ."

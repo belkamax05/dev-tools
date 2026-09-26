@@ -1,5 +1,5 @@
-import { useEffect, useRef, type RefObject } from 'react';
 import { type DOMElement, measureElement, useStdout } from 'ink';
+import { type RefObject, useEffect, useRef } from 'react';
 import {
   clearRasterArtifacts,
   createRasterCanvas,

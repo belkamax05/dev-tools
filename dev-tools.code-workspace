@@ -1,14 +1,14 @@
 {
-	"folders": [
-		{
-			"path": "."
-		}
-	],
-	"settings": {
-		"typescript.format.enable": false,
-		"javascript.format.enable": false,
-		"typescript.validate.enable": true,
-		"javascript.validate.enable": true,
-		"bun.test.filePattern": "**/*{.test.,__test__}{js,ts,tsx,jsx,mts,cts,cjs,mjs}"
-	}
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "typescript.format.enable": false,
+    "javascript.format.enable": false,
+    "typescript.validate.enable": true,
+    "javascript.validate.enable": true,
+    "bun.test.filePattern": "**/*{.test.,__test__}{js,ts,tsx,jsx,mts,cts,cjs,mjs}"
+  }
 }

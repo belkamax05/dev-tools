@@ -1,5 +1,5 @@
-import type { DecodedImage } from './decodePng.ts';
 import { isRasterCanvas } from './createRasterCanvas.ts';
+import type { DecodedImage } from './decodePng.ts';
 import type { PixelSurface } from './pixelCanvas.ts';
 import resampleImage from './resampleImage.ts';
 

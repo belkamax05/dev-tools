@@ -1,6 +1,6 @@
+import Box from '../Box';
 import type { ClickableTabProps } from '../ClickableTab';
 import ClickableTab from '../ClickableTab';
-import Box from '../Box';
 
 export interface TabDefinition<Id extends string = string> {
   id: Id;

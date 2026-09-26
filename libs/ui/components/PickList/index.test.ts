@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { firstSelectable, moveInList, nextSelectable, packRows, type PickItem } from './index';
+import { firstSelectable, moveInList, nextSelectable, type PickItem, packRows } from './index';
 
 /** A catalogue-shaped list: two groups behind headers. */
 const list = (): PickItem<number>[] => [

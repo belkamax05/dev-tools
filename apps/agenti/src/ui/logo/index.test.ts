@@ -23,17 +23,16 @@ const support = (kitty: boolean): GraphicsSupport => ({
 });
 
 describe('IDE logos', () => {
-  test.each(IDES.map((ide) => [ide.id, ide] as const))(
-    '%s has a 512px transparent PNG',
-    async (_id, ide) => {
-      const image = decodePng(new Uint8Array(await Bun.file(logoPath(ide)).arrayBuffer()));
-      expect([image.width, image.height]).toEqual([512, 512]);
-      //? The corners are background on every logo, so they must be see-through —
-      //? an opaque one would draw a box around the mark under kitty
-      expect(image.rgba[3]).toBe(0);
-      expect(image.rgba[image.rgba.length - 1]).toBe(0);
-    },
-  );
+  test.each(
+    IDES.map((ide) => [ide.id, ide] as const),
+  )('%s has a 512px transparent PNG', async (_id, ide) => {
+    const image = decodePng(new Uint8Array(await Bun.file(logoPath(ide)).arrayBuffer()));
+    expect([image.width, image.height]).toEqual([512, 512]);
+    //? The corners are background on every logo, so they must be see-through —
+    //? an opaque one would draw a box around the mark under kitty
+    expect(image.rgba[3]).toBe(0);
+    expect(image.rgba[image.rgba.length - 1]).toBe(0);
+  });
 
   test('keep their transparency on a raster canvas, and draw something in braille', async () => {
     const ide = IDES.find((candidate) => candidate.id === 'cursor');

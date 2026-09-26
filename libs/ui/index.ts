@@ -16,12 +16,12 @@ export * from './app/runTuiApp';
 export * from './app/runTuiSession';
 export * from './components';
 export * from './hooks';
+export type { ThemeColors, TuiThemeProviderProps } from './providers/TuiThemeProvider';
 export {
   default as TuiThemeProvider,
   resolveColors,
   useColors,
   useTuiTheme,
 } from './providers/TuiThemeProvider';
-export type { ThemeColors, TuiThemeProviderProps } from './providers/TuiThemeProvider';
 export * from './terminal';
 export * from './theme';
