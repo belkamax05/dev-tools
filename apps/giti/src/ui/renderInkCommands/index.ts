@@ -16,7 +16,7 @@ interface Options {
  * Browse giti commands interactively and resolve with the one picked, or `undefined` when the
  * user backs out.
  *
- * Dispatching is left to `src/cli/index.ts`: the returned name is exactly what the CLI resolves
+ * Dispatching is left to `src/run.ts`: the returned name is exactly what the CLI resolves
  * onto a file, so the picker feeds the one dispatch path instead of growing a second one.
  */
 const renderInkCommands = async ({ initialPath }: Options = {}): Promise<string | undefined> => {

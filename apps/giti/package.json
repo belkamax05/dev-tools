@@ -1,6 +1,6 @@
 {
   "name": "giti",
-  "module": "index.ts",
+  "module": "src/run.ts",
   "type": "module",
   "scripts": {
     "lint": "bun biome check .",

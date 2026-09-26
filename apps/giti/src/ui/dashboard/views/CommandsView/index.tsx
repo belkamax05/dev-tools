@@ -18,7 +18,7 @@ export interface CommandsViewProps {
   /**
    * Run the picked command and close the dashboard.
    *
-   * The name handed over is exactly what `src/cli/index.ts` resolves onto a
+   * The name handed over is exactly what `src/run.ts` resolves onto a
    * file, so a pick feeds the one dispatch path the CLI already has rather than
    * growing a second one.
    */

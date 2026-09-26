@@ -1,6 +1,6 @@
 {
   "name": "agenti",
-  "module": "src/cli/index.ts",
+  "module": "src/run.ts",
   "type": "module",
   "private": true,
   "scripts": {

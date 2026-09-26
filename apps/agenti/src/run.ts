@@ -1,15 +1,14 @@
 import { homedir } from 'node:os';
 import { relative } from 'node:path';
-
-import settingsStore, { ideIdsFor, TAB_IDS, type TabId, withRepoIde } from '../config/settings';
-import { getInventory, hasDrift, syncInventory } from '../core/agents';
-import { getHealth } from '../core/health';
-import { getIde, type IdeDefinition, IDES, mcpTargetsFor } from '../core/ides';
-import { getInstructions, linkInstructions } from '../core/instructions';
-import { buildComparisons, readMcpTarget, readSourceMcp, setMcpServer } from '../core/mcp';
-import findRepoRoot from '../core/repo';
-import { projectScope, type Scope, userScope } from '../core/scope';
-import { missingFromLock, restoreSkills } from '../core/skills';
+import settingsStore, { ideIdsFor, TAB_IDS, type TabId, withRepoIde } from './config/settings';
+import { getInventory, hasDrift, syncInventory } from './core/agents';
+import { getHealth } from './core/health';
+import { getIde, type IdeDefinition, IDES, mcpTargetsFor } from './core/ides';
+import { getInstructions, linkInstructions } from './core/instructions';
+import { buildComparisons, readMcpTarget, readSourceMcp, setMcpServer } from './core/mcp';
+import findRepoRoot from './core/repo';
+import { projectScope, type Scope, userScope } from './core/scope';
+import { missingFromLock, restoreSkills } from './core/skills';
 
 const HELP = `agenti — .agents, instructions, MCP servers and skills, kept in step across IDEs
 
@@ -222,7 +221,7 @@ export const run = async (...argv: string[]) => {
     return;
   }
 
-  const { default: renderDashboard } = await import('../ui/renderDashboard');
+  const { default: renderDashboard } = await import('./ui/renderDashboard');
   await renderDashboard(scope, first as TabId | undefined);
   //? A skills install or an MCP server still starting when the user quit would
   //? otherwise hold the process open with the terminal already handed back

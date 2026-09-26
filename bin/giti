@@ -1,1 +1,5 @@
-../apps/giti/bin/giti
+#!/usr/bin/env bun
+
+import run from '../apps/giti/src/run';
+
+await run(...process.argv.slice(2));

@@ -24,8 +24,8 @@ bunx tsc --noEmit                        # typecheck (no `typecheck` script here
 bun run lint                             # biome check .
 bun run format                           # biome check --write --unsafe .
 bun scripts/generate-commands.ts     # regenerate .gitconfig-commands
-bun bin/giti <command> [args]            # run a command without installing on PATH
-bun bin/giti                             # no command → interactive picker
+bun ../../bin/giti <command> [args]      # run a command without installing on PATH
+bun ../../bin/giti                       # no command → interactive picker
 ```
 
 Biome is configured and installed **in this lib**, not inherited: the umbrella's `biome.jsonc`
@@ -36,14 +36,14 @@ semicolons.
 ## Execution flow
 
 ```
-bin/giti (#!/usr/bin/env bun)
-  └─ src/cli/index.ts        run(...process.argv.slice(2))
+../../bin/giti (#!/usr/bin/env bun)
+  └─ src/run.ts        run(...process.argv.slice(2))
        ├─ no command? src/ui/renderInkCommands → picker returns a name
        └─ dynamic import of src/commands/<name>.ts
             └─ default export: CommandRun = (args: string[]) => void | Promise<void>
 ```
 
-`src/cli/index.ts` resolves the first argv token straight onto a file path under
+`src/run.ts` resolves the first argv token straight onto a file path under
 `src/commands/`, so a command name maps 1:1 to a filename. Nested names work:
 `giti subrepo/install` → `src/commands/subrepo/install.ts`.
 
@@ -84,12 +84,10 @@ Git ignores aliases that shadow built-in commands, which is why `giti git <args>
 ## Layout & conventions
 
 ```
-bin/giti                    entrypoint shim
-include                     POSIX sh, prepends bin/ to PATH — dead code here; the umbrella's
-                             `giti` command is wired via a `giti()` function in
-                             `../../include`, not by sourcing this file
+../../bin/giti              entrypoint shim (bins live only at the umbrella root; its
+                             `include` puts them on PATH, sourced by `.envrc` via direnv)
 scripts/                    codegen, run directly with bun
-src/cli/index.ts            command dispatcher
+src/run.ts            command dispatcher
 src/commands/<name>.ts      one file per command; default export + optional `export const meta`
 src/core/<area>/index.ts    the dashboard's git operations (status, hunks, commit, branches, log,
                              remotes, stash, operation) — plain async functions returning
@@ -176,7 +174,7 @@ explicitly, or throw `new GitError(result)`. With `{ stream: true }` stdio is in
 `stdout`/`stderr` come back empty and pagers/editors/colour detection behave normally.
 
 `getWorkingDir()` is the repo path every command passes to `gitExec`. It has a
-`setWorkingDir()` injection hook, but **nothing currently calls it** — `bin/giti` does not, so
+`setWorkingDir()` injection hook, but **nothing currently calls it** — `../../bin/giti` does not, so
 in practice it returns `process.cwd()`. `src/commands/git.ts` additionally re-joins
 `process.env.GIT_PREFIX`, because when reached through a `!` alias git has already chdir'd to
 the repo top-level; without it, `git giti git add .` from a subfolder would stage everything.
@@ -305,7 +303,7 @@ than fixed values.
   `process.exit(0)` itself (code after it in the command never runs), while the interactive
   ones (`commit`/`push`/`pull`/`switch`) `await waitUntilExit()`, unmount, then run the git
   command they built.
-- `index.ts` referenced by `package.json`'s `module` field does not exist; the real entrypoint
-  is `bin/giti`.
+- `package.json`'s `module` field points at `src/run.ts`; the executable shim that calls it is
+  `../../bin/giti`.
 - Editing this lib changes behaviour for every consumer immediately — the `@/` aliases point at
   source, so there is no build step and no version bump.

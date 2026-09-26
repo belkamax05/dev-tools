@@ -3,8 +3,9 @@
 Reusable terminal building blocks shared by the sibling repos in `~/dev` — colour and
 formatting helpers, process/install utilities, a config store, and a full terminal-UI kit:
 components, hooks, theming, and the mouse/alternate-screen layer under them — plus the two apps
-built on them, `giti` and `agenti`, whose binaries are linked from `bin/` (and onto `PATH` by
-dotfiles' mr `link_bins`).
+built on them, `giti` and `agenti`, whose executables live in `bin/` — one shim per app, calling its
+`apps/<app>/src/run.ts`. Sourcing `include` prepends that `bin/` to `PATH`; `.envrc` does so via
+direnv whenever you `cd` into the repo (run `direnv allow` once).
 
 ## Layout
 

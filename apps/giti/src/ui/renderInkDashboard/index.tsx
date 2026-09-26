@@ -13,7 +13,7 @@ import App, { TABS, type TabId } from '../dashboard/App';
  * Open the giti dashboard and resolve with the command the user picked from
  * its palette, if any.
  *
- * Dispatching a picked command is left to `src/cli/index.ts` — the name goes
+ * Dispatching a picked command is left to `src/run.ts` — the name goes
  * back the way it came, so there is still one dispatch path, and the command
  * runs on a terminal the TUI has already handed back. Everything else — an
  * editor for a file or a commit message — is lent the terminal by

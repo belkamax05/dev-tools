@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
+import formatArg from '@/dev-tools/utils/format/formatArg';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import formatArg from '@/dev-tools/utils/format/formatArg';
-
-import sysPaths from '../config/sysPaths';
-import type { CommandRun } from '../types/CommandRun';
+import sysPaths from './config/sysPaths';
+import type { CommandRun } from './types/CommandRun';
 
 /**
  * Ask the user which command to run, optionally pre-navigated into a group.
@@ -13,7 +12,7 @@ import type { CommandRun } from '../types/CommandRun';
  * the TUI-backed commands defer their own renderer.
  */
 const pickCommand = async (initialPath?: string[]) => {
-  const { default: renderInkCommands } = await import('../ui/renderInkCommands');
+  const { default: renderInkCommands } = await import('./ui/renderInkCommands');
   return renderInkCommands({ initialPath });
 };
 
@@ -28,7 +27,7 @@ const pickCommand = async (initialPath?: string[]) => {
  * tree it never renders.
  */
 const openDashboard = async () => {
-  const { default: renderInkDashboard } = await import('../ui/renderInkDashboard');
+  const { default: renderInkDashboard } = await import('./ui/renderInkDashboard');
   return renderInkDashboard();
 };
 
