@@ -6,6 +6,7 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
 import type { GitViewProps } from '../../types';
+import SpinnerGlyph from '../../SpinnerGlyph';
 import type { LastFetch, RemoteSync } from '../../useRemoteSync';
 import StatusView from '../StatusView';
 
@@ -63,8 +64,18 @@ const SyncBar = ({
           </Text>
           <Text color={ahead ? colors.ok : colors.muted}>{`  ↑${ahead}`}</Text>
           <Text color={behind ? colors.warn : colors.muted}>{` ↓${behind}`}</Text>
-          <Text color={sync.lastFetch?.ok === false ? colors.warn : colors.muted}>
-            {`  · ${fetchState(sync.progress, sync.lastFetch)}`}
+          <Text color={colors.muted}>{'  · '}</Text>
+          {sync.progress && <SpinnerGlyph color={colors.accent} />}
+          <Text
+            color={
+              sync.progress
+                ? colors.accent
+                : sync.lastFetch?.ok === false
+                  ? colors.warn
+                  : colors.muted
+            }
+          >
+            {fetchState(sync.progress, sync.lastFetch)}
           </Text>
         </Text>
       </Box>

@@ -21,6 +21,7 @@ import {
 } from '../../../../core/remotes';
 import type { OperationResult } from '../../../../core/status';
 import type { GitViewProps } from '../../types';
+import SpinnerGlyph from '../../SpinnerGlyph';
 import type { RemoteSync } from '../../useRemoteSync';
 
 export interface RemotesViewProps extends GitViewProps {
@@ -180,6 +181,7 @@ export const RemotesView = ({
       <Box flexShrink={0}>
         {prompt.line ?? (
           <Text wrap="truncate" color={progress ? colors.accent : colors.muted}>
+            {progress && <SpinnerGlyph />}
             {progress ??
               (branch
                 ? `${branch.name} → ${branch.upstream || 'no upstream (a push sets one)'} · ${ahead} ahead, ${behind} behind`
