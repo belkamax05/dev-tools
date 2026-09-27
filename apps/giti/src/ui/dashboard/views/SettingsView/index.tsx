@@ -87,7 +87,6 @@ export const SettingsView = ({
       emptyText="Nothing to set."
       detailTitle={current?.kind === 'refresh' ? 'Auto refresh' : 'Theme'}
       activateLabel="apply"
-      hints={[{ key: 'Space', label: 'apply', onPress: () => apply(current) }]}
       onActivate={(item) => apply(item.value)}
       onSelectionChange={(item) => setCurrent(item?.value)}
       renderDetail={(item) => {

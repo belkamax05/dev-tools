@@ -29,4 +29,11 @@ describe('commit', () => {
     repo.sh(['commit', '-qam', 'local']);
     expect(await isHeadPushed(repo.root)).toBe(false);
   });
+
+  test('commits empty only when asked to', async () => {
+    repo = makeRepo();
+    expect((await commit(repo.root, 'marker')).ok).toBe(false);
+    expect((await commit(repo.root, 'marker', { allowEmpty: true })).ok).toBe(true);
+    expect(repo.sh(['log', '-1', '--format=%s']).trim()).toBe('marker');
+  });
 });
