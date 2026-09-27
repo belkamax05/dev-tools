@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { fetchAll, pullCurrent, pushCurrent } from '../../../core/remotes';
+import { fetchAll, pullMega, pushCurrent } from '../../../core/remotes';
 import type { OperationResult } from '../../../core/status';
 import type { Tone } from '../types';
 
@@ -118,7 +118,7 @@ export const useRemoteSync = (
     lastFetch,
     fetch: () => void fetchWith(false),
     pull: () => {
-      if (root) void run('Pulling', (onProgress) => pullCurrent(root, onProgress));
+      if (root) void run('Mega pull', (onProgress) => pullMega(root, onProgress));
     },
     push: () => {
       if (root) void run('Pushing', (onProgress) => pushCurrent(root, { remote, onProgress }));
