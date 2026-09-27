@@ -108,7 +108,7 @@ const pullVendored = async (
   const { behind, dirty } = await getVendoredState({ ...vendored, ...upstream }, cwd);
 
   if (behind === 0) {
-    log.step(`${label}  ${formatColor('up to date', 'success')}`);
+    log.success(`${label}  ${formatColor('up to date', 'success')}`);
     return 'current';
   }
 
