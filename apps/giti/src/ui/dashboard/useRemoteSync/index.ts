@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { fetchAll, pullMega, pushCurrent } from '../../../core/remotes';
+import { countVendoredBehind, fetchAll, pullMega, pushCurrent } from '../../../core/remotes';
 import type { OperationResult } from '../../../core/status';
 import type { Tone } from '../types';
 
@@ -14,6 +14,8 @@ export interface RemoteSync {
   progress: string | undefined;
   /** The last fetch this process made of this repository, automatic or not. */
   lastFetch: LastFetch | undefined;
+  /** Upstream commits waiting in subrepos, submodules and subtrees, as of the last fetch. */
+  vendoredBehind: number;
   fetch: () => void;
   pull: () => void;
   push: () => void;
@@ -25,6 +27,7 @@ export interface RemoteSync {
  */
 const autoFetched = new Set<string>();
 const lastFetches = new Map<string, LastFetch>();
+const vendoredBehinds = new Map<string, number>();
 
 /**
  * Fetch, pull and push for the current branch, plus one automatic fetch when the dashboard opens.
@@ -52,6 +55,7 @@ export const useRemoteSync = (
   const [lastFetch, setLastFetch] = useState<LastFetch | undefined>(
     root ? lastFetches.get(root) : undefined,
   );
+  const [vendoredBehind, setVendoredBehind] = useState(root ? (vendoredBehinds.get(root) ?? 0) : 0);
 
   //? Set state only while mounted: a fetch outlives a handoff, and landing on a component that
   //? is already gone is a React warning at best.
@@ -102,7 +106,19 @@ export const useRemoteSync = (
   const fetchWith = useCallback(
     async (quiet: boolean) => {
       if (!root) return;
-      const result = await run('Fetching', (onProgress) => fetchAll(root, onProgress), { quiet });
+      //? The vendored directories are fetched as part of every fetch, so Pull can say there is
+      //? something to bring in even when the repository's own branch is up to date.
+      const result = await run(
+        'Fetching',
+        async (onProgress) => {
+          const own = await fetchAll(root, onProgress);
+          const behind = await countVendoredBehind(root, (dir) => onProgress(dir));
+          vendoredBehinds.set(root, behind);
+          if (mounted.current) setVendoredBehind(behind);
+          return own;
+        },
+        { quiet },
+      );
       if (!result) return;
       const done = { at: new Date(), ok: result.ok };
       lastFetches.set(root, done);
@@ -120,9 +136,18 @@ export const useRemoteSync = (
   return {
     progress,
     lastFetch,
+    vendoredBehind,
     fetch: () => void fetchWith(false),
     pull: () => {
-      if (root) void run('Mega pull', (onProgress) => pullMega(root, onProgress));
+      if (!root) return;
+      void run('Mega pull', async (onProgress) => {
+        const result = await pullMega(root, onProgress);
+        //? Re-counted rather than zeroed: mega pull leaves dirty or diverged entries alone
+        const behind = await countVendoredBehind(root);
+        vendoredBehinds.set(root, behind);
+        if (mounted.current) setVendoredBehind(behind);
+        return result;
+      });
     },
     push: () => {
       if (root) void run('Pushing', (onProgress) => pushCurrent(root, { remote, onProgress }));

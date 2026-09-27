@@ -13,9 +13,7 @@ import openUrl, { remoteWebUrl } from '@/dev-tools/utils/system/openUrl';
 
 import { getBranches } from '../../../../core/branches';
 import {
-  fetchAll,
   getRemotes,
-  pullMega,
   pushCurrent,
   type Remote,
   removeRemote,
@@ -23,6 +21,12 @@ import {
 } from '../../../../core/remotes';
 import type { OperationResult } from '../../../../core/status';
 import type { GitViewProps } from '../../types';
+import type { RemoteSync } from '../../useRemoteSync';
+
+export interface RemotesViewProps extends GitViewProps {
+  /** Fetch and pull, shared with Overview so the vendored count and progress are one state. */
+  sync: RemoteSync;
+}
 
 /**
  * Remotes, and the three things done with them — fetch, pull, push — with
@@ -40,11 +44,13 @@ export const RemotesView = ({
   onCaptureInput,
   offerUndo,
   reservedChrome,
-}: GitViewProps) => {
+  sync,
+}: RemotesViewProps) => {
   const colors = useColors();
   const prompt = usePrompt(onCaptureInput);
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
-  const [progress, setProgress] = useState<string | undefined>(undefined);
+  const [ownProgress, setProgress] = useState<string | undefined>(undefined);
+  const progress = sync.progress ?? ownProgress;
 
   const { data } = useLoader(
     async () => ({ remotes: await getRemotes(root), branches: await getBranches(root) }),
@@ -69,8 +75,12 @@ export const RemotesView = ({
     }
   };
 
-  const fetch = () => void run('Fetching', (onProgress) => fetchAll(root, onProgress));
-  const pull = () => void run('Mega pull', (onProgress) => pullMega(root, onProgress));
+  const fetch = () => {
+    if (!progress) sync.fetch();
+  };
+  const pull = () => {
+    if (!progress) sync.pull();
+  };
   const push = (remote = current?.name ?? 'origin') =>
     void run('Pushing', (onProgress) => pushCurrent(root, { remote, onProgress }));
   const forcePush = () =>
@@ -119,19 +129,21 @@ export const RemotesView = ({
 
   const ahead = branch?.ahead ?? 0;
   const behind = branch?.behind ?? 0;
+  //? A mega pull brings in the vendored directories too, so their waiting commits count here
+  const incoming = behind + sync.vendoredBehind;
   const actions: ToolbarAction[] = [
     {
       hotkey: 'f',
       label: 'Fetch',
       onPress: fetch,
-      tone: !ahead && !behind ? 'primary' : 'normal',
+      tone: !ahead && !incoming ? 'primary' : 'normal',
       disabled: Boolean(progress),
     },
     {
       hotkey: 'l',
-      label: behind ? `Pull ↓${behind}` : 'Pull',
+      label: incoming ? `Pull ↓${incoming}` : 'Pull',
       onPress: pull,
-      tone: behind ? 'primary' : 'normal',
+      tone: incoming ? 'primary' : 'normal',
       disabled: Boolean(progress),
     },
     {

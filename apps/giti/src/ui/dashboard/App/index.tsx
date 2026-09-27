@@ -391,7 +391,7 @@ export const App = ({
           {activeTab === 'log' && <LogView {...viewProps} />}
           {activeTab === 'branches' && <BranchesView {...viewProps} />}
           {activeTab === 'stash' && <StashView {...viewProps} />}
-          {activeTab === 'remotes' && <RemotesView {...viewProps} />}
+          {activeTab === 'remotes' && <RemotesView {...viewProps} sync={sync} />}
           {activeTab === 'vendored' && (
             <VendoredView snapshot={snapshot} onRunCommand={runCommand} />
           )}

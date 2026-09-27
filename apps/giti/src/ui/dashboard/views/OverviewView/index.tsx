@@ -47,6 +47,8 @@ const SyncBar = ({
   const colors = useColors();
   const { branch, detached, headShort, upstream, remote, ahead, behind } = snapshot;
   const busy = Boolean(sync.progress);
+  //? A mega pull brings in the vendored directories too, so their waiting commits count here
+  const incoming = behind + sync.vendoredBehind;
 
   return (
     <Box flexDirection="row" flexShrink={0}>
@@ -72,8 +74,8 @@ const SyncBar = ({
         <Text> </Text>
         <ActionButton
           hotkey="l"
-          label={behind ? `Pull ↓${behind}` : 'Pull'}
-          color={behind ? colors.accent : undefined}
+          label={incoming ? `Pull ↓${incoming}` : 'Pull'}
+          color={incoming ? colors.accent : undefined}
           disabled={busy}
           onPress={sync.pull}
         />
