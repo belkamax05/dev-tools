@@ -179,6 +179,12 @@ export const StatusView = ({
     prompt.ask('Commit message:', (message) => {
       if (message.trim()) void run(() => commit(root, message));
     });
+  //? With nothing staged, the one commit that still makes sense is an empty one — a marker, or a
+  //? nudge for CI — so that is what c/C offer instead of a commit that can only fail
+  const commitEmpty = () =>
+    prompt.ask('Empty commit message:', (message) => {
+      if (message.trim()) void run(() => commit(root, message, { allowEmpty: true }));
+    });
 
   const amend = async () => {
     const pushed = await isHeadPushed(root);
@@ -209,9 +215,13 @@ export const StatusView = ({
       if (busy) return;
       if (input === 'a') return run(() => stageAll(root));
       if (input === 'A') return unstageAll();
-      if (input === 'c') return commitWith();
-      if (input === 'C')
-        return handoff({ type: 'run', command: ['git', 'commit'], cwd: root, label: 'git commit' });
+      if (!counts.staged) {
+        if (input === 'C') return commitEmpty();
+      } else {
+        if (input === 'c') return commitWith();
+        if (input === 'C')
+          return handoff({ type: 'run', command: ['git', 'commit'], cwd: root, label: 'git commit' });
+      }
       if (input === 'M') return void amend();
       if (input === 'W') return wip();
       if (!current) return;
@@ -355,17 +365,17 @@ export const StatusView = ({
   const hints: Hint[] = [
     { key: 'a', label: 'stage all', onPress: () => void run(() => stageAll(root)) },
     ...(counts.staged ? [{ key: 'A', label: 'unstage all', onPress: unstageAll }] : []),
-    {
-      key: 'c',
-      label: counts.staged ? `commit ${counts.staged}` : 'commit',
-      onPress: counts.staged ? commitWith : undefined,
-    },
-    {
-      key: 'C',
-      label: 'in editor',
-      onPress: () =>
-        handoff({ type: 'run', command: ['git', 'commit'], cwd: root, label: 'git commit' }),
-    },
+    ...(counts.staged
+      ? [
+          { key: 'c', label: `commit ${counts.staged}`, onPress: commitWith },
+          {
+            key: 'C',
+            label: 'in editor',
+            onPress: () =>
+              handoff({ type: 'run', command: ['git', 'commit'], cwd: root, label: 'git commit' }),
+          },
+        ]
+      : [{ key: 'C', label: 'commit empty', onPress: commitEmpty }]),
     { key: 'M', label: 'amend', onPress: () => void amend() },
     { key: 'W', label: 'wip' },
   ];
