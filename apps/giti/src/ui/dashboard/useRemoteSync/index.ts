@@ -55,7 +55,9 @@ export const useRemoteSync = (
   const [lastFetch, setLastFetch] = useState<LastFetch | undefined>(
     root ? lastFetches.get(root) : undefined,
   );
-  const [vendoredBehind, setVendoredBehind] = useState(root ? (vendoredBehinds.get(root) ?? 0) : 0);
+  const [vendoredBehind, setVendoredBehind] = useState(
+    root ? (vendoredBehinds.get(root) ?? 0) : 0,
+  );
 
   //? Set state only while mounted: a fetch outlives a handoff, and landing on a component that
   //? is already gone is a React warning at best.
@@ -85,11 +87,7 @@ export const useRemoteSync = (
         //? did, so its success is shown in the sync line rather than claiming the status line.
         if (!quiet || !result.ok) {
           notify(
-            result.ok
-              ? result.message
-              : quiet
-                ? `Couldn't fetch: ${result.message}`
-                : result.message,
+            result.ok ? result.message : quiet ? `Couldn't fetch: ${result.message}` : result.message,
             result.ok ? 'ok' : quiet ? 'warn' : 'error',
           );
         }

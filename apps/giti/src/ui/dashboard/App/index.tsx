@@ -115,9 +115,7 @@ const OperationBanner = ({
     <Box flexDirection="row" flexShrink={0}>
       <Text color={colors.warn} bold>
         {`${op.kind[0]?.toUpperCase()}${op.kind.slice(1)} in progress`}
-        {conflicts
-          ? ` · ${conflicts} conflicted — resolve them on Overview`
-          : ' · ready to continue'}
+        {conflicts ? ` · ${conflicts} conflicted — resolve them on Overview` : ' · ready to continue'}
         {'  '}
       </Text>
       <ActionButton hotkey="^N" label="Continue" color={colors.accent} onPress={onContinue} />

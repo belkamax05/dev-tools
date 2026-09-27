@@ -35,8 +35,7 @@ const getTrackedBranch = async (cwd: string): Promise<TrackedBranch | null> => {
     gitExec(['config', `branch.${local}.merge`], cwd),
   ]);
   const remote = remoteResult.exitCode === 0 ? remoteResult.stdout.trim() : '';
-  const branch =
-    mergeResult.exitCode === 0 ? mergeResult.stdout.trim().replace(/^refs\/heads\//, '') : '';
+  const branch = mergeResult.exitCode === 0 ? mergeResult.stdout.trim().replace(/^refs\/heads\//, '') : '';
   if (!remote || remote === '.' || !branch) return null;
 
   return { remote, branch, label: `${remote}/${branch}` };

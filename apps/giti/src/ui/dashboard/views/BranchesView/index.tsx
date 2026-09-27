@@ -283,9 +283,7 @@ export const BranchesView = ({
         title={`Branches (${shown.length})`}
         items={items}
         emptyText={
-          query
-            ? `No branch matches "${query}".`
-            : 'No branches — this repository has no commits yet.'
+          query ? `No branch matches "${query}".` : 'No branches — this repository has no commits yet.'
         }
         detailTitle={current?.name ?? 'Branch'}
         reservedChrome={['viewHeader', ...reservedChrome]}

@@ -30,7 +30,10 @@ const SETTINGS: AgentiSettings = {
 describe('settings', () => {
   test('reads the old single-IDE shape as a list of one', async () => {
     const { config } = isolate();
-    await Bun.write(config, JSON.stringify({ repos: { '/r': { ide: 'cursor' } } }));
+    await Bun.write(
+      config,
+      JSON.stringify({ repos: { '/r': { ide: 'cursor' } } }),
+    );
     const settings = await settingsStore.load();
     expect(settings.repos['/r']?.ides).toEqual(['cursor']);
   });

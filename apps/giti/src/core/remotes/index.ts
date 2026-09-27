@@ -175,7 +175,9 @@ const configEntries = async (root: string, pattern: string): Promise<[string, st
     .filter(Boolean)
     .map((entry) => {
       const newline = entry.indexOf('\n');
-      return newline === -1 ? [entry, ''] : [entry.slice(0, newline), entry.slice(newline + 1)];
+      return newline === -1
+        ? [entry, '']
+        : [entry.slice(0, newline), entry.slice(newline + 1)];
     });
 };
 
@@ -234,10 +236,7 @@ export const removeRemote = async (
  * Written straight to config rather than through `git remote add`, which would add a default
  * fetch refspec on top of the captured ones.
  */
-export const restoreRemote = async (
-  root: string,
-  removed: RemovedRemote,
-): Promise<OperationResult> => {
+export const restoreRemote = async (root: string, removed: RemovedRemote): Promise<OperationResult> => {
   const steps: string[][] = [
     ...removed.config.map(([key, value]) => ['config', '--local', '--add', key, value]),
     ...removed.branches.map(([key, value]) => ['config', '--local', key, value]),

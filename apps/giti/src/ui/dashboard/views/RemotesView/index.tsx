@@ -104,10 +104,7 @@ export const RemotesView = ({
           const result = await removeRemote(root, remote.name);
           const undo = result.undo;
           if (undo) {
-            offerUndo({
-              label: `Removed remote ${undo.name}`,
-              run: () => restoreRemote(root, undo),
-            });
+            offerUndo({ label: `Removed remote ${undo.name}`, run: () => restoreRemote(root, undo) });
           }
           return result;
         }),
@@ -212,9 +209,7 @@ export const RemotesView = ({
           { key: 'f', label: 'fetch', onPress: fetch },
           { key: 'l', label: 'pull', onPress: pull },
           { key: 'P', label: 'push', onPress: () => push() },
-          ...(current
-            ? [{ key: 'x', label: `remove ${current.name}`, onPress: () => remove() }]
-            : []),
+          ...(current ? [{ key: 'x', label: `remove ${current.name}`, onPress: () => remove() }] : []),
         ]}
         onActivate={(item) => {
           const url = item.value && remoteWebUrl(item.value.fetchUrl);

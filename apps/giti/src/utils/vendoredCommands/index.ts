@@ -315,12 +315,9 @@ export const runVendoredPull = async (
   const outcomes: VendoredOutcome[] = [];
   for (const entry of targets) outcomes.push(await pullVendored(entry, cwd, args));
 
-  if (kind === 'submodule' && outcomes.includes('done'))
-    log.info(GITLINK_NOTE.replace(/^ℹ️\s*/, ''));
+  if (kind === 'submodule' && outcomes.includes('done')) log.info(GITLINK_NOTE.replace(/^ℹ️\s*/, ''));
   const tally = summarise(outcomes, 'Pulled');
-  outro(
-    formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'),
-  );
+  outro(formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'));
 
   return outcomes;
 };

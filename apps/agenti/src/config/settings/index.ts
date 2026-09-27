@@ -65,11 +65,7 @@ const coerce = (raw: Record<string, unknown>): AgentiSettings => {
 /** Keys a person sets on purpose — what may live in a tracked dotfile. */
 const CONFIG_KEYS = ['theme', 'logoMode'] as const satisfies readonly (keyof AgentiSettings)[];
 /** Keys agenti keeps up to date by itself as it is used. */
-const STATE_KEYS = [
-  'lastTab',
-  'defaultIde',
-  'repos',
-] as const satisfies readonly (keyof AgentiSettings)[];
+const STATE_KEYS = ['lastTab', 'defaultIde', 'repos'] as const satisfies readonly (keyof AgentiSettings)[];
 
 const pick = (from: object, keys: readonly string[]): Record<string, unknown> => {
   const values = from as Record<string, unknown>;

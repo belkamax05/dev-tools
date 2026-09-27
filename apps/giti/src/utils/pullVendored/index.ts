@@ -32,7 +32,9 @@ import {
 const hasLeftoverWorktree = async (dir: string, cwd: string) => {
   const worktrees = await gitExec(['worktree', 'list', '--porcelain'], cwd);
   if (worktrees.exitCode !== 0) return false;
-  return worktrees.stdout.split('\n').some((line) => line === `branch refs/heads/subrepo/${dir}`);
+  return worktrees.stdout
+    .split('\n')
+    .some((line) => line === `branch refs/heads/subrepo/${dir}`);
 };
 
 const moved = (behind: number | null) => (behind === null ? '' : ` ${plural(behind, 'commit')}`);
