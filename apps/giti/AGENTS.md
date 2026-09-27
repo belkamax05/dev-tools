@@ -114,8 +114,12 @@ src/config/                 systemConfig / sysPaths mirrors of shulker-controlle
 
 ## The dashboard
 
-`giti` with no arguments opens a tabbed dashboard: Overview, Status, Log, Branches, Stash,
-Remotes, Vendored. Every tab works with **both mouse and keyboard**. Each toolbar button, hint,
+`giti` with no arguments opens a tabbed dashboard: Overview, Log, Branches, Stash, Remotes,
+Vendored. Overview is also the old Status tab: a sync line (branch → upstream, ↑/↓, last fetch,
+Fetch/Pull/Push buttons), then the stage/diff/commit working area. `+`/`-` open and fold four
+detail lines (HEAD, identity, refs) between the two, and the choice is kept in giti's
+`state.json`. Opening the dashboard fetches once in the background (`useRemoteSync`), so ↑/↓
+describe the remote as it is now. Every tab works with **both mouse and keyboard**. Each toolbar button, hint,
 tab and row checkbox is clickable and also has a hotkey, and the hotkey is always printed on it.
 If you add an action, add both.
 

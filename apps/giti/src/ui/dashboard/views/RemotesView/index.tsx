@@ -18,6 +18,8 @@ import {
   pullCurrent,
   pushCurrent,
   type Remote,
+  removeRemote,
+  restoreRemote,
 } from '../../../../core/remotes';
 import type { OperationResult } from '../../../../core/status';
 import type { GitViewProps } from '../../types';
@@ -27,6 +29,8 @@ import type { GitViewProps } from '../../types';
  * git's own progress shown live while they run. The button the branch most
  * likely needs is the highlighted one: push when ahead, pull when behind.
  * Force-pushing exists only as `--force-with-lease`, and asks first.
+ * Removing a remote asks first too, and can be undone (^Z) — settings,
+ * tracking refs and the upstream of every branch that followed it included.
  */
 export const RemotesView = ({
   root,
@@ -34,6 +38,7 @@ export const RemotesView = ({
   reload,
   notify,
   onCaptureInput,
+  offerUndo,
   reservedChrome,
 }: GitViewProps) => {
   const colors = useColors();
@@ -77,9 +82,29 @@ export const RemotesView = ({
         ),
     );
 
+  const remove = (remote = current) => {
+    if (!remote) return;
+    prompt.confirm(
+      `Remove remote ${remote.name}? Its tracking branches go too, and branches following it lose their upstream (^Z undoes it).`,
+      () =>
+        run(`Removing ${remote.name}`, async () => {
+          const result = await removeRemote(root, remote.name);
+          const undo = result.undo;
+          if (undo) {
+            offerUndo({
+              label: `Removed remote ${undo.name}`,
+              run: () => restoreRemote(root, undo),
+            });
+          }
+          return result;
+        }),
+    );
+  };
+
   useInput(
     (input) => {
       if (input === 'f') fetch();
+      else if (input === 'x') remove();
       else if (input === 'l') pull();
       else if (input === 'P') push();
       else if (input === 'F') forcePush();
@@ -163,6 +188,9 @@ export const RemotesView = ({
           { key: 'f', label: 'fetch', onPress: fetch },
           { key: 'l', label: 'pull', onPress: pull },
           { key: 'P', label: 'push', onPress: () => push() },
+          ...(current
+            ? [{ key: 'x', label: `remove ${current.name}`, onPress: () => remove() }]
+            : []),
         ]}
         onActivate={(item) => {
           const url = item.value && remoteWebUrl(item.value.fetchUrl);
@@ -175,7 +203,18 @@ export const RemotesView = ({
           const url = remoteWebUrl(remote.fetchUrl);
           return (
             <Box flexDirection="column">
-              <Toolbar actions={actions} />
+              <Toolbar
+                actions={[
+                  ...actions,
+                  {
+                    hotkey: 'x',
+                    label: 'Remove',
+                    onPress: () => remove(remote),
+                    tone: 'danger',
+                    disabled: Boolean(progress),
+                  },
+                ]}
+              />
               <LinkRow label="fetch" value={remote.fetchUrl} />
               <LinkRow label="push" value={remote.pushUrl || remote.fetchUrl} />
               <LinkRow

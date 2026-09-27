@@ -1,212 +1,207 @@
-import { Text } from 'ink';
-import { basename } from 'node:path';
+import { Text, useInput } from 'ink';
 
+import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
-import Panel from '@/dev-tools/ui/components/Panel';
-import type { Stat } from '@/dev-tools/ui/components/StatList';
-import StatList from '@/dev-tools/ui/components/StatList';
-import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
+import type { GitViewProps } from '../../types';
+import type { LastFetch, RemoteSync } from '../../useRemoteSync';
+import StatusView from '../StatusView';
 
-/** Below this the cards are stacked one per row rather than set in two columns. */
-const TWO_COLUMN_COLUMNS = 96;
-
-export interface OverviewViewProps {
+export interface OverviewViewProps extends GitViewProps {
   snapshot: RepoSnapshot;
+  /** Fetch / pull / push, owned by App so they keep running across a tab switch. */
+  sync: RemoteSync;
+  /** Whether the extra lines are showing — remembered between runs in giti's state.json. */
+  details: boolean;
+  onToggleDetails: () => void;
+  /** True while something else owns the keyboard (a prompt, the palette): the keys below stand down. */
+  isInputCaptured: boolean;
 }
 
-/**
- * Everything worth knowing about the repository at a glance.
- *
- * Cards rather than one long list because the four questions a dashboard answers
- * — where am I, what have I changed, where is that relative to the remote, and
- * who am I doing it as — are independent of each other, and a reader looking for
- * one of them should not have to read the other three on the way past.
- */
-export const OverviewView = ({ snapshot }: OverviewViewProps) => {
-  const colors = useColors();
-  const viewport = useViewport();
-  const twoColumn = viewport.columns >= TWO_COLUMN_COLUMNS;
+const clock = (at: Date) =>
+  `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
 
+const fetchState = (progress: string | undefined, lastFetch: LastFetch | undefined) =>
+  progress ??
+  (lastFetch
+    ? lastFetch.ok
+      ? `fetched ${clock(lastFetch.at)}`
+      : `fetch failed ${clock(lastFetch.at)}`
+    : 'not fetched yet');
+
+/**
+ * Where the branch stands against its remote, and the three things done about it.
+ *
+ * One line, always shown: this is what the first glance at a repository is for — am I behind,
+ * do I have something to push — and the button for each answer sits right next to it. The
+ * likely next step is the highlighted one: Pull when behind, Push when ahead.
+ */
+const SyncBar = ({
+  snapshot,
+  sync,
+  details,
+  onToggleDetails,
+}: Pick<OverviewViewProps, 'snapshot' | 'sync' | 'details' | 'onToggleDetails'>) => {
+  const colors = useColors();
+  const { branch, detached, headShort, upstream, remote, ahead, behind } = snapshot;
+  const busy = Boolean(sync.progress);
+
+  return (
+    <Box flexDirection="row" flexShrink={0}>
+      <Box flexShrink={1} flexGrow={1} overflow="hidden">
+        <Text wrap="truncate">
+          <Text color={detached ? colors.warn : colors.accent} bold>
+            {detached ? `detached @ ${headShort}` : branch || '—'}
+          </Text>
+          <Text color={colors.muted}> → </Text>
+          <Text color={upstream ? colors.text : colors.warn}>
+            {upstream ? `${remote || 'origin'}/${upstream}` : 'no upstream'}
+          </Text>
+          <Text color={ahead ? colors.ok : colors.muted}>{`  ↑${ahead}`}</Text>
+          <Text color={behind ? colors.warn : colors.muted}>{` ↓${behind}`}</Text>
+          <Text color={sync.lastFetch?.ok === false ? colors.warn : colors.muted}>
+            {`  · ${fetchState(sync.progress, sync.lastFetch)}`}
+          </Text>
+        </Text>
+      </Box>
+      <Box flexShrink={0} flexDirection="row">
+        <Text> </Text>
+        <ActionButton hotkey="f" label="Fetch" disabled={busy} onPress={sync.fetch} />
+        <Text> </Text>
+        <ActionButton
+          hotkey="l"
+          label={behind ? `Pull ↓${behind}` : 'Pull'}
+          color={behind ? colors.accent : undefined}
+          disabled={busy}
+          onPress={sync.pull}
+        />
+        <Text> </Text>
+        <ActionButton
+          hotkey="P"
+          label={ahead ? `Push ↑${ahead}` : 'Push'}
+          color={ahead && !behind ? colors.accent : undefined}
+          disabled={busy}
+          onPress={sync.push}
+        />
+        <Text> </Text>
+        <ActionButton
+          hotkey={details ? '-' : '+'}
+          label={details ? 'Less' : 'More'}
+          onPress={onToggleDetails}
+        />
+      </Box>
+    </Box>
+  );
+};
+
+/**
+ * What `+` adds: the facts worth having but not worth the room every time — which commit HEAD
+ * is, who commits go out as, and the rest of the repository's inventory. Four fixed lines, so
+ * the file list below can budget for them exactly (`overviewDetails` in the theme).
+ */
+const Details = ({ snapshot }: { snapshot: RepoSnapshot }) => {
+  const colors = useColors();
   const {
     root,
-    branch,
-    detached,
-    headShort,
     headFull,
     headSubject,
-    upstream,
-    remote,
-    originUrl,
-    ahead,
-    behind,
-    staged,
-    modified,
-    untracked,
-    conflicted,
-    stashCount,
     user,
-    commits,
+    originUrl,
+    stashCount,
     localBranches,
     remoteBranches,
     mergedBranches,
     remotes,
     vendored,
   } = snapshot;
+  //? `git branch --merged` lists the current branch too, which is never safe to delete.
+  const merged = Math.max(0, mergedBranches.length - 1);
 
-  const changeCount = staged.length + modified.length + untracked.length + conflicted.length;
-  const isClean = changeCount === 0;
+  const label = (text: string) => <Text color={colors.muted}>{text.padEnd(6)}</Text>;
 
-  const repository: Stat[] = [
-    { label: 'repo', value: basename(root) || root, emphasis: true, color: colors.accent },
-    {
-      label: 'branch',
-      value: detached ? `${headShort} (detached)` : branch || '—',
-      color: detached ? colors.warn : colors.accent,
-      emphasis: true,
+  return (
+    <Box flexDirection="column" flexShrink={0}>
+      {/* The full hash, uncut: the one value here someone is going to copy. */}
+      <Text wrap="truncate">
+        {label('HEAD')}
+        <Text color={colors.heading}>{headFull || '—'}</Text>
+      </Text>
+      <Text wrap="truncate">
+        {label('last')}
+        <Text>{headSubject || '—'}</Text>
+      </Text>
+      <Text wrap="truncate">
+        {label('you')}
+        <Text color={user.isValid ? colors.text : colors.warn}>
+          {user.name || '—'} {`<${user.email || '—'}>`}
+        </Text>
+        <Text color={colors.muted}>{`  · origin ${originUrl || 'none'}`}</Text>
+      </Text>
+      <Text wrap="truncate">
+        {label('refs')}
+        <Text>
+          {`${localBranches.length} local · ${remoteBranches.length} remote · `}
+          <Text color={merged ? colors.highlight : colors.text}>
+            {`${merged} merged${merged ? ' (safe to delete)' : ''}`}
+          </Text>
+          {` · ${remotes.length} remotes · ${vendored.length} vendored · `}
+          <Text color={stashCount ? colors.highlight : colors.text}>{`${stashCount} stashed`}</Text>
+        </Text>
+        <Text color={colors.muted}>{`  · ${root}`}</Text>
+      </Text>
+    </Box>
+  );
+};
+
+/**
+ * The first tab: where the branch stands, and the working tree to act on.
+ *
+ * It used to be two tabs — Overview (read-only cards) and Status (stage, diff, commit) — and the
+ * usual first move on opening either was a trip to the other. Now it is one screen that starts
+ * minimal: a sync line with Fetch / Pull / Push, then Status as it was. `+` opens the details
+ * (HEAD, identity, inventory) above the file list and `-` folds them away; which of the two the
+ * user left it in is remembered.
+ */
+export const OverviewView = ({
+  snapshot,
+  sync,
+  details,
+  onToggleDetails,
+  isInputCaptured,
+  ...viewProps
+}: OverviewViewProps) => {
+  useInput(
+    (input) => {
+      if (input === 'f') sync.fetch();
+      else if (input === 'l') sync.pull();
+      else if (input === 'P') sync.push();
+      else if (input === '+' || input === '=') {
+        if (!details) onToggleDetails();
+      } else if (input === '-' || input === '_') {
+        if (details) onToggleDetails();
+      }
     },
-    { label: 'head', value: headShort || '—', color: colors.heading },
-    { label: 'subject', value: headSubject || '—' },
-    { label: 'path', value: root || '—', color: colors.muted },
+    { isActive: !isInputCaptured },
+  );
+
+  const reservedChrome = [
+    ...viewProps.reservedChrome,
+    'syncBar',
+    ...(details ? ['overviewDetails'] : []),
   ];
-
-  const workingTree: Stat[] = isClean
-    ? [{ label: 'state', value: 'clean', color: colors.ok, emphasis: true }]
-    : [
-        {
-          label: 'conflicted',
-          value: String(conflicted.length),
-          color: conflicted.length > 0 ? colors.error : colors.muted,
-          emphasis: conflicted.length > 0,
-        },
-        {
-          label: 'staged',
-          value: String(staged.length),
-          color: staged.length > 0 ? colors.ok : colors.muted,
-        },
-        {
-          label: 'modified',
-          value: String(modified.length),
-          color: modified.length > 0 ? colors.warn : colors.muted,
-        },
-        {
-          label: 'untracked',
-          value: String(untracked.length),
-          color: untracked.length > 0 ? colors.muted : colors.muted,
-        },
-      ];
-
-  const sync: Stat[] = [
-    {
-      label: 'upstream',
-      value: upstream ? `${remote || 'origin'}/${upstream}` : 'not tracking',
-      color: upstream ? colors.text : colors.warn,
-    },
-    {
-      label: 'ahead',
-      value: String(ahead),
-      color: ahead > 0 ? colors.ok : colors.muted,
-      hint: ahead > 0 ? 'to push' : undefined,
-      emphasis: ahead > 0,
-    },
-    {
-      label: 'behind',
-      value: String(behind),
-      color: behind > 0 ? colors.warn : colors.muted,
-      hint: behind > 0 ? 'to pull' : undefined,
-      emphasis: behind > 0,
-    },
-    {
-      label: 'stash',
-      value: String(stashCount),
-      color: stashCount > 0 ? colors.highlight : colors.muted,
-      hint: stashCount > 0 ? (stashCount === 1 ? 'entry' : 'entries') : undefined,
-    },
-  ];
-
-  const identity: Stat[] = [
-    { label: 'name', value: user.name || '—' },
-    {
-      label: 'email',
-      value: user.email || '—',
-      color: user.isValid ? colors.text : colors.warn,
-    },
-    { label: 'origin', value: originUrl || 'no origin remote', color: colors.muted },
-  ];
-
-  const inventory: Stat[] = [
-    { label: 'local branches', value: String(localBranches.length) },
-    { label: 'remote branches', value: String(remoteBranches.length) },
-    {
-      label: 'merged',
-      value: String(Math.max(0, mergedBranches.length - 1)),
-      hint: 'safe to delete',
-      color: mergedBranches.length > 1 ? colors.highlight : colors.muted,
-    },
-    { label: 'remotes', value: String(remotes.length) },
-    { label: 'vendored', value: String(vendored.length), hint: 'subrepos + subtrees' },
-    { label: 'commits read', value: String(commits.length) },
-  ];
-
-  //? Both columns get the same label width so the values line up across the
-  //? whole dashboard rather than per card — four cards with values at four
-  //? different offsets read as four unrelated boxes.
-  const labelWidth = 15;
-
-  const cards = [
-    { key: 'repository', title: 'Repository', stats: repository },
-    {
-      key: 'working-tree',
-      title: 'Working tree',
-      badge: isClean ? 'clean' : `${changeCount} changed`,
-      badgeColor: isClean ? colors.ok : colors.warn,
-      stats: workingTree,
-    },
-    {
-      key: 'sync',
-      title: 'Upstream',
-      badge: ahead === 0 && behind === 0 ? 'in sync' : `↑${ahead} ↓${behind}`,
-      badgeColor: behind > 0 ? colors.warn : ahead > 0 ? colors.ok : colors.muted,
-      stats: sync,
-    },
-    { key: 'identity', title: 'Identity', stats: identity },
-    { key: 'inventory', title: 'Inventory', stats: inventory },
-  ];
-
-  const left = twoColumn ? cards.filter((_, index) => index % 2 === 0) : cards;
-  const right = twoColumn ? cards.filter((_, index) => index % 2 === 1) : [];
-
-  const renderColumn = (column: typeof cards) =>
-    column.map((card) => (
-      <Panel key={card.key} title={card.title} badge={card.badge} badgeColor={card.badgeColor}>
-        <StatList stats={card.stats} labelWidth={labelWidth} />
-      </Panel>
-    ));
 
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
-      <Box flexDirection="row" flexGrow={1} overflow="hidden">
-        <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
-          {renderColumn(left)}
-        </Box>
-        {twoColumn && (
-          <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
-            {renderColumn(right)}
-          </Box>
-        )}
-      </Box>
-
-      {/* The full hash, given a row of its own: it is the one value on this
-          screen someone is going to want to copy, and truncating it into a card
-          would make it the one value they cannot. */}
-      <Box marginTop={1} flexShrink={0}>
-        <Text color={colors.muted}>HEAD </Text>
-        <Text color={colors.heading} wrap="truncate">
-          {headFull || '—'}
-        </Text>
-      </Box>
+      <SyncBar
+        snapshot={snapshot}
+        sync={sync}
+        details={details}
+        onToggleDetails={onToggleDetails}
+      />
+      {details && <Details snapshot={snapshot} />}
+      <StatusView {...viewProps} reservedChrome={reservedChrome} />
     </Box>
   );
 };
