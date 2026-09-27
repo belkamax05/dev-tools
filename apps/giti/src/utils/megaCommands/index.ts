@@ -198,12 +198,12 @@ const pullSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOut
   const { upstream, behind } = await getMegaSelfState(repo.path);
 
   if (!upstream) {
-    log.step(`${label}  ${formatColor('tracks no upstream branch — nothing to pull', 'info')}`);
+    log.success(`${label}  ${formatColor('tracks no upstream branch — nothing to pull', 'info')}`);
     return 'current';
   }
 
   if (behind === 0) {
-    log.step(`${label}  ${formatColor('up to date', 'success')}`);
+    log.success(`${label}  ${formatColor('up to date', 'success')}`);
     return 'current';
   }
 
