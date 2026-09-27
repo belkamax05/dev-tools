@@ -38,7 +38,8 @@ const pad = (entries: Vendored[]) => Math.max(...entries.map((e) => e.dir.length
  */
 export const OWN_FLAGS = {
   status: ['--no-fetch', '--no-self', '--remote=', '--branch='],
-  transfer: ['--no-self', '--remote=', '--branch='],
+  //? --theirs: settle a vendored pull's conflicts with upstream's side (pulls only)
+  transfer: ['--no-self', '--remote=', '--branch=', '--theirs'],
   diff: ['--no-self'],
   clean: ['--dry-run', '-n'],
   commit: ['--no-self', '-m=', '--message=', '-F=', '--file='],

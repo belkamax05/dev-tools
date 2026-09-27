@@ -122,7 +122,11 @@ const pushVendored = async (
           : '';
   console.log(`⬆️  ${dir}: pushing${what}...`);
 
-  const result = await gitExec([...config, ...command], runIn, { stream: true });
+  //? A subrepo or subtree push runs in the host, and the host's hooks have no business there:
+  //? its pre-commit would rewrite the `.gitrepo` commit git-subrepo makes, its pre-push would
+  //? judge a push to another project's remote. A submodule push runs its own repository's hooks.
+  const noHooks = kind === 'submodule' ? [] : ['-c', 'core.hooksPath=/dev/null'];
+  const result = await gitExec([...noHooks, ...config, ...command], runIn, { stream: true });
   if (result.exitCode === 0) return 'done';
 
   console.error(`❌ ${dir}: push failed.`);
