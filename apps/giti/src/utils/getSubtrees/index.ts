@@ -52,7 +52,8 @@ const getClaimedDirs = async (root: string): Promise<Set<string>> => {
  * `git-subtree-split` for it.
  *
  * ! Because history cannot un-say anything, a directory that has since become a subrepo or a
- * ! submodule keeps its old trailers forever; see `getClaimedDirs` for why those win.
+ * ! submodule keeps its old trailers forever; see `getClaimedDirs` for why those win. The same
+ * ! goes for one that was deleted: only directories still present at HEAD are returned.
  *
  * ! The upstream URL is not recorded anywhere by `git subtree`, so `remote` is filled in from a
  * ! git remote whose name matches the directory's last segment, and is left empty otherwise —
@@ -84,7 +85,18 @@ const getSubtrees = async (cwd: string): Promise<Vendored[]> => {
     if (dir && split && !found.has(dir) && !claimed.has(dir)) found.set(dir, split);
   }
 
-  return [...found].map(([dir, commit]) => {
+  //? History also keeps the trailers of a subtree whose directory was later deleted outright
+  //? (shulker-controller's `system2/`), and a vanished directory has nothing left to pull, push or
+  //? diff — listing it only makes every `mega` run fail on it. Checked against HEAD's tree, so a
+  //? directory that merely has no files checked out right now still counts.
+  const present = await Promise.all(
+    [...found.keys()].map(
+      async (dir) => (await gitExec(['cat-file', '-e', `HEAD:${dir}`], root)).exitCode === 0,
+    ),
+  );
+  const live = [...found].filter((_, i) => present[i]);
+
+  return live.map(([dir, commit]) => {
     const basename = dir.slice(dir.lastIndexOf('/') + 1);
     return {
       kind: 'subtree' as const,

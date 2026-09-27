@@ -1,10 +1,23 @@
+import { join } from 'node:path';
+import { log } from '@clack/prompts';
+import formatColor from '@/dev-tools/utils/format/formatColor';
+import describePull from '../describePull';
+import getTrackedBranch from '../getTrackedBranch';
 import getVendoredState from '../getVendoredState';
 import gitExec from '../gitExec';
 import resolveSubtreeUpstream from '../resolveSubtreeUpstream';
+import type { GitStep } from '../runGitStep';
+import runGitStep from '../runGitStep';
 import type { Vendored, VendoredOutcome } from '../vendored';
 import { plural } from '../vendored';
 import type { FlagTarget, VendoredArgs } from '../vendoredArgs';
-import { explainDroppedFlags, forwardVendoredFlags, setsSubmoduleMode } from '../vendoredArgs';
+import vendoredLabel from '../vendoredLabel';
+import {
+  explainDroppedFlags,
+  forwardVendoredFlags,
+  setsIntegration,
+  setsSubmoduleMode,
+} from '../vendoredArgs';
 
 /**
  * A pull aborted half-way leaves the working branch and worktree git-subrepo builds under
@@ -19,12 +32,46 @@ const hasLeftoverWorktree = async (dir: string, cwd: string) => {
 const moved = (behind: number | null) => (behind === null ? '' : ` ${plural(behind, 'commit')}`);
 
 /**
+ * Where a vendored directory sits, as a commit: what each mechanism writes down about its copy.
+ * Read before and after a pull, the two answer "what did that pull move" the same way for all
+ * three — a subrepo's `.gitrepo`, a submodule's own HEAD, the parent's HEAD for a subtree (whose
+ * pull is a commit in the parent).
+ */
+const positionOf = async ({ kind, path }: Vendored, cwd: string) => {
+  const result =
+    kind === 'subrepo'
+      ? await gitExec(['config', '--file', join(path, '.gitrepo'), 'subrepo.commit'], cwd)
+      : await gitExec(['rev-parse', 'HEAD'], kind === 'submodule' ? path : cwd);
+  return result.exitCode === 0 ? result.stdout.trim() : '';
+};
+
+/**
+ * Close a step that succeeded with what it actually moved. A pull can succeed having moved
+ * nothing — the repository's own pull already brought the new commit in, or upstream went back —
+ * and that is reported and counted as current, not as pulled.
+ */
+const finish = async (
+  step: GitStep,
+  vendored: Vendored,
+  cwd: string,
+  label: string,
+  before: string,
+): Promise<VendoredOutcome> => {
+  const after = await positionOf(vendored, cwd);
+  //? A subrepo's commits live in the parent, fetched there by `git subrepo pull`.
+  const history = vendored.kind === 'submodule' ? vendored.path : cwd;
+  step.succeed(`${label}  ${(await describePull(before, after, history)).join('\n')}`);
+  return before && before === after ? 'current' : 'done';
+};
+
+/**
  * Bring one vendored directory up to its upstream, whichever mechanism vendored it.
  *
  * Each mechanism pulls with a different git command, but all three want the same two questions
  * answered first — has upstream actually moved, and is there uncommitted work in the way — and all
- * three report the failure late and messily if nobody asks. Progress is printed per entry so a run
- * over a whole repository reads as one list.
+ * three report the failure late and messily if nobody asks. Each entry prints as clack lines —
+ * its kind and path, then what happened — with the git command's own output live only while it
+ * runs, so a run over a whole repository reads as one list, the way `mr update` does.
  *
  * @param vendored - Entry from `getSubrepos`, `getSubmodules` or `getSubtrees`
  * @param cwd - Any directory inside the parent repository
@@ -37,14 +84,15 @@ const pullVendored = async (
   args: VendoredArgs = { dirs: [], own: [], passthrough: [] },
 ): Promise<VendoredOutcome> => {
   const { kind, dir } = vendored;
+  const label = vendoredLabel(kind, dir);
 
   //? `git subtree` records no upstream at all, so for that one the target has to be recovered
   //? from the flags or a same-named remote before anything can be compared, let alone merged.
   const upstream = kind === 'subtree' ? await resolveSubtreeUpstream(vendored, args, cwd) : null;
   if (kind === 'subtree' && !upstream) {
-    console.error(
-      `❌ ${dir}: git subtree records no remote, and none was given. ` +
-        'Pass --remote=<name-or-url> (and --branch= if it is not the default).',
+    log.warn(
+      `${label}  ${formatColor('skipped', 'warning')} · git subtree records no remote, and none ` +
+        'was given. Pass --remote=<name-or-url> (and --branch= if it is not the default).',
     );
     return 'skipped';
   }
@@ -54,7 +102,7 @@ const pullVendored = async (
   const { behind, dirty } = await getVendoredState({ ...vendored, ...upstream }, cwd);
 
   if (behind === 0) {
-    console.log(`   ${dir}: already up to date`);
+    log.step(`${label}  ${formatColor('up to date', 'success')}`);
     return 'current';
   }
 
@@ -63,17 +111,45 @@ const pullVendored = async (
   //? way, and in all three git says so only once the operation is already half-done.
   if (kind !== 'subrepo' && dirty.length > 0) {
     const where = kind === 'submodule' ? 'inside the submodule' : 'under the prefix';
-    console.error(
-      `❌ ${dir}: ${plural(dirty.length, 'uncommitted file')} ${where}. Commit or stash them ` +
-        'before merging upstream in.',
+    log.warn(
+      `${label}  ${formatColor('skipped', 'warning')} · ` +
+        `${plural(dirty.length, 'uncommitted file')} ${where} — commit or stash them before ` +
+        'merging upstream in.',
     );
     return 'skipped';
   }
 
+  const before = await positionOf(vendored, cwd);
+
+  //? A submodule someone switched onto a branch is pulled like any checkout on a branch: from that
+  //? branch's own upstream. `git submodule update --remote --merge` would instead merge
+  //? `.gitmodules`' branch — or, with none declared, the remote's default branch — into it, which
+  //? is how `main` lands in a release branch. Same --ff-only rule as the repository's own pull.
+  const tracked = kind === 'submodule' ? await getTrackedBranch(vendored.path) : null;
+  if (tracked) {
+    const { flags } = forwardVendoredFlags(args.passthrough, 'git');
+    const own = setsIntegration(flags) ? [] : ['--ff-only'];
+    const step = await runGitStep(
+      `${label}  pulling${moved(behind)} from ${tracked.label}`,
+      ['pull', ...own, ...flags],
+      vendored.path,
+    );
+    if (step.exitCode !== 0) {
+      step.fail(
+        own.length > 0
+          ? `${label}  ${formatColor('pull failed', 'error')} · ${tracked.label} cannot ` +
+              'fast-forward, so resolve it by hand.'
+          : `${label}  ${formatColor('pull failed', 'error')}`,
+      );
+      return 'failed';
+    }
+    return finish(step, vendored, cwd, label, before);
+  }
+
   if (kind === 'subrepo' && (await hasLeftoverWorktree(dir, cwd))) {
-    console.error(
-      `❌ ${dir}: a leftover 'subrepo/${dir}' branch from an interrupted run would make this ` +
-        `fail. Run \`giti subrepo/clean ${dir}\` first.`,
+    log.error(
+      `${label}  ${formatColor('skipped', 'error')} · a leftover 'subrepo/${dir}' branch from an ` +
+        `interrupted run would make this fail. Run \`giti subrepo/clean ${dir}\` first.`,
     );
     return 'skipped';
   }
@@ -83,7 +159,7 @@ const pullVendored = async (
   const forwardTo: FlagTarget =
     kind === 'subrepo' ? 'subrepo' : kind === 'submodule' ? 'submodule-update' : 'subtree';
   const { flags, config, dropped } = forwardVendoredFlags(args.passthrough, forwardTo);
-  if (dropped.length > 0) console.warn(`   ${dir}: ${explainDroppedFlags(dropped, forwardTo)}`);
+  if (dropped.length > 0) log.warn(`${label}  ${explainDroppedFlags(dropped, forwardTo)}`);
 
   const command =
     kind === 'subrepo'
@@ -110,15 +186,16 @@ const pullVendored = async (
           ];
 
   const target = kind === 'subtree' ? ` from ${upstream?.remote} ${upstream?.branch}` : '';
-  console.log(
-    `⬇️  ${dir}: ${kind === 'subrepo' ? 'pulling' : 'merging'}${moved(behind)}${target}...`,
+  const step = await runGitStep(
+    `${label}  ${kind === 'subrepo' ? 'pulling' : 'merging'}${moved(behind)}${target}`,
+    [...config, ...command],
+    cwd,
   );
-
-  const result = await gitExec([...config, ...command], cwd, { stream: true });
-  if (result.exitCode === 0) return 'done';
-
-  console.error(`❌ ${dir}: pull failed.`);
-  return 'failed';
+  if (step.exitCode !== 0) {
+    step.fail(`${label}  ${formatColor('pull failed', 'error')}`);
+    return 'failed';
+  }
+  return finish(step, vendored, cwd, label, before);
 };
 
 export default pullVendored;

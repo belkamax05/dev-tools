@@ -1,5 +1,6 @@
 import type { Vendored, VendoredState } from '../vendored';
 import { countBehind, diffTreeFiles, fetchUpstreamRef, getDirtyPaths } from '../vendored';
+import getTrackedBranch from '../getTrackedBranch';
 import gitExec from '../gitExec';
 
 interface GetVendoredStateOptions {
@@ -63,10 +64,20 @@ const getVendoredState = async (
   //? work all live inside it — everything else is answered from the parent repo.
   const gitDir = kind === 'submodule' ? path : cwd;
 
-  //? Submodules commonly declare no branch, and `git subtree` records none at all. Fetching
-  //? `HEAD` resolves to whatever the remote calls its default branch, which is what
+  //? A submodule someone switched onto a branch follows that branch's own upstream — the same one
+  //? `pullVendored` then pulls — rather than `.gitmodules`' branch or the remote default, which
+  //? would measure a release-branch checkout against `main`.
+  const tracked = kind === 'submodule' ? await getTrackedBranch(path) : null;
+
+  //? Otherwise: submodules commonly declare no branch, and `git subtree` records none at all.
+  //? Fetching `HEAD` resolves to whatever the remote calls its default branch, which is what
   //? `git submodule update --remote` would follow anyway.
-  const target = kind === 'subrepo' ? vendored : { ...vendored, branch: branch || 'HEAD' };
+  const target =
+    kind === 'subrepo'
+      ? vendored
+      : tracked
+        ? { ...vendored, remote: tracked.remote, branch: tracked.branch }
+        : { ...vendored, branch: branch || 'HEAD' };
 
   const upstreamRef = fetch ? await fetchUpstreamRef(target, gitDir, forward) : null;
   const pinned = await resolvePinnedCommit(vendored, upstreamRef, cwd);

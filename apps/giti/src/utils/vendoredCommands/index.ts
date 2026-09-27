@@ -1,3 +1,4 @@
+import { intro, log, outro } from '@clack/prompts';
 import formatArg from '@/dev-tools/utils/format/formatArg';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import cleanVendored, { type VendoredCleanReport } from '../cleanVendored';
@@ -306,13 +307,17 @@ export const runVendoredPull = async (
     return [];
   }
 
-  console.log(`🔄 Checking ${plural(targets.length, kind)}...`);
+  //? Same frame as `mega/pull`: pullVendored prints each entry as a clack line, so the run opens
+  //? and closes around them rather than around loose console output.
+  intro(formatColor(`giti ${kind} pull`, 'command'));
+  log.message(formatColor(`Checking ${plural(targets.length, kind)}`, 'info'));
 
   const outcomes: VendoredOutcome[] = [];
   for (const entry of targets) outcomes.push(await pullVendored(entry, cwd, args));
 
-  console.log(summarise(outcomes, 'Pulled'));
-  if (kind === 'submodule' && outcomes.includes('done')) console.log(GITLINK_NOTE);
+  if (kind === 'submodule' && outcomes.includes('done')) log.info(GITLINK_NOTE.replace(/^ℹ️\s*/, ''));
+  const tally = summarise(outcomes, 'Pulled');
+  outro(formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'));
 
   return outcomes;
 };

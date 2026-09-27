@@ -1,4 +1,4 @@
-import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import createConfigStore, { type ConfigStore } from '@/dev-tools/utils/config/createConfigStore';
 
 import { findIdeBinary, getIde, IDES } from '../../core/ides';
 
@@ -62,19 +62,70 @@ const coerce = (raw: Record<string, unknown>): AgentiSettings => {
   return out;
 };
 
+/** Keys a person sets on purpose — what may live in a tracked dotfile. */
+const CONFIG_KEYS = ['theme', 'logoMode'] as const satisfies readonly (keyof AgentiSettings)[];
+/** Keys agenti keeps up to date by itself as it is used. */
+const STATE_KEYS = ['lastTab', 'defaultIde', 'repos'] as const satisfies readonly (keyof AgentiSettings)[];
+
+const pick = (from: object, keys: readonly string[]): Record<string, unknown> => {
+  const values = from as Record<string, unknown>;
+  return Object.fromEntries(keys.filter((key) => key in values).map((key) => [key, values[key]]));
+};
+
+/** Both files read raw: validating happens once, on the merged result, in `coerce`. */
+const raw = { appName: 'agenti', defaults: {}, coerce: (value: Record<string, unknown>) => value };
+const configFile = createConfigStore<Record<string, unknown>>(raw);
+const stateFile = createConfigStore<Record<string, unknown>>({ ...raw, kind: 'state' });
+
 /**
- * `~/.config/agenti/config.json` (the platform's config home — see
- * `configHome`), which holds each repository's IDE and the theme.
+ * agenti's settings, kept in two files and handed out as one `AgentiSettings`.
  *
- * Per user rather than in the repository: which IDE someone works in is theirs,
- * and a file in the repo would either be committed — imposing it on everyone
- * else — or need ignoring in every repo agenti is ever run in.
+ * - `~/.config/agenti/config.json` (the platform's config home — see `configHome`): the theme
+ *   and logo mode, chosen on purpose, and fine to keep in dotfiles.
+ * - `~/.local/state/agenti/state.json` (`stateHome`): the last tab, the last IDE picked and
+ *   each repository's IDE list. agenti rewrites these as it is used, and `repos` is keyed by
+ *   absolute path on this machine — kept in the config, they made it a file that changes on
+ *   every run and means nothing on another machine, so it could not be stow-managed.
+ *
+ * Per user rather than in the repository: which IDE someone works in is theirs, and a file in
+ * the repo would either be committed — imposing it on everyone else — or need ignoring in every
+ * repo agenti is ever run in.
+ *
+ * ! Migration: until `state.json` exists, the state keys are read from `config.json`, where every
+ * ! earlier version kept them. The first save writes them to `state.json` and leaves the config
+ * ! holding only its own keys.
  */
-export const settingsStore = createConfigStore<AgentiSettings>({
-  appName: 'agenti',
+export const settingsStore: ConfigStore<AgentiSettings> = {
+  get path() {
+    return configFile.path;
+  },
+  get directory() {
+    return configFile.directory;
+  },
   defaults: DEFAULTS,
-  coerce,
-});
+
+  async load() {
+    const [config, stateExists] = await Promise.all([
+      configFile.load(),
+      Bun.file(stateFile.path).exists(),
+    ]);
+    const state = stateExists ? await stateFile.load() : pick(config, STATE_KEYS);
+    return coerce({ ...pick(config, CONFIG_KEYS), ...state });
+  },
+
+  async save(settings: AgentiSettings) {
+    await stateFile.save(pick(settings, STATE_KEYS));
+
+    //? Only when it would actually change: a tab switch or an IDE pick saves everything, and
+    //? rewriting an unchanged config.json each time is the churn this split exists to stop
+    //? (a stow-linked config is a tracked file).
+    const next = `${JSON.stringify(pick(settings, CONFIG_KEYS), null, 2)}\n`;
+    const current = await Bun.file(configFile.path)
+      .text()
+      .catch(() => '');
+    if (current !== next) await configFile.save(pick(settings, CONFIG_KEYS));
+  },
+};
 
 /**
  * The IDEs a repository (or, keyed by the home directory, the user scope) is

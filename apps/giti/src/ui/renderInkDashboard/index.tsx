@@ -26,18 +26,29 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
   const entries = await getCommandEntries();
   const commands = getCommandPickerItems(entries);
 
+  //? Settings and state are two files. `config.json` holds what a person chose (the theme) and
+  //? is often a tracked dotfile — stow-linked into ~/.config/giti. The last tab is state: it
+  //? changes on every run, so kept in the config it rewrote a tracked file each time. It lives
+  //? in `state.json` under XDG_STATE_HOME (~/.local/state/giti) instead, which never sits in
+  //? anyone's dotfiles — not even when stow links the whole ~/.config/giti directory.
   const configStore = createConfigStore({
     appName: 'giti',
-    defaults: { theme: 'classic', tab: 'overview' },
+    defaults: { theme: 'classic' },
   });
-  let config = await configStore.load();
-  const save = (next: typeof config) => {
-    config = next;
-    configStore.save(next).catch(() => {});
-  };
+  const stateStore = createConfigStore({
+    appName: 'giti',
+    kind: 'state',
+    defaults: { tab: 'overview' },
+  });
+  const [config, state] = await Promise.all([configStore.load(), stateStore.load()]);
+  //? Both saves are fire-and-forget: the setting is already applied on screen, so a directory
+  //? that cannot be written costs persistence, not the change itself.
+  const saveTheme = (theme: string) => configStore.save({ ...config, theme }).catch(() => {});
+  const saveTab = (next: TabId) => stateStore.save({ ...state, tab: next }).catch(() => {});
+
   //? Across handoffs the tab comes from here, so an editor round trip lands
-  //? back where it left; across runs, from the saved config
-  let tab: TabId = TABS.some((t) => t.id === config.tab) ? (config.tab as TabId) : 'overview';
+  //? back where it left; across runs, from the saved state
+  let tab: TabId = TABS.some((t) => t.id === state.tab) ? (state.tab as TabId) : 'overview';
 
   //? Written by the app on its way out and read once the session returns.
   let picked: string | undefined;
@@ -52,10 +63,13 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
         initialTab={tab}
         onTabChange={(next) => {
           tab = next;
-          save({ ...config, tab: next });
+          saveTab(next);
         }}
         initialPaletteId={config.theme}
-        onThemeChange={(theme) => save({ ...config, theme })}
+        onThemeChange={(theme) => {
+          config.theme = theme;
+          saveTheme(theme);
+        }}
         onRunCommand={(command) => {
           picked = command;
         }}

@@ -1,14 +1,20 @@
 import { join } from 'node:path';
 
-import { appConfigDir } from '../configHome';
+import { appConfigDir, appStateDir } from '../configHome';
 
 export interface ConfigStoreOptions<T extends object> {
   /** Names the directory under the platform's config home. */
   appName: string;
   /** What a first run, an unreadable file, or a missing key gets. */
   defaults: T;
-  /** File inside the app's config directory. */
+  /** File inside the app's directory. Defaults to `config.json`, or `state.json` for state. */
   fileName?: string;
+  /**
+   * Which base directory the file lives under. `'config'` (the default) is for settings a
+   * person chose and may keep in their dotfiles; `'state'` is for what the app remembers by
+   * itself between runs — see `stateHome` for why those two must not share a file.
+   */
+  kind?: 'config' | 'state';
   /**
    * Turn whatever was parsed into a valid `T`.
    *
@@ -67,10 +73,11 @@ const coerceByType = <T extends object>(raw: Record<string, unknown>, defaults: 
 export const createConfigStore = <T extends object>({
   appName,
   defaults,
-  fileName = 'config.json',
+  kind = 'config',
+  fileName = kind === 'state' ? 'state.json' : 'config.json',
   coerce = coerceByType,
 }: ConfigStoreOptions<T>): ConfigStore<T> => {
-  const directory = () => appConfigDir(appName);
+  const directory = () => (kind === 'state' ? appStateDir(appName) : appConfigDir(appName));
   const path = () => join(directory(), fileName);
 
   return {

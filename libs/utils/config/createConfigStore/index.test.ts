@@ -89,4 +89,26 @@ describe('createConfigStore', () => {
     await Bun.write(validated.path, '{"theme":"a-theme-this-build-removed"}\n');
     expect((await validated.load()).theme).toBe('classic');
   });
+
+  test('state lives under XDG_STATE_HOME, never next to the config', async () => {
+    const stateHome = mkdtempSync(join(tmpdir(), 'dev-tools-state-'));
+    const before = process.env.XDG_STATE_HOME;
+    process.env.XDG_STATE_HOME = stateHome;
+    try {
+      const state = createConfigStore({ appName: 'test-app', kind: 'state', defaults: { tab: 'a' } });
+
+      //? The point of the split: config may be a stow-linked dotfile, and state that rewrites
+      //? itself every run must not land beside it.
+      expect(state.path).toBe(join(stateHome, 'test-app', 'state.json'));
+      expect(state.path.startsWith(home)).toBe(false);
+
+      await state.save({ tab: 'b' });
+      expect(await state.load()).toEqual({ tab: 'b' });
+      expect(await Bun.file(store.path).exists()).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = before;
+      rmSync(stateHome, { recursive: true, force: true });
+    }
+  });
 });

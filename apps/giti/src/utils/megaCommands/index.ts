@@ -1,12 +1,15 @@
-import { isCancel, text } from '@clack/prompts';
+import { intro, isCancel, log, outro, text } from '@clack/prompts';
 import formatArg from '@/dev-tools/utils/format/formatArg';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import cleanVendored from '../cleanVendored';
+import describePull from '../describePull';
 import getMegaSelfState from '../getMegaSelfState';
+import getMegaTree from '../getMegaTree';
 import type { MegaGroup, MegaRepo, MegaTree } from '../getMegaTree';
 import gitExec from '../gitExec';
 import pullVendored from '../pullVendored';
 import pushVendored from '../pushVendored';
+import runGitStep from '../runGitStep';
 import type { Vendored, VendoredOutcome } from '../vendored';
 import { getDirtyPaths, plural, selectVendored } from '../vendored';
 import type { VendoredArgs } from '../vendoredArgs';
@@ -25,6 +28,7 @@ import {
   printVendoredStatus,
   withSubtreeUpstream,
 } from '../vendoredCommands';
+import vendoredLabel from '../vendoredLabel';
 
 /**
  * Bodies shared by the `mega` command family.
@@ -39,8 +43,8 @@ import {
 /** How far vendored rows are indented under their group heading. */
 const INDENT = '  ';
 
-/** The banner every `mega` command opens with: which repo the rest of the output is about. */
-export const formatMegaHeader = ({ name, branch, commit, remote, dirty }: MegaRepo) => {
+/** Which repo, where it is, and whether it is clean — then its origin — as two lines. */
+const formatMegaHeaderLines = ({ name, branch, commit, remote, dirty }: MegaRepo) => {
   const at = commit ? formatArg(commit) : formatColor('no commits yet', 'warning');
   const on = branch && branch !== 'HEAD' ? branch : formatColor('detached HEAD', 'warning');
   const state =
@@ -49,9 +53,15 @@ export const formatMegaHeader = ({ name, branch, commit, remote, dirty }: MegaRe
       : formatColor('clean', 'success');
 
   return [
-    `📦 ${formatColor(name, 'command')}  ${on}  ${at}  ${state}`,
-    `   ${remote || formatColor('no origin remote', 'warning')}`,
-  ].join('\n');
+    `${formatColor(name, 'command')}  ${on}  ${at}  ${state}`,
+    remote || formatColor('no origin remote', 'warning'),
+  ];
+};
+
+/** The banner every `mega` command opens with: which repo the rest of the output is about. */
+export const formatMegaHeader = (repo: MegaRepo) => {
+  const [what = '', origin = ''] = formatMegaHeaderLines(repo);
+  return `📦 ${what}\n   ${origin}`;
 };
 
 /** Heading a group's rows sit under, so every answer says which mechanism it came from. */
@@ -181,31 +191,32 @@ export const runMegaStatus = async (tree: MegaTree, cwd: string, rawArgs: string
 
 /** The repository's own pull: a fast-forward, refused rather than forced when it cannot be one. */
 const pullSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOutcome> => {
+  const label = vendoredLabel('self');
+
   //? No passthrough on this one: it is giti's own look at the upstream, not the pull the user
   //? asked for, and `git fetch` rejects the flags a pull takes.
   const { upstream, behind } = await getMegaSelfState(repo.path);
 
   if (!upstream) {
-    console.log('   (this repo): tracks no upstream branch — nothing to pull');
+    log.step(`${label}  ${formatColor('tracks no upstream branch — nothing to pull', 'info')}`);
     return 'current';
   }
 
   if (behind === 0) {
-    console.log('   (this repo): already up to date');
+    log.step(`${label}  ${formatColor('up to date', 'success')}`);
     return 'current';
   }
 
   //? A pull into a dirty tree either refuses half-way through or merges over work in progress,
   //? and which of the two it does depends on which files happen to overlap.
   if (repo.dirty.length > 0) {
-    console.error(
-      `❌ (this repo): ${plural(repo.dirty.length, 'uncommitted file')} in the way. ` +
-        'Commit or stash them before merging upstream in.',
+    log.warn(
+      `${label}  ${formatColor('skipped', 'warning')} · ` +
+        `${plural(repo.dirty.length, 'uncommitted file')} in the way — commit or stash them ` +
+        'before merging upstream in.',
     );
     return 'skipped';
   }
-
-  console.log(`⬇️  (this repo): pulling ${plural(behind ?? 0, 'commit')} from ${upstream}...`);
 
   //? --ff-only because the alternative is creating a merge commit in a command whose whole job is
   //? to bring copies up to date; anything that cannot fast-forward wants a person looking at it.
@@ -213,15 +224,25 @@ const pullSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOut
   //? how this pull should integrate, and git refuses two answers to that at once.
   const { flags } = forwardVendoredFlags(args.passthrough, 'git');
   const own = setsIntegration(flags) ? [] : ['--ff-only'];
-  const result = await gitExec(['pull', ...own, ...flags], repo.path, { stream: true });
-
-  if (result.exitCode === 0) return 'done';
-  console.error(
-    own.length > 0
-      ? '❌ (this repo): pull failed — it cannot fast-forward, so resolve it by hand.'
-      : '❌ (this repo): pull failed.',
+  const before = (await gitExec(['rev-parse', 'HEAD'], repo.path)).stdout.trim();
+  const step = await runGitStep(
+    `${label}  pulling ${plural(behind ?? 0, 'commit')} from ${upstream}`,
+    ['pull', ...own, ...flags],
+    repo.path,
   );
-  return 'failed';
+
+  if (step.exitCode !== 0) {
+    step.fail(
+      own.length > 0
+        ? `${label}  ${formatColor('pull failed', 'error')} · it cannot fast-forward, so resolve it by hand.`
+        : `${label}  ${formatColor('pull failed', 'error')}`,
+    );
+    return 'failed';
+  }
+
+  const after = (await gitExec(['rev-parse', 'HEAD'], repo.path)).stdout.trim();
+  step.succeed(`${label}  ${(await describePull(before, after, repo.path)).join('\n')}`);
+  return 'done';
 };
 
 /** The repository's own push, skipped when it has nothing upstream does not already have. */
@@ -259,11 +280,16 @@ const pushSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOut
 };
 
 /** Tally across every group, so a run over a whole tree ends on one line. */
-const summariseTree = (outcomes: VendoredOutcome[], verb: string) => {
+const tallyTree = (outcomes: VendoredOutcome[], verb: string) => {
   const count = (outcome: VendoredOutcome) => outcomes.filter((one) => one === outcome).length;
   const left = count('skipped') + count('failed');
   const done = `${verb} ${count('done')}, already current ${count('current')}`;
-  return left > 0 ? `\n⚠️  ${done}, ${left} left alone.` : `\n✅ ${done}.`;
+  return { text: left > 0 ? `${done}, ${left} left alone.` : `${done}.`, left };
+};
+
+const summariseTree = (outcomes: VendoredOutcome[], verb: string) => {
+  const { text, left } = tallyTree(outcomes, verb);
+  return left > 0 ? `\n⚠️  ${text}` : `\n✅ ${text}`;
 };
 
 type Transfer = (entry: Vendored, cwd: string, args: VendoredArgs) => Promise<VendoredOutcome>;
@@ -287,17 +313,36 @@ const runMegaTransfer = async (
     verb,
     selfFirst,
     self,
-  }: { verb: string; selfFirst: boolean; self: (args: VendoredArgs) => Promise<VendoredOutcome> },
+    framed = false,
+  }: {
+    verb: string;
+    selfFirst: boolean;
+    self: (args: VendoredArgs) => Promise<VendoredOutcome>;
+    /**
+     * Draw the run as one clack frame — `┌` title, a `◇` line per entry labelled with its kind,
+     * `└` tally — instead of group headings and loose lines. Only for bodies that print through
+     * clack themselves (pulls); a push's bodies still print plain lines, which a frame would cut.
+     */
+    framed?: boolean;
+  },
 ) => {
-  console.log(formatMegaHeader(tree.repo));
+  const say = (message: string) => (framed ? log.info(message) : console.log(`\n${message}`));
+
+  if (framed) {
+    intro(formatColor(`giti mega ${verb === 'Pulled' ? 'pull' : 'push'}`, 'command'));
+    log.message(formatMegaHeaderLines(tree.repo));
+  } else {
+    console.log(formatMegaHeader(tree.repo));
+  }
 
   const args = splitVendoredArgs(rawArgs, OWN_FLAGS.transfer);
-  const groups = select(tree, args.dirs);
+  let groups = select(tree, args.dirs);
   const selected = countEntries(groups);
   const withSelf = !hasOwn(args, '--no-self');
 
   if (selected === 0 && !withSelf) {
-    console.log(`\n${explainEmptyTree(tree, args.dirs)}`);
+    say(explainEmptyTree(tree, args.dirs));
+    if (framed) outro(formatColor('Nothing to do.', 'info'));
     return;
   }
 
@@ -305,16 +350,27 @@ const runMegaTransfer = async (
 
   const runSelf = async () => {
     if (!withSelf) return;
-    console.log(`\n${formatColor('this repository', 'catalog')}`);
+    if (!framed) console.log(`\n${formatColor('this repository', 'catalog')}`);
     outcomes.push(await self(args));
   };
 
-  if (selfFirst) await runSelf();
+  if (selfFirst) {
+    await runSelf();
+    //? The tree was read before the repository's own pull, and that pull can move exactly what
+    //? the entries record — a `.gitrepo` commit, a gitlink — so every entry would still be
+    //? measured from where it *was*: a subrepo the pull already brought current got announced as
+    //? "pulling 2 commits", then counted as pulled once `git subrepo pull` found nothing to do.
+    //? Re-read only when that pull actually moved HEAD; the directories picked are unchanged.
+    if (outcomes.at(-1) === 'done') {
+      const fresh = await getMegaTree(tree.repo.path);
+      if (fresh) groups = select(fresh, args.dirs);
+    }
+  }
 
   for (const group of groups) {
     if (group.entries.length === 0) continue;
 
-    console.log(heading(group));
+    if (!framed) console.log(heading(group));
     if (!(await hasVendorTooling(group.kind))) continue;
 
     for (const entry of group.entries) outcomes.push(await transfer(entry, cwd, args));
@@ -322,13 +378,25 @@ const runMegaTransfer = async (
 
   if (!selfFirst) await runSelf();
 
-  if (selected === 0) console.log(`\n${explainEmptyTree(tree, args.dirs)}`);
-  console.log(summariseTree(outcomes, verb));
+  if (selected === 0) say(explainEmptyTree(tree, args.dirs));
 
   const movedSubmodule = groups.some((group) => group.kind === 'submodule' && group.entries.length);
-  if (verb === 'Pulled' && movedSubmodule && outcomes.includes('done')) {
-    console.log('ℹ️  The parent repo now has updated gitlinks — commit them to keep the move.');
+  const gitlinkNote =
+    verb === 'Pulled' && movedSubmodule && outcomes.includes('done')
+      ? 'The parent repo now has updated gitlinks — commit them to keep the move.'
+      : '';
+
+  if (framed) {
+    //? The note comes before the tally so the frame still closes on the one line that says how
+    //? the run went.
+    if (gitlinkNote) log.info(gitlinkNote);
+    const { text, left } = tallyTree(outcomes, verb);
+    outro(formatColor(text, left > 0 ? 'warning' : 'success'));
+    return;
   }
+
+  console.log(summariseTree(outcomes, verb));
+  if (gitlinkNote) console.log(`ℹ️  ${gitlinkNote}`);
 };
 
 /** `mega/pull [<dir>...] [--no-self] [--squash]`: bring the whole tree up to its upstreams. */
@@ -339,6 +407,7 @@ export const runMegaPull = (tree: MegaTree, cwd: string, args: string[]) =>
     verb: 'Pulled',
     selfFirst: true,
     self: (own) => pullSelf(tree.repo, own),
+    framed: true,
   });
 
 /** `mega/push [<dir>...] [--no-self] [--squash]`: send the whole tree's local work upstream. */
