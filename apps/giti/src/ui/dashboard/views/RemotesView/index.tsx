@@ -15,7 +15,7 @@ import { getBranches } from '../../../../core/branches';
 import {
   fetchAll,
   getRemotes,
-  pullCurrent,
+  pullMega,
   pushCurrent,
   type Remote,
   removeRemote,
@@ -70,7 +70,7 @@ export const RemotesView = ({
   };
 
   const fetch = () => void run('Fetching', (onProgress) => fetchAll(root, onProgress));
-  const pull = () => void run('Pulling', (onProgress) => pullCurrent(root, onProgress));
+  const pull = () => void run('Mega pull', (onProgress) => pullMega(root, onProgress));
   const push = (remote = current?.name ?? 'origin') =>
     void run('Pushing', (onProgress) => pushCurrent(root, { remote, onProgress }));
   const forcePush = () =>

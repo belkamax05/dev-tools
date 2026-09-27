@@ -1,3 +1,6 @@
+import { join } from 'node:path';
+
+import sysPaths from '../../config/sysPaths';
 import git, { failure } from '../run';
 import type { OperationResult } from '../status';
 
@@ -49,6 +52,49 @@ export const fetchAll = (root: string, onProgress?: Progress) =>
 //? rather than making a decision about history in the background
 export const pullCurrent = (root: string, onProgress?: Progress) =>
   run(['pull', '--ff-only', '--progress'], root, onProgress, 'Pulled', 'pull stopped');
+
+/** One line of `giti mega/pull`'s output, without colour codes or clack's frame and spinner glyphs. */
+const plainLine = (line: string) =>
+  line
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI is the point
+    .replace(/\u001B\[[0-9;?]*[A-Za-z]/g, '')
+    .replace(/^[\s│┌└◇◆●○■▲◒◐◓◑✔✖ℹ\uFE0F]+/u, '')
+    .trim();
+
+/**
+ * Pull the repository and every subrepo, submodule and subtree in it, by running `giti mega/pull`
+ * in a child process — its body prints through clack, which would draw straight over the
+ * dashboard if run in this one. Piped, it prints one line per step instead of redrawing, and each
+ * of those is handed to `onProgress`; the last one is its tally, which becomes the message.
+ */
+export const pullMega = async (root: string, onProgress?: Progress): Promise<OperationResult> => {
+  const giti = join(sysPaths.rootDir, '..', '..', 'bin', 'giti');
+  const child = Bun.spawn([process.execPath, giti, 'mega/pull'], {
+    cwd: root,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', NO_COLOR: '1' },
+  });
+  const lines: string[] = [];
+  const read = async (stream: ReadableStream<Uint8Array>) => {
+    const decoder = new TextDecoder();
+    for await (const chunk of stream) {
+      for (const raw of decoder.decode(chunk, { stream: true }).split(/[\r\n]+/)) {
+        const line = plainLine(raw);
+        if (!line) continue;
+        lines.push(line);
+        onProgress?.(line);
+      }
+    }
+  };
+  await Promise.all([read(child.stdout), read(child.stderr)]);
+  const exitCode = await child.exited;
+  const last = lines.at(-1) ?? '';
+  //? mega/pull does not exit non-zero when an entry is left alone — its tally says so instead
+  const ok = exitCode === 0 && !/left alone|failed/i.test(last);
+  return { ok, message: last || (ok ? 'Pulled' : 'mega pull failed') };
+};
 
 /**
  * Push the current branch. One with no upstream yet is pushed to `remote`
