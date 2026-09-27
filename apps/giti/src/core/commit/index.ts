@@ -19,12 +19,18 @@ export const stagedCount = async (root: string): Promise<number> => {
 export const commit = async (
   root: string,
   message: string,
-  { amend = false }: { amend?: boolean } = {},
+  { amend = false, allowEmpty = false }: { amend?: boolean; allowEmpty?: boolean } = {},
 ): Promise<OperationResult> => {
   const text = message.trim();
   if (!amend && !text) return { ok: false, message: 'A commit needs a message' };
-  if (!amend && (await stagedCount(root)) === 0) return { ok: false, message: 'Nothing is staged' };
-  const args = ['commit', ...(amend ? ['--amend'] : []), ...(text ? ['-m', text] : ['--no-edit'])];
+  if (!amend && !allowEmpty && (await stagedCount(root)) === 0)
+    return { ok: false, message: 'Nothing is staged' };
+  const args = [
+    'commit',
+    ...(amend ? ['--amend'] : []),
+    ...(allowEmpty ? ['--allow-empty'] : []),
+    ...(text ? ['-m', text] : ['--no-edit']),
+  ];
   const result = await git(args, root);
   if (!result.ok) return { ok: false, message: failure(result, 'git commit failed') };
   const subject = (await git(['log', '-1', '--format=%h %s'], root)).stdout.trim();
