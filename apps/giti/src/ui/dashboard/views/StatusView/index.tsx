@@ -34,6 +34,7 @@ import {
   unstage,
 } from '../../../../core/status';
 import DiffLines from '../../DiffLines';
+import SpinnerGlyph from '../../SpinnerGlyph';
 import type { GitViewProps } from '../../types';
 
 type Side = 'conflict' | 'staged' | 'unstaged';
@@ -371,6 +372,7 @@ export const StatusView = ({
 
   const header = prompt.line ?? (
     <Text wrap="truncate" color={colors.muted}>
+      {((isLoading && !changes.length) || busy) && <SpinnerGlyph />}
       {isLoading && !changes.length
         ? 'Reading the working tree…'
         : rows.length
