@@ -21,14 +21,24 @@ import {
   restoreRemote,
 } from '../../../../core/remotes';
 import type { OperationResult } from '../../../../core/status';
+import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
+import type { Vendored } from '../../../../utils/vendored';
 import type { GitViewProps } from '../../types';
+import VendoredDetail from '../../VendoredDetail';
 import SpinnerGlyph from '../../SpinnerGlyph';
 import type { RemoteSync } from '../../useRemoteSync';
 
 export interface RemotesViewProps extends GitViewProps {
   /** Fetch and pull, shared with Overview so the vendored count and progress are one state. */
   sync: RemoteSync;
+  /** For its vendored directories — listed here, under the remotes they are also synced with. */
+  snapshot: RepoSnapshot;
+  /** Run a giti command on the real terminal — `mega/push` and `mega/status` print their own. */
+  onRunCommand: (command: string) => void;
 }
+
+/** A row of the list: one of the repository's remotes, or one of its vendored directories. */
+type Row = { kind: 'remote'; remote: Remote } | { kind: 'vendored'; entry: Vendored };
 
 /**
  * Remotes, and the three things done with them — fetch, pull, push — with
@@ -47,6 +57,8 @@ export const RemotesView = ({
   offerUndo,
   reservedChrome,
   sync,
+  snapshot,
+  onRunCommand,
 }: RemotesViewProps) => {
   const colors = useColors();
   const prompt = usePrompt(onCaptureInput);
@@ -61,7 +73,9 @@ export const RemotesView = ({
   );
   const remotes = data?.remotes ?? [];
   const branch = data?.branches.find((b) => b.isCurrent);
-  const current = remotes.find((r) => r.name === currentId);
+  const vendored = snapshot.vendored;
+  const current = remotes.find((r) => `remote:${r.name}` === currentId);
+  const currentVendored = vendored.find((v) => `vendored:${v.kind}:${v.dir}` === currentId);
 
   const run = async (
     label: string,
@@ -116,7 +130,9 @@ export const RemotesView = ({
       if (input === 'f') fetch();
       else if (input === 'x') remove();
       else if (input === 'l') pull();
-      else if (input === 'P') push();
+      //? On a vendored row, push means every vendored directory — what mega/push does
+      else if (input === 'P') currentVendored ? onRunCommand('mega/push') : push();
+      else if (input === 'S') onRunCommand('mega/status');
       else if (input === 'F') forcePush();
       else if (input === 'o' && current) {
         const url = remoteWebUrl(current.fetchUrl);
@@ -162,8 +178,8 @@ export const RemotesView = ({
     },
   ];
 
-  const items: PickItem<Remote>[] = remotes.map((remote) => ({
-    id: remote.name,
+  const remoteItems: PickItem<Row>[] = remotes.map((remote) => ({
+    id: `remote:${remote.name}`,
     label: remote.name,
     //? The address shortened to what tells remotes apart — its last two parts
     hint: remote.fetchUrl
@@ -172,8 +188,35 @@ export const RemotesView = ({
       .filter(Boolean)
       .slice(-2)
       .join('/'),
-    value: remote,
+    value: { kind: 'remote', remote },
   }));
+  const vendoredItems: PickItem<Row>[] = vendored.map((entry) => ({
+    id: `vendored:${entry.kind}:${entry.dir}`,
+    label: entry.dir,
+    hint: entry.kind,
+    value: { kind: 'vendored', entry },
+  }));
+  const items: PickItem<Row>[] = [
+    ...(remoteItems.length
+      ? [
+          { id: 'header-remotes', label: `Remotes (${remotes.length})`, isHeader: true },
+          ...remoteItems,
+        ]
+      : []),
+    ...(vendoredItems.length
+      ? [
+          { id: 'header-vendored', label: `Vendored (${vendored.length})`, isHeader: true },
+          ...vendoredItems,
+        ]
+      : []),
+  ];
+  //? Pull already covers them (mega pull); push and status go to the mega commands, which print
+  //? a report per directory and so run on the real terminal
+  const vendoredActions: ToolbarAction[] = [
+    actions[1] as ToolbarAction,
+    { hotkey: 'P', label: 'Push all', onPress: () => onRunCommand('mega/push') },
+    { hotkey: 'S', label: 'Status of all', onPress: () => onRunCommand('mega/status') },
+  ];
 
   //? Detail-pane rows, measured the way BranchesView does, less the three URL lines under the
   //? buttons — what is left is how many buttons can be stacked one per line.
@@ -197,10 +240,10 @@ export const RemotesView = ({
         )}
       </Box>
       <ListDetail
-        title={`Remotes (${remotes.length})`}
+        title={`Remotes (${remotes.length + vendored.length})`}
         items={items}
         emptyText="No remotes — add one with git remote add."
-        detailTitle={current?.name ?? 'Remote'}
+        detailTitle={current?.name ?? currentVendored?.dir ?? 'Remote'}
         reservedChrome={['viewHeader', ...reservedChrome]}
         activateLabel="open in browser"
         activateOnClick={false}
@@ -208,17 +251,32 @@ export const RemotesView = ({
         hints={[
           { key: 'f', label: 'fetch', onPress: fetch },
           { key: 'l', label: 'pull', onPress: pull },
-          { key: 'P', label: 'push', onPress: () => push() },
+          currentVendored
+            ? { key: 'P', label: 'push all', onPress: () => onRunCommand('mega/push') }
+            : { key: 'P', label: 'push', onPress: () => push() },
+          ...(vendored.length
+            ? [{ key: 'S', label: 'status of all', onPress: () => onRunCommand('mega/status') }]
+            : []),
           ...(current ? [{ key: 'x', label: `remove ${current.name}`, onPress: () => remove() }] : []),
         ]}
         onActivate={(item) => {
-          const url = item.value && remoteWebUrl(item.value.fetchUrl);
+          const url = item.value?.kind === 'remote' && remoteWebUrl(item.value.remote.fetchUrl);
           if (url) openUrl(url);
         }}
         onSelectionChange={(item) => setCurrentId(item?.id)}
         renderDetail={(item) => {
-          const remote = item?.value;
-          if (!remote) return <Toolbar actions={actions} maxRows={toolbarRows + 3} />;
+          const row = item?.value;
+          if (!row) return <Toolbar actions={actions} maxRows={toolbarRows + 3} />;
+          if (row.kind === 'vendored') {
+            return (
+              <Box flexDirection="column">
+                {/* The detail below takes eleven lines; what is left can hold the stack */}
+                <Toolbar actions={vendoredActions} maxRows={toolbarRows - 8} />
+                <VendoredDetail entry={row.entry} />
+              </Box>
+            );
+          }
+          const { remote } = row;
           const url = remoteWebUrl(remote.fetchUrl);
           return (
             <Box flexDirection="column">
