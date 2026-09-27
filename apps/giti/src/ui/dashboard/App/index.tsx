@@ -23,6 +23,7 @@ import {
 import gitiTheme from '../theme';
 import type { GitViewProps, Tone, UndoOffer } from '../types';
 import useRepoSnapshot from '../useRepoSnapshot';
+import useRemoteSync from '../useRemoteSync';
 import useRepoWatch from '../useRepoWatch';
 import BranchesView from '../views/BranchesView';
 import CommandsView from '../views/CommandsView';
@@ -30,10 +31,9 @@ import LogView from '../views/LogView';
 import OverviewView from '../views/OverviewView';
 import RemotesView from '../views/RemotesView';
 import StashView from '../views/StashView';
-import StatusView from '../views/StatusView';
 import VendoredView from '../views/VendoredView';
 
-export type TabId = 'overview' | 'status' | 'log' | 'branches' | 'stash' | 'remotes' | 'vendored';
+export type TabId = 'overview' | 'log' | 'branches' | 'stash' | 'remotes' | 'vendored';
 
 /**
  * The tab strip.
@@ -45,8 +45,8 @@ export type TabId = 'overview' | 'status' | 'log' | 'branches' | 'stash' | 'remo
  * eats; where the two disagree, every border after the glyph lands a column off.
  */
 export const TABS: readonly TabDefinition<TabId>[] = [
+  //? Overview is also where Status used to be: see OverviewView for why the two were merged.
   { id: 'overview', icon: '📊', label: '📊 Overview' },
-  { id: 'status', icon: '📝', label: '📝 Status' },
   { id: 'log', icon: '🕒', label: '🕒 Log' },
   { id: 'branches', icon: '🌿', label: '🌿 Branches' },
   { id: 'stash', icon: '📥', label: '📥 Stash' },
@@ -73,6 +73,9 @@ export interface AppProps {
   onTabChange?: (tab: TabId) => void;
   initialPaletteId?: string;
   onThemeChange?: (id: string) => void;
+  /** Whether Overview opens with its details expanded (`+`) — remembered between runs. */
+  initialDetails?: boolean;
+  onDetailsChange?: (details: boolean) => void;
 }
 
 const StatusNote = ({ text, tone }: { text: string; tone: Tone }) => {
@@ -111,7 +114,7 @@ const OperationBanner = ({
     <Box flexDirection="row" flexShrink={0}>
       <Text color={colors.warn} bold>
         {`${op.kind[0]?.toUpperCase()}${op.kind.slice(1)} in progress`}
-        {conflicts ? ` · ${conflicts} conflicted — resolve them on Status` : ' · ready to continue'}
+        {conflicts ? ` · ${conflicts} conflicted — resolve them on Overview` : ' · ready to continue'}
         {'  '}
       </Text>
       <ActionButton hotkey="^N" label="Continue" color={colors.accent} onPress={onContinue} />
@@ -124,8 +127,8 @@ const OperationBanner = ({
 /**
  * giti's dashboard: where you work on a repository, not just look at it.
  *
- * Every tab acts — stage and commit on Status, switch and branch on Branches,
- * fetch and push on Remotes — by keyboard or mouse alike: every row, button
+ * Every tab acts — fetch, pull, push, stage and commit on Overview, switch and
+ * branch on Branches, remotes on Remotes — by keyboard or mouse alike: every row, button
  * and hint is clickable and every one has its key. The repository is watched,
  * so nothing is ever stale; a rebase or merge in progress gets a banner with
  * its next steps; a discard or drop can be undone straight after (Ctrl+Z). The
@@ -141,6 +144,8 @@ export const App = ({
   onTabChange,
   initialPaletteId = 'classic',
   onThemeChange,
+  initialDetails = false,
+  onDetailsChange,
 }: AppProps) => {
   const { exit } = useApp();
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
@@ -153,6 +158,7 @@ export const App = ({
   );
   const [undo, setUndo] = useState<UndoOffer | undefined>(undefined);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [details, setDetails] = useState(initialDetails);
 
   const { snapshot, error, refresh } = useRepoSnapshot(cwd);
   const root = snapshot?.isRepo ? snapshot.root : undefined;
@@ -187,6 +193,20 @@ export const App = ({
     offeredJustNow.current = true;
     setUndo(offer);
   }, []);
+
+  //? Fetches once on open, in the background, so ↑/↓ describe the remote as it is now rather
+  //? than as of whenever someone last fetched by hand.
+  const sync = useRemoteSync(root, {
+    notify,
+    reload,
+    remote: snapshot?.isRepo ? snapshot.remote || 'origin' : 'origin',
+  });
+
+  const toggleDetails = () => {
+    const next = !details;
+    setDetails(next);
+    onDetailsChange?.(next);
+  };
 
   const runUndo = async () => {
     if (!undo) return;
@@ -356,8 +376,16 @@ export const App = ({
         </Box>
       ) : (
         <>
-          {activeTab === 'overview' && <OverviewView snapshot={snapshot} />}
-          {activeTab === 'status' && <StatusView {...viewProps} />}
+          {activeTab === 'overview' && (
+            <OverviewView
+              {...viewProps}
+              snapshot={snapshot}
+              sync={sync}
+              details={details}
+              onToggleDetails={toggleDetails}
+              isInputCaptured={isInputCaptured || paletteOpen}
+            />
+          )}
           {activeTab === 'log' && <LogView {...viewProps} />}
           {activeTab === 'branches' && <BranchesView {...viewProps} />}
           {activeTab === 'stash' && <StashView {...viewProps} />}

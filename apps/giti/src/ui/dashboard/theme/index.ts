@@ -35,6 +35,10 @@ export const gitiTheme = createTheme({
     viewHeader: 1,
     /** The strip shown while a rebase, merge, cherry-pick or revert is in progress. */
     operationBanner: 1,
+    /** Overview's sync line: branch, upstream, ↑↓, last fetch, and Fetch / Pull / Push. */
+    syncBar: 1,
+    /** Overview's expanded details (`+`): four fixed lines between the sync line and Status. */
+    overviewDetails: 4,
   },
 });
 

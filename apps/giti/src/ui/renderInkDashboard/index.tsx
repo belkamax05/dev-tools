@@ -38,13 +38,17 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
   const stateStore = createConfigStore({
     appName: 'giti',
     kind: 'state',
-    defaults: { tab: 'overview' },
+    //? `details`: whether Overview's `+` section was left open.
+    defaults: { tab: 'overview', details: false },
   });
   const [config, state] = await Promise.all([configStore.load(), stateStore.load()]);
   //? Both saves are fire-and-forget: the setting is already applied on screen, so a directory
   //? that cannot be written costs persistence, not the change itself.
   const saveTheme = (theme: string) => configStore.save({ ...config, theme }).catch(() => {});
-  const saveTab = (next: TabId) => stateStore.save({ ...state, tab: next }).catch(() => {});
+  const saveState = (next: Partial<typeof state>) => {
+    Object.assign(state, next);
+    stateStore.save(state).catch(() => {});
+  };
 
   //? Across handoffs the tab comes from here, so an editor round trip lands
   //? back where it left; across runs, from the saved state
@@ -63,8 +67,10 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
         initialTab={tab}
         onTabChange={(next) => {
           tab = next;
-          saveTab(next);
+          saveState({ tab: next });
         }}
+        initialDetails={state.details}
+        onDetailsChange={(details) => saveState({ details })}
         initialPaletteId={config.theme}
         onThemeChange={(theme) => {
           config.theme = theme;
