@@ -26,6 +26,7 @@ import {
 } from '../../../../core/branches';
 import type { OperationResult } from '../../../../core/status';
 import PatchLines from '../../PatchLines';
+import SpinnerGlyph from '../../SpinnerGlyph';
 import type { GitViewProps } from '../../types';
 
 const trackHint = (branch: Branch) =>
@@ -251,6 +252,7 @@ export const BranchesView = ({
         {prompt.line ?? (
           <>
             <Text wrap="truncate" color={colors.muted}>
+              {isLoading && !branches.length && <SpinnerGlyph />}
               {isLoading && !branches.length
                 ? 'Reading branches…'
                 : `${local.length} local · ${remote.length} remote · by ${sort} `}

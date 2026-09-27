@@ -23,6 +23,7 @@ import {
 import gitiTheme from '../theme';
 import type { GitViewProps, Tone, UndoOffer } from '../types';
 import useRepoSnapshot from '../useRepoSnapshot';
+import SpinnerGlyph from '../SpinnerGlyph';
 import useRemoteSync from '../useRemoteSync';
 import useRepoWatch from '../useRepoWatch';
 import BranchesView from '../views/BranchesView';
@@ -369,7 +370,10 @@ export const App = ({
         <CommandsView items={commands} onRun={runCommand} onCaptureInput={setIsInputCaptured} />
       ) : snapshot === undefined ? (
         <Box paddingX={1}>
-          <Text>Reading repository…</Text>
+          <Text>
+            <SpinnerGlyph />
+            Reading repository…
+          </Text>
         </Box>
       ) : !snapshot.isRepo || !viewProps ? (
         <Box flexDirection="column" paddingX={1}>

@@ -24,6 +24,7 @@ import {
 import type { OperationResult } from '../../../../core/status';
 import copyToClipboard from '../../clipboard';
 import PatchLines from '../../PatchLines';
+import SpinnerGlyph from '../../SpinnerGlyph';
 import type { GitViewProps } from '../../types';
 
 /** Commits read per page; another page is read when the cursor nears the end. */
@@ -156,6 +157,7 @@ export const LogView = ({
       <Box flexShrink={0}>
         {prompt.line ?? (
           <Text wrap="truncate" color={colors.muted}>
+            {isLoading && !commits.length && <SpinnerGlyph />}
             {isLoading && !commits.length
               ? 'Reading history…'
               : `${commits.length} commits read${commits.length >= PAGE * pages ? ' — more load as you scroll' : ''}`}

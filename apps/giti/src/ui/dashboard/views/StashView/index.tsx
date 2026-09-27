@@ -22,6 +22,7 @@ import {
 } from '../../../../core/stash';
 import type { OperationResult } from '../../../../core/status';
 import PatchLines from '../../PatchLines';
+import SpinnerGlyph from '../../SpinnerGlyph';
 import type { GitViewProps } from '../../types';
 
 /**
@@ -102,6 +103,7 @@ export const StashView = ({
       <Box flexShrink={0}>
         {prompt.line ?? (
           <Text wrap="truncate" color={colors.muted}>
+            {isLoading && !stashes.length && <SpinnerGlyph />}
             {isLoading && !stashes.length
               ? 'Reading stashes…'
               : `${stashes.length} stash(es) · [s] stashes the working tree`}
