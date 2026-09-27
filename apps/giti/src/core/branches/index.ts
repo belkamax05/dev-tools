@@ -15,7 +15,11 @@ export interface Branch {
   merged: boolean;
   subject: string;
   when: string;
+  /** Tip's committer date, unix seconds — what "newest first" sorts on. */
+  timestamp: number;
 }
+
+export type BranchSort = 'time' | 'name';
 
 const SEP = '\u001f';
 
@@ -35,6 +39,7 @@ export const getBranches = async (root: string): Promise<Branch[]> => {
     '%(HEAD)',
     '%(contents:subject)',
     '%(committerdate:relative)',
+    '%(committerdate:unix)',
   ].join(SEP);
   const [refs, merged] = await Promise.all([
     git(['for-each-ref', `--format=${format}`, 'refs/heads', 'refs/remotes'], root),
@@ -46,8 +51,16 @@ export const getBranches = async (root: string): Promise<Branch[]> => {
       .split('\n')
       .filter(Boolean)
       .map((line) => {
-        const [ref = '', name = '', upstream = '', track = '', head = '', subject = '', when = ''] =
-          line.split(SEP);
+        const [
+          ref = '',
+          name = '',
+          upstream = '',
+          track = '',
+          head = '',
+          subject = '',
+          when = '',
+          unix = '',
+        ] = line.split(SEP);
         const isRemote = ref.startsWith('refs/remotes/');
         const isCurrent = head === '*';
         return {
@@ -59,11 +72,37 @@ export const getBranches = async (root: string): Promise<Branch[]> => {
           merged: !isRemote && !isCurrent && mergedSet.has(name),
           subject,
           when,
+          timestamp: Number(unix) || 0,
         };
       })
       //? `origin/HEAD` is a pointer, not a branch anyone works on
       .filter((branch) => !(branch.isRemote && branch.name.endsWith('/HEAD')))
   );
+};
+
+/**
+ * The checked-out branch first, then the rest newest-first or by name. Pure,
+ * so the view can re-sort on a toggle without asking git again.
+ */
+export const sortBranches = (branches: Branch[], sort: BranchSort): Branch[] =>
+  [...branches].sort(
+    (a, b) =>
+      Number(b.isCurrent) - Number(a.isCurrent) ||
+      (sort === 'time' ? b.timestamp - a.timestamp : 0) ||
+      a.name.localeCompare(b.name),
+  );
+
+/**
+ * Merge a branch into the checked-out one. `--no-edit` keeps git's default
+ * message — an editor here would hang the TUI. A conflict leaves the merge in
+ * progress, which the dashboard's operation banner picks up (continue/abort).
+ */
+export const mergeBranch = async (root: string, branch: Branch): Promise<OperationResult> => {
+  if (branch.isCurrent) return { ok: false, message: 'A branch cannot be merged into itself' };
+  const result = await git(['merge', '--no-edit', branch.name], root);
+  return result.ok
+    ? { ok: true, message: `Merged ${branch.name}` }
+    : { ok: false, message: failure(result, 'merge stopped') };
 };
 
 /**

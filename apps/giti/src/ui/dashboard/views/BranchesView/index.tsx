@@ -1,7 +1,8 @@
 import { Text, useInput } from 'ink';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
+import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
@@ -12,12 +13,15 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
   type Branch,
+  type BranchSort,
   compareWithCurrent,
   createBranch,
   deleteBranch,
   getBranches,
+  mergeBranch,
   renameBranch,
   setUpstream,
+  sortBranches,
   switchBranch,
 } from '../../../../core/branches';
 import type { OperationResult } from '../../../../core/status';
@@ -34,6 +38,10 @@ const trackHint = (branch: Branch) =>
   ]
     .filter(Boolean)
     .join(' ');
+
+//? Same as CommandsView's: control bytes arrive as part of escape sequences
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping controls is the point
+const printable = (input: string): string => input.replace(/[\u0000-\u001F\u007F]/g, '');
 
 /**
  * Local and remote branches, and everything you do with one: switch to it,
@@ -53,8 +61,19 @@ export const BranchesView = ({
   const prompt = usePrompt(onCaptureInput);
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
   const [compare, setCompare] = useState(false);
+  const [sort, setSort] = useState<BranchSort>('time');
+  const [query, setQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
   const { data: branches = [], isLoading } = useLoader(() => getBranches(root), [root, refreshKey]);
+  const checkedOut = branches.find((b) => b.isCurrent);
+
+  //? The search box takes the keyboard, so the app's own keys (digits, q, r)
+  //? must stand down while it is open — and get it back on Esc or unmount.
+  useEffect(() => {
+    onCaptureInput(isSearching);
+  }, [isSearching, onCaptureInput]);
+  useEffect(() => () => onCaptureInput(false), [onCaptureInput]);
   const current = branches.find((b) => `${b.isRemote ? 'r' : 'l'}:${b.name}` === currentId);
   const { data: diff = '' } = useLoader(
     () =>
@@ -90,6 +109,13 @@ export const BranchesView = ({
     prompt.confirm(`Delete ${branch.name}? It is merged, so nothing is lost.`, () =>
       run(() => deleteBranch(root, branch)),
     );
+  const merge = (branch: Branch) => {
+    if (branch.isCurrent || !checkedOut) return;
+    prompt.confirm(`Merge ${branch.name} into ${checkedOut.name}?`, () =>
+      run(() => mergeBranch(root, branch)),
+    );
+  };
+  const toggleSort = () => setSort((by) => (by === 'time' ? 'name' : 'time'));
   const track = (branch: Branch) =>
     prompt.ask(
       `${branch.name} tracks:`,
@@ -101,10 +127,31 @@ export const BranchesView = ({
 
   useInput(
     (input, key) => {
+      if (isSearching) {
+        if (key.escape) {
+          setIsSearching(false);
+          setQuery('');
+        } else if (key.return) setIsSearching(false);
+        else if (key.backspace || key.delete) setQuery((text) => text.slice(0, -1));
+        else if (!key.ctrl && !key.meta) {
+          const typed = printable(input);
+          if (typed) setQuery((text) => text + typed);
+        }
+        return;
+      }
+      //? `startsWith`: "/" and the first letters typed can land in one chunk
+      if (input.startsWith('/')) {
+        setIsSearching(true);
+        setQuery(printable(input.slice(1)));
+        return;
+      }
+      if (key.escape && query) return setQuery('');
       if (input === 'n') return create(current);
+      if (input === 's') return toggleSort();
       if (!current) return;
       if (key.return) switchTo(current);
       else if (input === 'v') setCompare((on) => !on);
+      else if (input === 'M') merge(current);
       else if (current.isRemote) return;
       else if (input === 'r') rename(current);
       else if (input === 'x') remove(current);
@@ -113,8 +160,13 @@ export const BranchesView = ({
     { isActive: !prompt.isOpen },
   );
 
-  const local = branches.filter((b) => !b.isRemote);
-  const remote = branches.filter((b) => b.isRemote);
+  const needle = query.toLowerCase();
+  const shown = sortBranches(
+    branches.filter((b) => b.name.toLowerCase().includes(needle)),
+    sort,
+  );
+  const local = shown.filter((b) => !b.isRemote);
+  const remote = shown.filter((b) => b.isRemote);
   const toItem = (branch: Branch): PickItem<Branch> => ({
     id: `${branch.isRemote ? 'r' : 'l'}:${branch.name}`,
     label: branch.name,
@@ -148,7 +200,15 @@ export const BranchesView = ({
     },
     { hotkey: 'n', label: 'New from here', onPress: () => create(branch) },
     ...(!branch.isCurrent
-      ? [{ hotkey: 'v', label: 'Compare', onPress: () => setCompare((on) => !on), isOn: compare }]
+      ? [
+          { hotkey: 'v', label: 'Compare', onPress: () => setCompare((on) => !on), isOn: compare },
+          {
+            hotkey: 'Shift+M',
+            label: `Merge into ${checkedOut?.name ?? 'HEAD'}`,
+            onPress: () => merge(branch),
+            disabled: !checkedOut,
+          },
+        ]
       : []),
     ...(!branch.isRemote
       ? [
@@ -166,6 +226,17 @@ export const BranchesView = ({
       : []),
   ];
 
+  const hints: Hint[] = [
+    { key: 'n', label: 'new branch', onPress: () => create(current) },
+    { key: '/', label: 'search', onPress: () => setIsSearching(true) },
+    {
+      key: 's',
+      label: sort === 'time' ? 'sort: time' : 'sort: name',
+      onPress: toggleSort,
+    },
+    ...(query ? [{ key: 'Esc', label: 'clear', onPress: () => setQuery('') }] : []),
+  ];
+
   const rows = Math.max(
     3,
     viewport.contentRows(
@@ -178,23 +249,37 @@ export const BranchesView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>
         {prompt.line ?? (
-          <Text wrap="truncate" color={colors.muted}>
-            {isLoading && !branches.length
-              ? 'Reading branches…'
-              : `${local.length} local · ${remote.length} remote`}
-          </Text>
+          <>
+            <Text wrap="truncate" color={colors.muted}>
+              {isLoading && !branches.length
+                ? 'Reading branches…'
+                : `${local.length} local · ${remote.length} remote · by ${sort} `}
+            </Text>
+            {isSearching || query ? (
+              <>
+                <Text color={colors.accent}>/{query}</Text>
+                {isSearching && <Text color={colors.highlight}>▌</Text>}
+              </>
+            ) : (
+              <Text color={colors.muted}>— press / to search</Text>
+            )}
+          </>
         )}
       </Box>
       <ListDetail
-        title={`Branches (${branches.length})`}
+        title={`Branches (${shown.length})`}
         items={items}
-        emptyText="No branches — this repository has no commits yet."
+        emptyText={
+          query
+            ? `No branch matches "${query}".`
+            : 'No branches — this repository has no commits yet.'
+        }
         detailTitle={current?.name ?? 'Branch'}
         reservedChrome={['viewHeader', ...reservedChrome]}
         activateLabel="switch"
         activateOnClick={false}
-        isInputActive={!prompt.isOpen}
-        hints={[{ key: 'n', label: 'new branch', onPress: () => create(current) }]}
+        isInputActive={!prompt.isOpen && !isSearching}
+        hints={hints}
         onActivate={(item) => item.value && switchTo(item.value)}
         onSelectionChange={(item) => setCurrentId(item?.id)}
         renderDetail={(item) => {
