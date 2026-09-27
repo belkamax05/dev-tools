@@ -287,7 +287,9 @@ export const BranchesView = ({
           if (!branch) return null;
           return (
             <Box flexDirection="column">
-              <Toolbar actions={actionsFor(branch)} />
+              {/* Stacked while the few detail lines below still fit; the compare diff wants
+                  every row it can get, so it keeps the wrapped row. */}
+              <Toolbar actions={actionsFor(branch)} maxRows={compare ? 0 : rows - 1} />
               {compare && !branch.isCurrent ? (
                 <PatchLines text={diff} rows={rows} />
               ) : (

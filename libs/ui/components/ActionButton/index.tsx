@@ -14,6 +14,8 @@ export interface ActionButtonProps {
    * backwards in a terminal app.
    */
   hotkey?: string;
+  /** Cells the `[hotkey] ` part is padded to, so labels in a stack of buttons line up. */
+  hotkeyWidth?: number;
   label: string;
   /**
    * Toggle or radio state. Omit entirely for a button that just does something —
@@ -39,6 +41,7 @@ export interface ActionButtonProps {
  */
 export const ActionButton = ({
   hotkey,
+  hotkeyWidth = 0,
   label,
   isOn,
   disabled = false,
@@ -95,7 +98,7 @@ export const ActionButton = ({
     >
       <Text color={textColor} bold={isOn} dimColor={disabled}>
         {marker}
-        {hotkey === undefined ? '' : `[${hotkey}] `}
+        {hotkey === undefined ? '' : `[${hotkey}] `.padEnd(hotkeyWidth)}
         {label}
       </Text>
     </Box>

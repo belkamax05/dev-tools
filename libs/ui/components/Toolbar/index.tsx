@@ -28,20 +28,37 @@ export interface ToolbarAction {
  * shortcut on the way. Wraps onto a second line rather than truncating, since
  * a button cut off at the edge is one nobody can find.
  */
-export const Toolbar = ({ actions }: { actions: ToolbarAction[] }) => {
+export interface ToolbarProps {
+  actions: ToolbarAction[];
+  /**
+   * Lines the caller can spare for the buttons. When every button fits, they are stacked one per
+   * line with their labels aligned — far easier to scan than a wrapped row. Left off, or too few,
+   * and they wrap into a row as before.
+   */
+  maxRows?: number;
+}
+
+export const Toolbar = ({ actions, maxRows = 0 }: ToolbarProps) => {
   const colors = useColors();
   if (actions.length === 0) return null;
+  const stacked = actions.length <= maxRows;
+  const hotkeyWidth = stacked ? Math.max(...actions.map((action) => action.hotkey.length)) + 3 : 0;
   const ordered = [
     ...actions.filter((action) => action.tone === 'primary'),
     ...actions.filter((action) => action.tone !== 'primary'),
   ];
   return (
     <Box flexDirection="column" flexShrink={0}>
-      <Box flexDirection="row" flexWrap="wrap">
+      <Box
+        flexDirection={stacked ? 'column' : 'row'}
+        flexWrap={stacked ? 'nowrap' : 'wrap'}
+        alignItems="flex-start"
+      >
         {ordered.map((action) => (
           <ActionButton
             key={action.hotkey}
             hotkey={action.hotkey}
+            hotkeyWidth={hotkeyWidth}
             label={action.tone === 'primary' ? `${action.label} ◂` : action.label}
             isOn={action.isOn}
             disabled={action.disabled}
