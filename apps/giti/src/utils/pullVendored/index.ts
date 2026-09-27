@@ -20,13 +20,21 @@ import {
 } from '../vendoredArgs';
 
 /**
- * A pull aborted half-way leaves the working branch and worktree git-subrepo builds under
- * `.git/tmp/subrepo/<dir>` in place, and every later pull of that subrepo then fails with
- * "There is already a worktree with branch subrepo/<dir>". It is knowable up front.
+ * A pull aborted half-way leaves the worktree git-subrepo builds under `.git/tmp/subrepo/<dir>`
+ * registered, and every later pull of that subrepo then fails with "There is already a worktree
+ * with branch subrepo/<dir>". It is knowable up front.
+ *
+ * ! The worktree is the tell, not the `subrepo/<dir>` branch. git-subrepo keeps that branch after
+ * ! every *successful* pull (it is what a later `git subrepo push` starts from), and a pull with
+ * ! the branch present but no worktree on it works fine — checked against git-subrepo 0.4.9.
+ * ! Testing for the branch refused to pull any subrepo that had ever been pulled before.
  */
 const hasLeftoverWorktree = async (dir: string, cwd: string) => {
-  const branches = await gitExec(['branch', '--list', `subrepo/${dir}`], cwd);
-  return branches.exitCode === 0 && branches.stdout.trim().length > 0;
+  const worktrees = await gitExec(['worktree', 'list', '--porcelain'], cwd);
+  if (worktrees.exitCode !== 0) return false;
+  return worktrees.stdout
+    .split('\n')
+    .some((line) => line === `branch refs/heads/subrepo/${dir}`);
 };
 
 const moved = (behind: number | null) => (behind === null ? '' : ` ${plural(behind, 'commit')}`);
@@ -148,7 +156,7 @@ const pullVendored = async (
 
   if (kind === 'subrepo' && (await hasLeftoverWorktree(dir, cwd))) {
     log.error(
-      `${label}  ${formatColor('skipped', 'error')} · a leftover 'subrepo/${dir}' branch from an ` +
+      `${label}  ${formatColor('skipped', 'error')} · a worktree left on 'subrepo/${dir}' by an ` +
         `interrupted run would make this fail. Run \`giti subrepo/clean ${dir}\` first.`,
     );
     return 'skipped';
