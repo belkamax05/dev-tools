@@ -106,10 +106,21 @@ export const BranchesView = ({
       },
       { initial: branch.name },
     );
-  const remove = (branch: Branch) =>
-    prompt.confirm(`Delete ${branch.name}? It is merged, so nothing is lost.`, () =>
-      run(() => deleteBranch(root, branch)),
+  //? "Merged" only means every commit on it is already in the checked-out branch — true of a
+  //? branch created a moment ago with no commits of its own. So say that, and whether it was
+  //? ever pushed, rather than implying it went somewhere.
+  const remove = (branch: Branch) => {
+    const into = checkedOut?.name ?? 'HEAD';
+    const remoteNote = branch.gone
+      ? ', and its remote copy is already gone'
+      : branch.upstream
+        ? ''
+        : ', but it was never pushed';
+    prompt.confirm(
+      `Delete ${branch.name}? Every commit on it is already in ${into}${remoteNote}.`,
+      () => run(() => deleteBranch(root, branch)),
     );
+  };
   const merge = (branch: Branch) => {
     if (branch.isCurrent || !checkedOut) return;
     prompt.confirm(`Merge ${branch.name} into ${checkedOut.name}?`, () =>
@@ -150,7 +161,7 @@ export const BranchesView = ({
       if (input === 'n') return create(current);
       if (input === 's') return toggleSort();
       if (!current) return;
-      if (key.return) switchTo(current);
+      if (key.return || input === ' ') switchTo(current);
       else if (input === 'v') setCompare((on) => !on);
       else if (input === 'M') merge(current);
       else if (current.isRemote) return;
@@ -193,7 +204,7 @@ export const BranchesView = ({
 
   const actionsFor = (branch: Branch): ToolbarAction[] => [
     {
-      hotkey: 'Enter',
+      hotkey: 'Enter/Space',
       label: branch.isCurrent ? 'Checked out' : 'Switch',
       onPress: () => switchTo(branch),
       tone: 'primary',
@@ -311,7 +322,7 @@ export const BranchesView = ({
                   {!branch.isRemote && !branch.isCurrent && (
                     <Text color={branch.merged ? colors.ok : colors.muted}>
                       {branch.merged
-                        ? 'merged into HEAD — safe to delete'
+                        ? `every commit is already in ${checkedOut?.name ?? 'HEAD'} — deleting loses nothing`
                         : 'has commits HEAD does not'}
                     </Text>
                   )}
