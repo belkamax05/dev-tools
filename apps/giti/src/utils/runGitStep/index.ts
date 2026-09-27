@@ -7,8 +7,12 @@ export interface GitStep {
   output: string;
   /** Close the step as done: its live log collapses into this one line. */
   succeed: (message: string) => void;
-  /** Close the step as failed: its live log stays on screen above this line. */
-  fail: (message: string) => void;
+  /**
+   * Close the step as failed: its live log stays on screen above this line — unless `quiet`,
+   * for a caller whose message already explains it and whose git output would contradict it
+   * (git-subrepo's "finish the pull by hand" after giti has undone the pull).
+   */
+  fail: (message: string, options?: { quiet?: boolean }) => void;
 }
 
 /**
@@ -39,9 +43,9 @@ const runGitStep = async (title: string, args: string[], cwd: string): Promise<G
       exitCode: result.exitCode,
       output,
       succeed: (message) => log.success(message),
-      fail: (message) => {
+      fail: (message, { quiet = false } = {}) => {
         log.error(message);
-        if (output) log.message(output.split('\n'));
+        if (output && !quiet) log.message(output.split('\n'));
       },
     };
   }
@@ -59,7 +63,7 @@ const runGitStep = async (title: string, args: string[], cwd: string): Promise<G
     exitCode: result.exitCode,
     output: lines.join('\n'),
     succeed: (message) => task.success(message),
-    fail: (message) => task.error(message, { showLog: true }),
+    fail: (message, { quiet = false } = {}) => task.error(message, { showLog: !quiet }),
   };
 };
 

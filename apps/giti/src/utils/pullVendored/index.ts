@@ -15,9 +15,20 @@ import vendoredLabel from '../vendoredLabel';
 import {
   explainDroppedFlags,
   forwardVendoredFlags,
+  hasOwn,
   setsIntegration,
   setsSubmoduleMode,
 } from '../vendoredArgs';
+
+/**
+ * Every git this file runs against a vendored directory runs with the host's hooks off. A pull
+ * commits upstream's code into the host, and a host pre-commit formatter (lint-staged) rewrote it
+ * inside that commit — the copy drifted from upstream, and the next pull touching the same lines
+ * conflicted with a change nobody made. Vendored code lands exactly as upstream wrote it.
+ * `-c` reaches the commits git-subrepo makes too: git hands it to every git it runs, through
+ * GIT_CONFIG_PARAMETERS.
+ */
+const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
 
 /**
  * A pull aborted half-way leaves the worktree git-subrepo builds under `.git/tmp/subrepo/<dir>`
@@ -29,12 +40,54 @@ import {
  * ! the branch present but no worktree on it works fine — checked against git-subrepo 0.4.9.
  * ! Testing for the branch refused to pull any subrepo that had ever been pulled before.
  */
-const hasLeftoverWorktree = async (dir: string, cwd: string) => {
+const subrepoWorktree = async (dir: string, cwd: string) => {
   const worktrees = await gitExec(['worktree', 'list', '--porcelain'], cwd);
-  if (worktrees.exitCode !== 0) return false;
-  return worktrees.stdout
+  if (worktrees.exitCode !== 0) return undefined;
+  //? Porcelain output is blank-line separated records: `worktree <path>` first, then `branch`.
+  for (const record of worktrees.stdout.split('\n\n')) {
+    const lines = record.split('\n');
+    if (lines.includes(`branch refs/heads/subrepo/${dir}`)) {
+      return lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length);
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Throw away a subrepo pull's half-done state — its worktree, then git-subrepo's branch and refs
+ * — so the host is exactly where it was and the next pull starts clean. Nothing here touches the
+ * host's working tree: a merge-method pull only changes the host once it has fully succeeded.
+ */
+const discardSubrepoAttempt = async (dir: string, cwd: string) => {
+  const worktree = await subrepoWorktree(dir, cwd);
+  if (worktree) await gitExec(['worktree', 'remove', '--force', worktree], cwd);
+  await gitExec(['worktree', 'prune'], cwd);
+  await gitExec([...NO_HOOKS, 'subrepo', 'clean', dir], cwd);
+};
+
+/** Files left conflicted in a failed subrepo pull's worktree. */
+const conflictedFiles = async (worktree: string) =>
+  (await gitExec(['diff', '--name-only', '--diff-filter=U'], worktree)).stdout
     .split('\n')
-    .some((line) => line === `branch refs/heads/subrepo/${dir}`);
+    .filter(Boolean);
+
+/**
+ * Finish a conflicted subrepo pull with upstream's side of every conflict — what `--theirs`
+ * asks for, and nearly always right for vendored code, whose local edits belong upstream anyway.
+ * A file upstream deleted is deleted. Then the merge is committed in the worktree and
+ * `git subrepo commit` brings it into the host, the step `git subrepo pull` itself never reached.
+ */
+const settleWithTheirs = async (dir: string, worktree: string, conflicts: string[], cwd: string) => {
+  for (const file of conflicts) {
+    const taken = await gitExec(['checkout', '--theirs', '--', file], worktree);
+    if (taken.exitCode !== 0) await gitExec(['rm', '-q', '--', file], worktree);
+  }
+  const staged = await gitExec(['add', '-A'], worktree);
+  if (staged.exitCode !== 0) return false;
+  const merged = await gitExec([...NO_HOOKS, 'commit', '--no-edit'], worktree);
+  if (merged.exitCode !== 0) return false;
+  const committed = await gitExec([...NO_HOOKS, 'subrepo', 'commit', dir], cwd);
+  return committed.exitCode === 0;
 };
 
 const moved = (behind: number | null) => (behind === null ? '' : ` ${plural(behind, 'commit')}`);
@@ -105,9 +158,17 @@ const pullVendored = async (
     return 'skipped';
   }
 
+  //? A worktree left by a pull that crashed or was killed would make this one fail — and it
+  //? holds nothing worth keeping, since a pull only changes the host once it succeeds. Cleared
+  //? up front, so a past failure never blocks a later run.
+  if (kind === 'subrepo' && (await subrepoWorktree(dir, cwd))) {
+    await discardSubrepoAttempt(dir, cwd);
+    log.info(`${label}  cleared what an earlier, unfinished pull left behind`);
+  }
+
   //? No passthrough on this one: it is giti's own look at the upstream, not the pull the user
   //? asked for, and `git fetch` rejects the flags a pull takes.
-  const { behind, dirty } = await getVendoredState({ ...vendored, ...upstream }, cwd);
+  const { behind, dirty, localChanges } = await getVendoredState({ ...vendored, ...upstream }, cwd);
 
   if (behind === 0) {
     log.success(`${label}  ${formatColor('up to date', 'success')}`);
@@ -139,7 +200,7 @@ const pullVendored = async (
     const own = setsIntegration(flags) ? [] : ['--ff-only'];
     const step = await runGitStep(
       `${label}  pulling${moved(behind)} from ${tracked.label}`,
-      ['pull', ...own, ...flags],
+      [...NO_HOOKS, 'pull', ...own, ...flags],
       vendored.path,
     );
     if (step.exitCode !== 0) {
@@ -152,14 +213,6 @@ const pullVendored = async (
       return 'failed';
     }
     return finish(step, vendored, cwd, label, before);
-  }
-
-  if (kind === 'subrepo' && (await hasLeftoverWorktree(dir, cwd))) {
-    log.error(
-      `${label}  ${formatColor('skipped', 'error')} · a worktree left on 'subrepo/${dir}' by an ` +
-        `interrupted run would make this fail. Run \`giti subrepo/clean ${dir}\` first.`,
-    );
-    return 'skipped';
   }
 
   //? Whatever the user typed goes to the command that actually runs, so a flag means the same
@@ -196,14 +249,49 @@ const pullVendored = async (
   const target = kind === 'subtree' ? ` from ${upstream?.remote} ${upstream?.branch}` : '';
   const step = await runGitStep(
     `${label}  ${kind === 'subrepo' ? 'pulling' : 'merging'}${moved(behind)}${target}`,
-    [...config, ...command],
+    [...NO_HOOKS, ...config, ...command],
     cwd,
   );
-  if (step.exitCode !== 0) {
+  if (step.exitCode === 0) return finish(step, vendored, cwd, label, before);
+  if (kind !== 'subrepo') {
     step.fail(`${label}  ${formatColor('pull failed', 'error')}`);
     return 'failed';
   }
-  return finish(step, vendored, cwd, label, before);
+
+  //? A subrepo pull that stops never leaves its half-done merge behind: either `--theirs`
+  //? finishes it, or it is thrown away and the host is exactly as it was before the pull.
+  const worktree = await subrepoWorktree(dir, cwd);
+  const conflicts = worktree ? await conflictedFiles(worktree) : [];
+  if (worktree && conflicts.length > 0 && hasOwn(args, '--theirs')) {
+    if (await settleWithTheirs(dir, worktree, conflicts, cwd)) {
+      await discardSubrepoAttempt(dir, cwd);
+      return finish(step, vendored, cwd, label, before);
+    }
+  }
+  await discardSubrepoAttempt(dir, cwd);
+
+  if (conflicts.length === 0) {
+    step.fail(`${label}  ${formatColor('pull failed', 'error')} · nothing was changed`);
+    return 'failed';
+  }
+  //? Conflicts here mean this copy differs from upstream in lines upstream also changed — say
+  //? which of them this repository changed, since that is what has to go (or go upstream).
+  const drifted = new Set(localChanges ?? []);
+  const local = conflicts.filter((file) => drifted.has(file));
+  step.fail(
+    [
+      `${label}  ${formatColor('conflicts', 'error')} · the pull was undone, nothing was changed.`,
+      `  Upstream changed lines this copy also changed: ${conflicts.join(', ')}`,
+      ...(local.length > 0
+        ? [`  This repository's copy differs from upstream in: ${local.join(', ')}`]
+        : []),
+      "  To take upstream's version of those files: giti mega pull --theirs",
+    ].join('\n'),
+    //? git-subrepo's own advice ("finish the pull by hand in .git/tmp/subrepo/...") describes a
+    //? worktree that no longer exists — it was just thrown away
+    { quiet: true },
+  );
+  return 'failed';
 };
 
 export default pullVendored;
