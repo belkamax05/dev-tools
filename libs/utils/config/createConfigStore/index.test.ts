@@ -95,7 +95,11 @@ describe('createConfigStore', () => {
     const before = process.env.XDG_STATE_HOME;
     process.env.XDG_STATE_HOME = stateHome;
     try {
-      const state = createConfigStore({ appName: 'test-app', kind: 'state', defaults: { tab: 'a' } });
+      const state = createConfigStore({
+        appName: 'test-app',
+        kind: 'state',
+        defaults: { tab: 'a' },
+      });
 
       //? The point of the split: config may be a stow-linked dotfile, and state that rewrites
       //? itself every run must not land beside it.
