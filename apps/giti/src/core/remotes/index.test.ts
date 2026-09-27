@@ -4,6 +4,7 @@ import makeRepo from '../testRepo';
 import { join } from 'node:path';
 
 import {
+  countVendoredBehind,
   fetchAll,
   getRemotes,
   pullCurrent,
@@ -79,4 +80,11 @@ describe('remotes', () => {
     expect(steps.length).toBeGreaterThan(1);
     expect(repo.sh(['log', '-1', '--format=%s']).trim()).toBe('upstream work');
   }, 30_000);
+
+  test('counts nothing waiting when there is nothing vendored', async () => {
+    repo = makeRepo({ remote: true });
+    const seen: string[] = [];
+    expect(await countVendoredBehind(repo.root, (dir) => seen.push(dir))).toBe(0);
+    expect(seen).toEqual([]);
+  });
 });

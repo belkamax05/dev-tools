@@ -1,6 +1,8 @@
 import { join } from 'node:path';
 
 import sysPaths from '../../config/sysPaths';
+import getMegaTree from '../../utils/getMegaTree';
+import getVendoredState from '../../utils/getVendoredState';
 import git, { failure } from '../run';
 import type { OperationResult } from '../status';
 
@@ -94,6 +96,24 @@ export const pullMega = async (root: string, onProgress?: Progress): Promise<Ope
   //? mega/pull does not exit non-zero when an entry is left alone — its tally says so instead
   const ok = exitCode === 0 && !/left alone|failed/i.test(last);
   return { ok, message: last || (ok ? 'Pulled' : 'mega pull failed') };
+};
+
+/**
+ * Upstream commits waiting across every subrepo, submodule and subtree — what a mega pull would
+ * bring in besides the repository's own. Fetches each entry's upstream to find out, one at a time:
+ * concurrent fetches into the same repository fight over FETCH_HEAD. An entry whose upstream
+ * cannot be reached counts as nothing to pull rather than failing the whole count.
+ */
+export const countVendoredBehind = async (root: string, onProgress?: Progress) => {
+  const tree = await getMegaTree(root).catch(() => null);
+  if (!tree) return 0;
+  let total = 0;
+  for (const entry of tree.groups.flatMap((group) => group.entries)) {
+    onProgress?.(entry.dir);
+    const state = await getVendoredState(entry, root).catch(() => null);
+    total += state?.behind ?? 0;
+  }
+  return total;
 };
 
 /**
