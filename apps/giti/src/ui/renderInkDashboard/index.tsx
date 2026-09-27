@@ -8,6 +8,7 @@ import getCommandEntries from '../../utils/getCommandEntries';
 import getCommandPickerItems from '../../utils/getCommandPickerItems';
 import getWorkingDir from '../../utils/getWorkingDir';
 import App, { TABS, type TabId } from '../dashboard/App';
+import { DEFAULT_REFRESH_SECONDS } from '../dashboard/views/SettingsView';
 
 /**
  * Open the giti dashboard and resolve with the command the user picked from
@@ -33,7 +34,7 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
   //? anyone's dotfiles — not even when stow links the whole ~/.config/giti directory.
   const configStore = createConfigStore({
     appName: 'giti',
-    defaults: { theme: 'classic' },
+    defaults: { theme: 'classic', refreshSeconds: DEFAULT_REFRESH_SECONDS },
   });
   const stateStore = createConfigStore({
     appName: 'giti',
@@ -44,7 +45,10 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
   const [config, state] = await Promise.all([configStore.load(), stateStore.load()]);
   //? Both saves are fire-and-forget: the setting is already applied on screen, so a directory
   //? that cannot be written costs persistence, not the change itself.
-  const saveTheme = (theme: string) => configStore.save({ ...config, theme }).catch(() => {});
+  const saveConfig = (next: Partial<typeof config>) => {
+    Object.assign(config, next);
+    configStore.save(config).catch(() => {});
+  };
   const saveState = (next: Partial<typeof state>) => {
     Object.assign(state, next);
     stateStore.save(state).catch(() => {});
@@ -52,7 +56,9 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
 
   //? Across handoffs the tab comes from here, so an editor round trip lands
   //? back where it left; across runs, from the saved state
-  let tab: TabId = TABS.some((t) => t.id === state.tab) ? (state.tab as TabId) : 'overview';
+  //? `vendored` was its own tab before it joined Remotes
+  const savedTab = state.tab === 'vendored' ? 'remotes' : state.tab;
+  let tab: TabId = TABS.some((t) => t.id === savedTab) ? (savedTab as TabId) : 'overview';
 
   //? Written by the app on its way out and read once the session returns.
   let picked: string | undefined;
@@ -72,10 +78,9 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
         initialDetails={state.details}
         onDetailsChange={(details) => saveState({ details })}
         initialPaletteId={config.theme}
-        onThemeChange={(theme) => {
-          config.theme = theme;
-          saveTheme(theme);
-        }}
+        onThemeChange={(theme) => saveConfig({ theme })}
+        initialRefreshSeconds={config.refreshSeconds}
+        onRefreshChange={(refreshSeconds) => saveConfig({ refreshSeconds })}
         onRunCommand={(command) => {
           picked = command;
         }}

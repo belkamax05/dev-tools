@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { Text, useApp, useInput } from 'ink';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import AppShell from '@/dev-tools/ui/components/AppShell';
@@ -9,7 +9,6 @@ import type { FooterAction } from '@/dev-tools/ui/components/Footer';
 import type { TabDefinition } from '@/dev-tools/ui/components/TabStrip';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
-import { nextThemeId } from '@/dev-tools/ui/theme';
 import type { Handoff } from '@/dev-tools/ui/app/runTuiSession';
 import type PickerItem from '@/dev-tools/types/PickerItem';
 
@@ -31,10 +30,10 @@ import CommandsView from '../views/CommandsView';
 import LogView from '../views/LogView';
 import OverviewView from '../views/OverviewView';
 import RemotesView from '../views/RemotesView';
+import SettingsView, { DEFAULT_REFRESH_SECONDS } from '../views/SettingsView';
 import StashView from '../views/StashView';
-import VendoredView from '../views/VendoredView';
 
-export type TabId = 'overview' | 'log' | 'branches' | 'stash' | 'remotes' | 'vendored';
+export type TabId = 'overview' | 'log' | 'branches' | 'stash' | 'remotes' | 'settings';
 
 /**
  * The tab strip.
@@ -51,8 +50,9 @@ export const TABS: readonly TabDefinition<TabId>[] = [
   { id: 'log', icon: '🕒', label: '🕒 Log' },
   { id: 'branches', icon: '🌿', label: '🌿 Branches' },
   { id: 'stash', icon: '📥', label: '📥 Stash' },
+  //? Remotes also lists the vendored directories — both are what a fetch and a pull sync with
   { id: 'remotes', icon: '📡', label: '📡 Remotes' },
-  { id: 'vendored', icon: '📦', label: '📦 Vendored' },
+  { id: 'settings', icon: '🔧', label: '🔧 Settings' },
 ];
 
 export interface AppProps {
@@ -74,6 +74,9 @@ export interface AppProps {
   onTabChange?: (tab: TabId) => void;
   initialPaletteId?: string;
   onThemeChange?: (id: string) => void;
+  /** Seconds between background re-reads of the repository; 0 is off. */
+  initialRefreshSeconds?: number;
+  onRefreshChange?: (seconds: number) => void;
   /** Whether Overview opens with its details expanded (`+`) — remembered between runs. */
   initialDetails?: boolean;
   onDetailsChange?: (details: boolean) => void;
@@ -145,6 +148,8 @@ export const App = ({
   onTabChange,
   initialPaletteId = 'classic',
   onThemeChange,
+  initialRefreshSeconds = DEFAULT_REFRESH_SECONDS,
+  onRefreshChange,
   initialDetails = false,
   onDetailsChange,
 }: AppProps) => {
@@ -160,6 +165,7 @@ export const App = ({
   const [undo, setUndo] = useState<UndoOffer | undefined>(undefined);
   const [refreshKey, setRefreshKey] = useState(0);
   const [details, setDetails] = useState(initialDetails);
+  const [refreshSeconds, setRefreshSeconds] = useState(initialRefreshSeconds);
 
   const { snapshot, error, refresh } = useRepoSnapshot(cwd);
   const root = snapshot?.isRepo ? snapshot.root : undefined;
@@ -169,6 +175,14 @@ export const App = ({
     refresh();
   }, [refresh]);
   useRepoWatch(root, reload);
+
+  //? The watcher catches almost everything as it happens; this is the net under it, so a change
+  //? it missed is on screen within `refreshSeconds` rather than whenever something else reloads.
+  useEffect(() => {
+    if (!root || refreshSeconds <= 0) return;
+    const id = setInterval(reload, refreshSeconds * 1000);
+    return () => clearInterval(id);
+  }, [root, refreshSeconds, reload]);
 
   const { data: op } = useLoader(
     () => (root ? getOperation(root) : Promise.resolve(undefined)),
@@ -233,10 +247,15 @@ export const App = ({
     onTabChange?.(tab);
   };
 
-  const cycleTheme = () => {
-    const nextId = nextThemeId(paletteId, 1, gitiTheme.palettes);
-    setPaletteId(nextId);
-    if (nextId !== paletteId) onThemeChange?.(nextId);
+  const changeTheme = (id: string) => {
+    if (id === paletteId) return;
+    setPaletteId(id);
+    onThemeChange?.(id);
+  };
+  const changeRefresh = (seconds: number) => {
+    if (seconds === refreshSeconds) return;
+    setRefreshSeconds(seconds);
+    onRefreshChange?.(seconds);
   };
 
   const handoff = useCallback(
@@ -268,7 +287,6 @@ export const App = ({
       if (input === ':') return setPaletteOpen(true);
       if (input === 'q' || input === 'Q') exit();
       else if (input === 'r') reload();
-      else if (input === 't' || input === 'T') cycleTheme();
     },
     { isActive: !isInputCaptured },
   );
@@ -292,13 +310,6 @@ export const App = ({
       isOn: paletteOpen,
       onPress: () => setPaletteOpen((open) => !open),
       tooltip: 'Every giti command, searchable — Esc closes',
-    },
-    {
-      id: 'theme',
-      label: 'Theme',
-      hotkey: 't',
-      onPress: cycleTheme,
-      tooltip: 'Step to the next colour theme',
     },
     { id: 'quit', label: 'Quit', hotkey: 'q', onPress: exit, tooltip: 'Close the dashboard' },
   ];
@@ -338,7 +349,7 @@ export const App = ({
     : undefined;
 
   const hints =
-    footerHint ?? `[1-${TABS.length}] / Tab switch tab · [:] commands · [t] theme · [q] quit`;
+    footerHint ?? `[1-${TABS.length}] / Tab switch tab · [:] commands · [q] quit`;
 
   return (
     <AppShell
@@ -366,6 +377,14 @@ export const App = ({
       )}
       {paletteOpen ? (
         <CommandsView items={commands} onRun={runCommand} onCaptureInput={setIsInputCaptured} />
+      ) : activeTab === 'settings' ? (
+        //? Before the repository checks: settings mean the same outside a repository
+        <SettingsView
+          paletteId={paletteId}
+          onThemeChange={changeTheme}
+          refreshSeconds={refreshSeconds}
+          onRefreshChange={changeRefresh}
+        />
       ) : snapshot === undefined ? (
         <Box paddingX={1}>
           <Text>
@@ -393,9 +412,13 @@ export const App = ({
           {activeTab === 'log' && <LogView {...viewProps} />}
           {activeTab === 'branches' && <BranchesView {...viewProps} />}
           {activeTab === 'stash' && <StashView {...viewProps} />}
-          {activeTab === 'remotes' && <RemotesView {...viewProps} sync={sync} />}
-          {activeTab === 'vendored' && (
-            <VendoredView snapshot={snapshot} onRunCommand={runCommand} />
+          {activeTab === 'remotes' && (
+            <RemotesView
+              {...viewProps}
+              sync={sync}
+              snapshot={snapshot}
+              onRunCommand={runCommand}
+            />
           )}
         </>
       )}
