@@ -37,9 +37,6 @@ export interface OfferedFolder {
   hasManifest: boolean;
 }
 
-/** No version column grows past this; a longer version (a nightly's hash) is cut with `…`. */
-export const MAX_VERSION_COLUMN = 16;
-
 const fitEnd = (text: string, width: number) =>
   text.length > width ? `${text.slice(0, Math.max(0, width - 1))}…` : text.padEnd(width);
 
@@ -47,29 +44,56 @@ const fitEnd = (text: string, width: number) =>
 const fitStart = (text: string, width: number) =>
   text.length > width ? `…${text.slice(text.length - Math.max(0, width - 1))}` : text.padEnd(width);
 
+/** Which rows are on screen: `from` inclusive, `to` exclusive. */
+export interface RowWindow {
+  from: number;
+  to: number;
+}
+
 /**
  * Lay the comparison out as a table that fits `width` cells: a header line and one line per row,
  * every `│` in the same column on every line.
  *
- * Each version column is as wide as the longest thing in it — its header or any version —
- * capped at `MAX_VERSION_COLUMN`; the package name gets whatever width is left. Widths are taken
- * from every row given rather than from the rows on screen, so the columns stay put as the list
- * scrolls instead of shifting with whichever versions happen to be in view.
+ * Sized from the rows in `visible` (every row when not given), so the columns fit what is on
+ * screen and are laid out again as the list scrolls:
+ *   1. each version column is exactly as wide as its longest visible version — never cut while
+ *      there is any room at all;
+ *   2. the package name gets what is left, up to the longest visible name, and is cut with `…`
+ *      when that is too little;
+ *   3. room still left goes to the folder headers, up to their full length — a header is cut
+ *      from its start (`…/web`) before it widens a column past its versions.
+ * Only when the versions alone don't fit does anything else give: the name stops at the width of
+ * `PACKAGE`, then the widest version column is cut a cell at a time.
  */
 export const layoutCompareTable = (
   headers: string[],
   rows: { name: string; versions: string[] }[],
   width: number,
+  visible: RowWindow = { from: 0, to: rows.length },
 ): { header: string; lines: string[] } => {
-  const widths = headers.map((header, at) =>
-    Math.min(
-      MAX_VERSION_COLUMN,
-      Math.max(1, header.length, ...rows.map((row) => row.versions[at]?.length ?? 0)),
-    ),
+  const shown = rows.slice(visible.from, visible.to);
+  const widths = headers.map((_, at) =>
+    Math.max(1, ...shown.map((row) => row.versions[at]?.length ?? 0)),
   );
-  const versionsWidth = widths.reduce((sum, columnWidth) => sum + columnWidth + 3, 0);
-  const longestName = Math.max('PACKAGE'.length, ...rows.map((row) => row.name.length));
-  const nameWidth = Math.max(6, Math.min(longestName, width - versionsWidth));
+  const versionsWidth = () => widths.reduce((sum, columnWidth) => sum + columnWidth + 3, 0);
+  const longestName = Math.max('PACKAGE'.length, ...shown.map((row) => row.name.length));
+
+  const smallestName = Math.min(longestName, 'PACKAGE'.length);
+  while (smallestName + versionsWidth() > width) {
+    const widest = Math.max(...widths);
+    if (widest <= 1) break;
+    widths[widths.indexOf(widest)] = widest - 1;
+  }
+  const nameWidth = Math.max(smallestName, Math.min(longestName, width - versionsWidth()));
+
+  headers.forEach((header, at) => {
+    const room = width - nameWidth - versionsWidth();
+    const columnWidth = widths[at] ?? 0;
+    if (room > 0 && header.length > columnWidth) {
+      widths[at] = columnWidth + Math.min(room, header.length - columnWidth);
+    }
+  });
+
   const line = (name: string, cells: string[], fitCell: typeof fitEnd) =>
     fitEnd(name, nameWidth) +
     widths.map((columnWidth, at) => ` │ ${fitCell(cells[at] ?? '', columnWidth)}`).join('');
@@ -271,6 +295,8 @@ export const CompareView = ({
   const theme = useTuiTheme();
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.compare);
   const [pickId, setPickId] = useState<string | undefined>(undefined);
+  //? The rows the list has on screen — the table is sized to them, and again on every scroll
+  const [rowWindow, setRowWindow] = useState<RowWindow | undefined>(undefined);
 
   const selectionKey = selection.join('|');
   const { data: loaded, isLoading } = useLoader(async () => {
@@ -563,9 +589,11 @@ export const CompareView = ({
     folderLabels,
     rows.map((row) => ({
       name: row.name,
-      versions: row.cells.map((cell) => cellVersion(cell) ?? '—'),
+      //? A range with no version in it (`latest`, a tag) is shown as declared, not as a blank
+      versions: row.cells.map((cell) => (cell ? cellVersion(cell) || cell.range : '—')),
     })),
     listTextWidth(viewport.columns, theme) - Math.max(2, badge),
+    rowWindow,
   );
   const items: PickItem<CompareRow>[] = rows.map((row, at) => ({
     id: row.name,
@@ -623,6 +651,9 @@ export const CompareView = ({
         reservedChrome={['viewHeader']}
         activateLabel="align"
         activateOnClick={false}
+        onWindowChange={(from, to) =>
+          setRowWindow((was) => (was?.from === from && was.to === to ? was : { from, to }))
+        }
         initialSelectedId={currentId}
         isInputActive={!prompt.isOpen}
         hints={hints}
