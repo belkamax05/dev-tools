@@ -208,4 +208,5 @@ bun test
 bunx tsc --noEmit
 bun run lint      # biome check .
 bun run format    # biome check --write --unsafe .
+bun run check:nix # evaluate + build nix/ against real Nix (skips without Nix)
 ```

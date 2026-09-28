@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
-import { layoutCompareTable, MAX_VERSION_COLUMN } from './index';
+import { layoutCompareTable } from './index';
 
 const barColumns = (line: string) => [...line].flatMap((char, at) => (char === '│' ? [at] : []));
+
+/** The cells of a laid-out line, as drawn — padding included. */
+const cells = (line: string) => line.split(' │ ');
 
 describe('layoutCompareTable', () => {
   const rows = [
@@ -18,23 +21,62 @@ describe('layoutCompareTable', () => {
     for (const line of table.lines) expect(barColumns(line)).toEqual(expected);
   });
 
-  test('a column is as wide as its widest entry, capped, and cut with an ellipsis', () => {
+  test('a version column is exactly as wide as its longest version, however long', () => {
     const table = layoutCompareTable(
       ['here'],
-      [{ name: 'nitro', versions: ['3.0.1-20260420-010726-8c3f16b2'] }],
+      [
+        { name: 'nitro', versions: ['3.0.1-20260420-010726-8c3f16b2'] },
+        { name: 'zod', versions: ['4.0.0'] },
+      ],
       80,
     );
-    const cell = table.lines[0]?.split(' │ ')[1] ?? '';
-    expect(cell).toHaveLength(MAX_VERSION_COLUMN);
-    expect(cell.endsWith('…')).toBe(true);
+    expect(cells(table.lines[0] ?? '')[1]).toBe('3.0.1-20260420-010726-8c3f16b2');
+    expect(cells(table.lines[1] ?? '')[1]).toBe('4.0.0'.padEnd(30));
   });
 
-  test('the name gives way to fit the width; a long path header keeps its end', () => {
-    const table = layoutCompareTable(['here', '../web', '../../far/away/api'], rows, 50);
-    for (const line of [table.header, ...table.lines]) expect(line.length).toBeLessThanOrEqual(50);
-    expect(table.lines[1]?.startsWith('@tanstack')).toBe(true);
-    expect(table.header).toContain('…');
-    expect(table.header.trimEnd().endsWith('away/api')).toBe(true);
+  test('the name is cut before any version is, and the table fits the width', () => {
+    const table = layoutCompareTable(['here', '../web', '../../far/away/api'], rows, 48);
+    for (const line of [table.header, ...table.lines]) expect(line.length).toBeLessThanOrEqual(48);
+    const [name, here, web, far] = cells(table.lines[1] ?? '');
+    expect(name?.endsWith('…')).toBe(true);
+    expect([here?.trimEnd(), web?.trimEnd(), far?.trimEnd()]).toEqual([
+      '5.1.0',
+      '5.90.21',
+      '5.2.0',
+    ]);
+    expect(cells(table.lines[0] ?? '')[2]).toBe('19.1.0-canary.3');
+  });
+
+  test('headers take only room the names leave, cut from the start before that', () => {
+    const headers = ['here', '../../far/away/api'];
+    const twoColumns = rows.map((row) => ({ ...row, versions: row.versions.slice(0, 2) }));
+    const tight = layoutCompareTable(headers, twoColumns, 50);
+    expect(cells(tight.header)[2]?.startsWith('…')).toBe(true);
+    expect(tight.lines[1]?.startsWith('@tanstack/react-query ')).toBe(true);
+
+    const roomy = layoutCompareTable(headers, twoColumns, 80);
+    expect(cells(roomy.header)[2]).toBe('../../far/away/api');
+  });
+
+  test('sized to the visible rows only, so scrolling relays the columns out', () => {
+    const long = [
+      { name: 'zod', versions: ['4.0.0'] },
+      { name: 'ink', versions: ['7.1.1'] },
+      { name: 'nitro', versions: ['3.0.1-20260420-010726-8c3f16b2'] },
+    ];
+    const top = layoutCompareTable(['here'], long, 80, { from: 0, to: 2 });
+    expect(cells(top.lines[0] ?? '')[1]).toBe('4.0.0');
+
+    const bottom = layoutCompareTable(['here'], long, 80, { from: 1, to: 3 });
+    expect(cells(bottom.lines[2] ?? '')[1]).toBe('3.0.1-20260420-010726-8c3f16b2');
+    expect(cells(bottom.lines[1] ?? '')[1]).toBe('7.1.1'.padEnd(30));
+  });
+
+  test('only when the versions alone overflow are they cut too, widest first', () => {
+    const table = layoutCompareTable(['here', '../web', '../../far/away/api'], rows, 30);
+    for (const line of [table.header, ...table.lines]) expect(line.length).toBeLessThanOrEqual(30);
+    expect(cells(table.lines[0] ?? '')[0]).toBe('react  ');
+    expect(cells(table.lines[0] ?? '')[2]?.endsWith('…')).toBe(true);
   });
 });
 

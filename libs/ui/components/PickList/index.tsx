@@ -306,6 +306,11 @@ export interface PickListProps<T> {
    * checkbox is the action.
    */
   activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
+  /**
+   * Told which `items` are on screen — `from` inclusive, `to` exclusive — whenever the window
+   * scrolls or resizes, for a caller that lays its labels out to fit what is actually visible.
+   */
+  onWindowChange?: (from: number, to: number) => void;
 }
 
 /**
@@ -331,6 +336,7 @@ export const PickList = <T,>({
   onActivate,
   onHover,
   activateOnClick = true,
+  onWindowChange,
 }: PickListProps<T>) => {
   const colors = useColors();
   const rows = useMemo(() => packRows(items, columns), [items, columns]);
@@ -346,6 +352,15 @@ export const PickList = <T,>({
   const size = Math.max(1, visibleRows);
   const [start, setStart] = useScrollWindow(rows.length, selectedRow, size);
   const shown = rows.slice(start, start + size);
+
+  const windowFrom = shown[0]?.[0] ?? 0;
+  const windowTo = (shown.at(-1)?.at(-1) ?? -1) + 1;
+  //? Only when the numbers move — a caller relaying out its labels hands back fresh `items`
+  const onWindowChangeRef = useRef(onWindowChange);
+  onWindowChangeRef.current = onWindowChange;
+  useEffect(() => {
+    onWindowChangeRef.current?.(windowFrom, windowTo);
+  }, [windowFrom, windowTo]);
 
   const ref = useRef<DOMElement>(null);
   useClickable(ref, {

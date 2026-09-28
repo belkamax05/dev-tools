@@ -85,6 +85,8 @@ export interface ListDetailProps<T> {
    * function decides per row.
    */
   activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
+  /** See `PickList`'s own: which `items` are on screen, as the list scrolls. */
+  onWindowChange?: (from: number, to: number) => void;
 }
 
 /**
@@ -115,6 +117,7 @@ export const ListDetail = <T,>({
   initialSelectedId,
   activateLabel = 'open',
   activateOnClick = true,
+  onWindowChange,
 }: ListDetailProps<T>) => {
   const colors = useColors();
   const theme = useTuiTheme();
@@ -231,6 +234,7 @@ export const ListDetail = <T,>({
           emptyText={emptyText ?? 'Nothing to show.'}
           onSelect={setSelected}
           activateOnClick={activateOnClick}
+          onWindowChange={onWindowChange}
           onActivate={(index) => {
             const item = items[index];
             if (!item) return;
