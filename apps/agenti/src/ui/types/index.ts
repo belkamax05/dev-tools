@@ -35,6 +35,8 @@ export interface ViewProps {
   session: Session;
   /** Report the outcome of an action in the header. */
   notify: (message: string, tone?: Tone) => void;
+  /** False while the IDE strip under the tabs has the keyboard: the view's keys stand down. */
+  isActive: boolean;
   /** True while a view owns the keyboard (a prompt, a search box) — stops the app's own keys. */
   onCaptureInput: (captured: boolean) => void;
   handoff: (intent: Handoff) => void;

@@ -29,6 +29,11 @@ export interface IdeLogoProps {
   /** The most the logo may take; it is fitted inside, keeping its shape. */
   maxCols: number;
   maxRows: number;
+  /**
+   * The kitty image id — one per logo on screen at once, or each paint replaces
+   * the last. Left out for a lone logo.
+   */
+  imageId?: number;
 }
 
 /**
@@ -38,7 +43,7 @@ export interface IdeLogoProps {
  * (kitty) reserves the same rectangle blank and has `useRasterOverlay` paint the
  * image over it after Ink has drawn — Ink cannot lay out an image itself.
  */
-export const IdeLogo = ({ ide, mode, maxCols, maxRows }: IdeLogoProps) => {
+export const IdeLogo = ({ ide, mode, maxCols, maxRows, imageId }: IdeLogoProps) => {
   const ref = useRef<DOMElement>(null);
   const { data: subject } = useLoader(() => loadLogo(ide), [ide.id]);
   const support = graphicsSupport();
@@ -54,6 +59,7 @@ export const IdeLogo = ({ ide, mode, maxCols, maxRows }: IdeLogoProps) => {
     target: ref,
     cellWidth: support.cellWidth,
     cellHeight: support.cellHeight,
+    imageId,
   });
 
   if (maxCols < 4 || maxRows < 2) return null;

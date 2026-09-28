@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import type { InkRender } from '../../../types/InkRender';
 import { setTerminalBackground } from '../../terminal/background';
+import { emitFrame } from '../../terminal/frames';
 import { setMouseReporting } from '../../terminal/mouse';
 import { enterAltScreen, leaveAltScreen } from '../../terminal/screen';
 import { createFilteredStdin } from '../../terminal/stdinFilter';
@@ -103,6 +104,8 @@ export const runTuiApp = async (
       stdout: process.stdout,
       patchConsole: true,
       exitOnCtrlC: true,
+      //? For raster overlays, which a frame drawn by any component can erase
+      onRender: emitFrame,
     });
     await instance.waitUntilExit();
   } finally {

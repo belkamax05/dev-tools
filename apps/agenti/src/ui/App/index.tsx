@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { Text, useApp, useInput } from 'ink';
+import { type Key, Text, useApp, useInput } from 'ink';
 import { useCallback, useState } from 'react';
 
 import AppShell from '@/dev-tools/ui/components/AppShell';
@@ -19,8 +19,9 @@ import {
   toggleRepoIde,
   withRepoIde,
 } from '../../config/settings';
-import { getIde, type IdeDefinition } from '../../core/ides';
+import { getIde, IDES, type IdeDefinition } from '../../core/ides';
 import type { Scope } from '../../core/scope';
+import IdeStrip, { IDE_STRIP_KEYS } from '../IdeStrip';
 import agentiTheme from '../theme';
 import type { Handoff, Session, Tone } from '../types';
 import AgentsView from '../views/AgentsView';
@@ -104,6 +105,8 @@ export const App = ({
   );
   const [footerHint, setFooterHint] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  /** Which IDE the keyboard is on while the strip under the tabs has it (`I`), else undefined. */
+  const [stripFocus, setStripFocus] = useState<string | undefined>();
 
   const { root } = scope;
   const ides = ideIdsFor(settings, root)
@@ -116,6 +119,56 @@ export const App = ({
     const next = ides[(ides.indexOf(ide) + step + ides.length) % ides.length];
     setActiveId(next?.id);
     session.activeIde = next?.id;
+  };
+
+  /**
+   * Keep this scope in step with an IDE, or stop — the one switch behind the
+   * strip under the tabs, its Shift+digit keys, and Settings' checkboxes.
+   * The last IDE stays: with none, no tab has anything to show.
+   */
+  const toggleIde = (id: string) => {
+    const candidate = getIde(id);
+    if (!candidate) return;
+    const isOn = ides.some((one) => one.id === id);
+    if (isOn && ides.length === 1) {
+      notify('Keep at least one IDE — add another before removing this one', 'warn');
+      return;
+    }
+    updateSettings(toggleRepoIde(settings, root, id));
+    notify(
+      isOn
+        ? `${candidate.name} is no longer kept in step`
+        : `${candidate.name} is now kept in step too`,
+      'ok',
+    );
+  };
+
+  /** Make an IDE the primary one — and the one the tabs show — keeping it in step if it was not. */
+  const makePrimary = (id: string) => {
+    const candidate = getIde(id);
+    if (!candidate) return;
+    if (ides[0]?.id === id) {
+      notify(`${candidate.name} is already the primary IDE`, 'info');
+      return;
+    }
+    updateSettings(withRepoIde(settings, root, id));
+    setActiveId(id);
+    session.activeIde = id;
+    notify(`${candidate.name} is now the primary IDE`, 'ok');
+  };
+
+  /** The strip's own keys, while it has the keyboard; the views' stand down meanwhile. */
+  const stripInput = (input: string, key: Key) => {
+    const at = Math.max(
+      0,
+      IDES.findIndex((one) => one.id === stripFocus),
+    );
+    const step = (by: number) => setStripFocus(IDES[(at + by + IDES.length) % IDES.length]?.id);
+    if (key.leftArrow) step(-1);
+    else if (key.rightArrow) step(1);
+    else if (input === ' ' && stripFocus) toggleIde(stripFocus);
+    else if (key.return && stripFocus) makePrimary(stripFocus);
+    else if (key.escape || key.downArrow || input === 'I') setStripFocus(undefined);
   };
 
   const changeTab = (next: TabId) => {
@@ -152,12 +205,26 @@ export const App = ({
   };
 
   useInput(
-    (input) => {
+    (input, key) => {
+      if (stripFocus) {
+        //? Everything but the app's own letters and the Shift+digit toggles
+        //? belongs to the strip — arrows especially, which a view would take
+        const isAppKey =
+          'qQrRtT[]'.includes(input) || (IDE_STRIP_KEYS as readonly string[]).includes(input);
+        if (!input || !isAppKey) return stripInput(input, key);
+      } else if (input === 'I') {
+        return setStripFocus(ide?.id ?? IDES[0]?.id);
+      }
       if (input === 'q' || input === 'Q') exit();
       else if (input === 'r' || input === 'R') refresh();
       else if (input === 't' || input === 'T') cycleTheme();
       else if (input === ']') showIde(1);
       else if (input === '[') showIde(-1);
+      else {
+        const at = IDE_STRIP_KEYS.indexOf(input as (typeof IDE_STRIP_KEYS)[number]);
+        const target = IDES[at];
+        if (target) toggleIde(target.id);
+      }
     },
     { isActive: !isInputCaptured },
   );
@@ -198,6 +265,7 @@ export const App = ({
     onCaptureInput: setIsInputCaptured,
     handoff,
     refreshKey,
+    isActive: !stripFocus,
   };
 
   return (
@@ -212,12 +280,25 @@ export const App = ({
       tabs={TABS}
       activeTab={tab}
       onTabChange={changeTab}
+      underTabs={
+        <IdeStrip
+          ides={ides}
+          shownId={ide.id}
+          logoMode={settings.logoMode}
+          focusedId={stripFocus}
+          onToggle={toggleIde}
+          onMakePrimary={makePrimary}
+          onHint={setFooterHint}
+        />
+      }
       theme={agentiTheme}
       palette={settings.theme}
       isInputCaptured={isInputCaptured}
       footerHints={
         footerHint ??
-        `[1-${TABS.length}] / Tab switch tab${ides.length > 1 ? ' · [ ] IDE' : ''} · [r] refresh · [t] theme · [q] quit`
+        (stripFocus
+          ? '[←/→] IDE · [Space] keep in step · [Enter] make primary · [Esc] back to the tab'
+          : `[I] IDEs · [1-${TABS.length}] / Tab switch tab${ides.length > 1 ? ' · [ ] IDE' : ''} · [!-${IDE_STRIP_KEYS[IDES.length - 1]}] IDE on/off · [r] refresh · [t] theme · [q] quit`)
       }
       footerActions={footerActions}
       onHoverFooterAction={(action) => setFooterHint(action?.tooltip ?? null)}
@@ -251,12 +332,8 @@ export const App = ({
             exit();
           }}
           hasOwnChoice={hasOwnIde(settings, root)}
-          onSelectIde={(id) => {
-            updateSettings(withRepoIde(settings, root, id));
-            setActiveId(id);
-            session.activeIde = id;
-          }}
-          onToggleIde={(id) => updateSettings(toggleRepoIde(settings, root, id))}
+          onSelectIde={makePrimary}
+          onToggleIde={toggleIde}
           logoMode={settings.logoMode}
           onLogoModeChange={(logoMode) => updateSettings({ ...settings, logoMode })}
         />

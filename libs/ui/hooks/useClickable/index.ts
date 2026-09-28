@@ -13,6 +13,12 @@ export interface ClickableOptions {
   onClick?: (event: TerminalMouseEvent) => void;
   onClickOutside?: (event: TerminalMouseEvent) => void;
   onWheel?: (event: TerminalMouseEvent) => void;
+  /**
+   * The left button held down on the element for `longPressMs`. Fires while it
+   * is still down, and the release that follows is not a click.
+   */
+  onLongPress?: () => void;
+  longPressMs?: number;
   /** Pointer shape to show while hovering, where the terminal supports it. */
   pointer?: string;
   isActive?: boolean;
@@ -21,6 +27,8 @@ export interface ClickableOptions {
 export interface ClickableState {
   /** True while the pointer is over this element. Drive your own highlight. */
   isHovered: boolean;
+  /** True while a long press is under way — pressed, not yet released or fired. */
+  isHolding: boolean;
 }
 
 /**
@@ -30,6 +38,9 @@ export interface ClickableState {
  * region to account for. `runTuiApp` homes the cursor for exactly this reason.
  */
 const VIEWPORT_ORIGIN = 1;
+
+/** A desktop's long press: long enough not to be a slow click. */
+const LONG_PRESS_MS = 500;
 
 /** Only one element can own the pointer shape at a time. */
 let pointerOwner: symbol | null = null;
@@ -50,9 +61,18 @@ let pointerOwner: symbol | null = null;
  */
 export const useClickable = (
   ref: React.RefObject<DOMElement | null>,
-  { onClick, onClickOutside, onWheel, pointer = 'pointer', isActive = true }: ClickableOptions = {},
+  {
+    onClick,
+    onClickOutside,
+    onWheel,
+    onLongPress,
+    longPressMs = LONG_PRESS_MS,
+    pointer = 'pointer',
+    isActive = true,
+  }: ClickableOptions = {},
 ): ClickableState => {
   const [isHovered, setIsHovered] = useState(false);
+  const [isHolding, setIsHolding] = useState(false);
 
   //? Kept in refs so the subscription never needs re-establishing — a mouse
   //? move arrives per cell crossed, and resubscribing on every render would
@@ -63,6 +83,10 @@ export const useClickable = (
   onClickOutsideRef.current = onClickOutside;
   const onWheelRef = useRef(onWheel);
   onWheelRef.current = onWheel;
+  const onLongPressRef = useRef(onLongPress);
+  onLongPressRef.current = onLongPress;
+  const longPressMsRef = useRef(longPressMs);
+  longPressMsRef.current = longPressMs;
   const hoveredRef = useRef(false);
 
   useEffect(() => {
@@ -75,6 +99,17 @@ export const useClickable = (
         pointerOwner = null;
         process.stdout.write(POINTER_POP);
       }
+    };
+
+    //? A press starts the timer; a release, or the pointer leaving, stops it.
+    //? `fired` swallows the release after a long press, which is not a click.
+    let holdTimer: ReturnType<typeof setTimeout> | undefined;
+    let fired = false;
+    const stopHold = () => {
+      if (holdTimer === undefined) return;
+      clearTimeout(holdTimer);
+      holdTimer = undefined;
+      setIsHolding(false);
     };
 
     const unsubscribe = onMouseEvent((event) => {
@@ -100,10 +135,30 @@ export const useClickable = (
         }
       }
 
+      if (!isInside) stopHold();
+      if (
+        event.type === 'press' &&
+        event.button === 'left' &&
+        isInside &&
+        onLongPressRef.current &&
+        holdTimer === undefined
+      ) {
+        fired = false;
+        setIsHolding(true);
+        holdTimer = setTimeout(() => {
+          holdTimer = undefined;
+          fired = true;
+          setIsHolding(false);
+          onLongPressRef.current?.();
+        }, longPressMsRef.current);
+      }
+
       //? Fire on release: a press followed by a release inside the same element
       //? is a click, and releasing is what a person expects to commit the action.
       if (event.type === 'release' && event.button !== 'none') {
-        if (isInside) onClickRef.current?.(event);
+        stopHold();
+        if (fired) fired = false;
+        else if (isInside) onClickRef.current?.(event);
         else onClickOutsideRef.current?.(event);
       } else if (event.type === 'wheel' && isInside) {
         onWheelRef.current?.(event);
@@ -111,13 +166,14 @@ export const useClickable = (
     });
 
     return () => {
+      stopHold();
       unsubscribe();
       releasePointer();
       hoveredRef.current = false;
     };
   }, [ref, isActive, pointer]);
 
-  return { isHovered };
+  return { isHovered, isHolding };
 };
 
 export default useClickable;

@@ -64,6 +64,7 @@ export const SkillsView = ({
   root,
   session,
   notify,
+  isActive,
   onCaptureInput,
   handoff,
   refreshKey,
@@ -218,7 +219,7 @@ export const SkillsView = ({
       else if (input === 'e') edit(skill);
       else if (input === 'o') revealPath(skill.path);
     },
-    { isActive: !prompt.isOpen },
+    { isActive: isActive && !prompt.isOpen },
   );
 
   //? Row actions are the toolbar's; the strip keeps searching
@@ -367,7 +368,7 @@ export const SkillsView = ({
         //? A click selects; editing is the toolbar's [e] Edit
         activateOnClick={false}
         initialSelectedId={session.selected.skills}
-        isInputActive={!prompt.isOpen && !busy}
+        isInputActive={isActive && !prompt.isOpen && !busy}
         onSelectionChange={(item) => {
           setCurrentId(item?.id);
           session.selected.skills = item?.id;

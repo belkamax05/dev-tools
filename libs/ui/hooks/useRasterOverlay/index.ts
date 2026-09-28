@@ -7,6 +7,7 @@ import {
   type RasterTechnique,
   type Subject,
 } from '../../../terminal-canvas/index.ts';
+import { onFrame } from '../../terminal/frames';
 
 const ESC = '\u001B';
 
@@ -119,6 +120,12 @@ export interface RasterOverlayOptions {
   target: RefObject<DOMElement | null>;
   cellWidth: number;
   cellHeight: number;
+  /**
+   * Which image this is, for a protocol that keeps one picture per id (kitty).
+   * Leave it out for a lone image; give each its own when several share the
+   * screen, or each paint replaces the last.
+   */
+  imageId?: number;
 }
 
 /**
@@ -136,7 +143,7 @@ export interface RasterOverlayOptions {
  * the canvas is not at the same row twice.
  */
 export function useRasterOverlay(options: RasterOverlayOptions): void {
-  const { technique, subject, time, animating, target, cellWidth, cellHeight } = options;
+  const { technique, subject, time, animating, target, cellWidth, cellHeight, imageId } = options;
   const { stdout } = useStdout();
 
   // The framebuffer is large and the subject overwrites every pixel, so it is
@@ -147,9 +154,18 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
   // again — but it does not have to be drawn and encoded again, and for a
   // megabyte of base64 that is the difference between a redraw and a stall.
   const frameRef = useRef<{ key: string; image: string } | undefined>(undefined);
+  // The paint the latest render set up, and the timer it is waiting on — held
+  // here so a frame this component did not cause can schedule it too.
+  const paintRef = useRef<(() => void) | undefined>(undefined);
+  const pendingRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    if (!technique) return;
+    if (!technique) {
+      //? Or a frame after the switch to text would paint the old picture back
+      paintRef.current = undefined;
+      clearTimeout(pendingRef.current);
+      return;
+    }
 
     const paint = () => {
       const node = target.current;
@@ -166,7 +182,7 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
         scalesToCellBox: technique.scalesToCellBox,
       });
 
-      const key = `${technique.id}|${subject.id}|${time}|${width}x${height}`;
+      const key = `${technique.id}|${subject.id}|${time}|${width}x${height}|${imageId}`;
       if (frameRef.current?.key !== key) {
         const canvas = canvasRef.current;
         const raster =
@@ -176,7 +192,7 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
         canvasRef.current = raster;
 
         subject.draw(raster, time);
-        frameRef.current = { key, image: technique.encode(raster, cols, rows) };
+        frameRef.current = { key, image: technique.encode(raster, cols, rows, imageId) };
       }
 
       stdout.write(
@@ -184,12 +200,28 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
       );
     };
 
-    // The cleanup cancels a write that a newer render has already superseded,
+    // Each schedule cancels a write that a newer one has already superseded,
     // which is what collapses a burst of them — a pointer crossing the tab
     // strip, say — into the single image that burst ended on.
-    const pending = setTimeout(paint, animating ? ANIMATING_SETTLE_MS : RENDER_SETTLE_MS);
-    return () => clearTimeout(pending);
+    paintRef.current = paint;
+    clearTimeout(pendingRef.current);
+    pendingRef.current = setTimeout(paint, animating ? ANIMATING_SETTLE_MS : RENDER_SETTLE_MS);
   });
+
+  // Any frame at all, for a still picture: one drawn outside this component
+  // can erase it as surely as its own. A running animation is redrawn on the
+  // next tick regardless, and rescheduling it here would only push that late.
+  useEffect(() => {
+    if (!technique || animating) return;
+    return onFrame(() => {
+      const paint = paintRef.current;
+      if (!paint) return;
+      clearTimeout(pendingRef.current);
+      pendingRef.current = setTimeout(paint, RENDER_SETTLE_MS);
+    });
+  }, [technique, animating]);
+
+  useEffect(() => () => clearTimeout(pendingRef.current), []);
 
   // Leaving raster mode must remove the placement, or the image hangs around on
   // top of whatever is drawn next — the keyboard grid, if you switch tabs.
@@ -197,9 +229,9 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
     if (!technique) return;
     return () => {
       frameRef.current = undefined;
-      stdout.write(clearRasterArtifacts());
+      stdout.write(clearRasterArtifacts(imageId));
     };
-  }, [technique, stdout]);
+  }, [technique, stdout, imageId]);
 }
 
 export default useRasterOverlay;

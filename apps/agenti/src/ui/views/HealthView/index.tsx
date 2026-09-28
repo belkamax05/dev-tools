@@ -28,6 +28,7 @@ export const HealthView = ({
   ides,
   session,
   notify,
+  isActive,
   onCaptureInput,
   refreshKey,
 }: ViewProps) => {
@@ -93,7 +94,7 @@ export const HealthView = ({
       if (input === 'f' && current) void fix(current);
       else if (input === 'F' && fixable.length) fixAll();
     },
-    { isActive: !prompt.isOpen },
+    { isActive: isActive && !prompt.isOpen },
   );
 
   const errors = issues.filter((issue) => issue.severity === 'error').length;
@@ -120,7 +121,7 @@ export const HealthView = ({
         activateLabel="fix"
         activateOnClick={false}
         initialSelectedId={session.selected.health}
-        isInputActive={!prompt.isOpen}
+        isInputActive={isActive && !prompt.isOpen}
         hints={
           fixable.length ? [{ key: 'F', label: `fix all ${fixable.length}`, onPress: fixAll }] : []
         }
