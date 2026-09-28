@@ -13,6 +13,8 @@ export interface LinkRowProps {
   isFocused?: boolean;
   /** Undefined for a row that is information only — drawn plain, not clickable. */
   onOpen?: () => void;
+  /** Cells the label column takes. 8 fits the one-word labels of a detail pane. */
+  labelWidth?: number;
 }
 
 /**
@@ -24,7 +26,14 @@ export interface LinkRowProps {
  * is drawn plain and ignores the pointer: something that looks clickable and is
  * not is worse than something that is not styled at all.
  */
-export const LinkRow = ({ label, value, color, isFocused = false, onOpen }: LinkRowProps) => {
+export const LinkRow = ({
+  label,
+  value,
+  color,
+  isFocused = false,
+  onOpen,
+  labelWidth = 8,
+}: LinkRowProps) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
   const { isHovered } = useClickable(ref, { onClick: () => onOpen?.(), isActive: Boolean(onOpen) });
@@ -34,7 +43,7 @@ export const LinkRow = ({ label, value, color, isFocused = false, onOpen }: Link
     <Box ref={ref} backgroundColor={lit ? colors.accent : undefined}>
       {/* A fixed-width box, not padEnd: Ink trims a Text's trailing spaces
           when the row has a background, which shifted the value a column */}
-      <Box width={8} flexShrink={0}>
+      <Box width={labelWidth} flexShrink={0}>
         <Text color={lit ? colors.accentText : colors.muted}>{label}</Text>
       </Box>
       <Text

@@ -2,9 +2,20 @@
 
 Reusable terminal building blocks shared by the sibling repos in `~/dev` — colour and
 formatting helpers, process/install utilities, a config store, and a full terminal-UI kit:
-components, hooks, theming, and the mouse/alternate-screen layer under them — plus the two apps
-built on them, `giti` and `agenti`, whose executables live in `bin/` — one shim per app, calling its
-`apps/<app>/src/run.ts`. Sourcing `include` prepends that `bin/` to `PATH`; `.envrc` does so via
+components, hooks, theming, and the mouse/alternate-screen layer under them — plus the apps
+built on them, whose executables live in `bin/` — one shim per app, calling its
+`apps/<app>/src/run.ts`:
+
+| App | What it is |
+| --- | --- |
+| `dev-tools` / `devi` | the launcher: a picker over every app below, plus aliases ([README](apps/devi/README.md)) |
+| `giti` | git dashboard and commands |
+| `agenti` | `.agents` / `AGENTS.md` kept in step across AI IDEs |
+| `porti` | listening ports — watch, inspect, stop ([README](apps/porti/README.md)) |
+| `processi` | the process table, btop-style — sort, scope to a folder, stop ([README](apps/processi/README.md)) |
+| `pkgi` | the current folder's npm packages — updates, versions, notes, compare ([README](apps/pkgi/README.md)) |
+
+Sourcing `include` prepends that `bin/` to `PATH`; `.envrc` does so via
 direnv whenever you `cd` into the repo (run `direnv allow` once).
 
 ## Layout
@@ -30,7 +41,7 @@ libs/
     ├── format/       formatArg, formatCommand, formatColor
     ├── install/      brew, ensureInstalled
     ├── picker/       Pure picker logic (filtering, resolving group children)
-    └── process/      exec
+    └── process/      exec, listProcesses, stopProcess
 ```
 
 ## Two ways to consume this, and which one you get
@@ -51,7 +62,8 @@ linker points every member's `node_modules/react` and `node_modules/ink` at one 
 the root store, so a component authored here is reconciled by the same React the consumer is
 using and its hooks find their dispatcher. There are two ways to be one:
 
-- this repo's own `apps/*` (`giti`, `agenti`), with this repo as the workspace root —
+- this repo's own `apps/*` (`giti`, `agenti`, `porti`, `processi`, `pkgi`, `devi`), with this repo as
+  the workspace root —
   `bun install` here;
 - a repo that checks this one out as a git submodule at `libs/dev-tools` and lists it in its
   own `workspaces`.

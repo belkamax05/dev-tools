@@ -515,7 +515,7 @@ export const McpView = ({
     return out;
   };
 
-  //? After every hook, not before them: switching IDE on the IDE tab changes
+  //? After every hook, not before them: switching IDE in Settings changes
   //? this answer without remounting the view
   if (!targetDef) {
     return (
@@ -524,7 +524,7 @@ export const McpView = ({
           {ide.name} keeps no MCP servers {scope.kind === 'user' ? 'per user' : 'per repository'}{' '}
           that agenti knows how to manage.
         </Text>
-        <Text color={colors.muted}>Pick another IDE on the IDE tab to compare its servers.</Text>
+        <Text color={colors.muted}>Pick another IDE in Settings to compare its servers.</Text>
       </Box>
     );
   }

@@ -32,12 +32,19 @@ export const createFilteredStdin = (source: NodeJS.ReadStream = process.stdin): 
   const filter = createInputFilter(emitMouseEvent, (text) => proxy.write(text));
   const onData = (chunk: Buffer) => filter.feed(chunk.toString('utf8'));
 
+  //? A `data` listener only starts a stream that was never paused. One that *was* — by a prompt
+  //? that ran before this app in the same process (clack closes its readline interface, and
+  //? closing one pauses stdin) — stays paused, and the app draws but never hears a key or a
+  //? click. Resume it explicitly, and put it back the way it was on the way out.
+  const wasPaused = source.isPaused();
   source.on('data', onData);
+  source.resume();
   return {
     stdin: proxy,
     dispose: () => {
       filter.dispose();
       source.off('data', onData);
+      if (wasPaused) source.pause();
       proxy.end();
     },
   };

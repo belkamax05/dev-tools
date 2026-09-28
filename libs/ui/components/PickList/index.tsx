@@ -61,9 +61,16 @@ const isInside = (node: DOMElement | null, event: TerminalMouseEvent) => {
 const RowControl = ({
   control,
   register,
+  onAccent,
 }: {
   control: PickItemControl;
   register: (node: DOMElement | null) => void;
+  /**
+   * The row under it is drawn in the accent (selected, or under the pointer). The control's own
+   * colour — a green tick, a grey box — is then unreadable against the fill, so it takes the
+   * row's text colour like the label beside it, hovered or not.
+   */
+  onAccent: boolean;
 }) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
@@ -76,9 +83,9 @@ const RowControl = ({
       }}
       marginRight={1}
       flexShrink={0}
-      backgroundColor={isHovered ? colors.accent : undefined}
+      backgroundColor={isHovered && !onAccent ? colors.accent : undefined}
     >
-      <Text color={isHovered ? colors.accentText : (control.color ?? colors.muted)}>
+      <Text color={isHovered || onAccent ? colors.accentText : (control.color ?? colors.muted)}>
         {control.glyph}
       </Text>
     </Box>
@@ -195,6 +202,7 @@ const PickCell = <T,>({
       {controls.map((control) => (
         <RowControl
           key={control.id}
+          onAccent={highlight}
           //? The row the control is on becomes the selection too, so the detail
           //? pane describes what was just toggled rather than whatever it was on
           control={{
@@ -292,8 +300,12 @@ export interface PickListProps<T> {
    * Whether a click on a row activates it as well as selecting it. Off for a
    * list whose rows carry their own controls, where the row itself should only
    * ever be a selection and the controls are the actions.
+   *
+   * A function decides per row, for a list that mixes the two kinds — a
+   * settings list where a click applies a theme but only selects an IDE whose
+   * checkbox is the action.
    */
-  activateOnClick?: boolean;
+  activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
 }
 
 /**
@@ -394,7 +406,11 @@ export const PickList = <T,>({
                   onHover={(hovered) => onHover?.(hovered ? index : null)}
                   onClick={() => {
                     onSelect(index);
-                    if (activateOnClick) onActivate(index);
+                    const activates =
+                      typeof activateOnClick === 'function'
+                        ? activateOnClick(item)
+                        : activateOnClick;
+                    if (activates) onActivate(index);
                   }}
                   onSelectOnly={() => onSelect(index)}
                 />

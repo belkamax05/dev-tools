@@ -10,6 +10,12 @@ export type { ThemedBoxProps } from './Box';
 export { default as Box } from './Box';
 export type { Chip, ChipRowProps } from './ChipRow';
 export { chipWidth, default as ChipRow } from './ChipRow';
+export type {
+  ClearDataDialogProps,
+  ClearResult,
+  ClearTarget,
+} from './ClearDataDialog';
+export { ClearButton, default as ClearDataDialog, describeClearResults } from './ClearDataDialog';
 export type { ClickableTabProps } from './ClickableTab';
 export { default as ClickableTab } from './ClickableTab';
 export type { FooterAction, FooterProps } from './Footer';
@@ -20,7 +26,7 @@ export { default as HintBar, fitHints, hintWidth } from './HintBar';
 export type { LinkRowProps } from './LinkRow';
 export { default as LinkRow } from './LinkRow';
 export type { ListDetailProps } from './ListDetail';
-export { default as ListDetail } from './ListDetail';
+export { default as ListDetail, listTextWidth } from './ListDetail';
 export type { PanelProps } from './Panel';
 export { default as Panel } from './Panel';
 export type { PickItem, PickItemControl, PickListProps } from './PickList';

@@ -3,10 +3,10 @@ import createConfigStore, { type ConfigStore } from '@/dev-tools/utils/config/cr
 import { findIdeBinary, getIde, IDES } from '../../core/ides';
 
 /** The dashboard's tabs, in order — also what `lastTab` may hold. */
-export const TAB_IDS = ['agents', 'mcp', 'skills', 'health', 'ide'] as const;
+export const TAB_IDS = ['agents', 'mcp', 'skills', 'health', 'settings'] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
-/** How the IDE tab draws logos — `g` steps through them, `auto` first. */
+/** How Settings' IDE section draws logos — `g` steps through them, `auto` first. */
 export const LOGO_MODES = ['auto', 'kitty', 'braille', 'ascii'] as const;
 export type LogoMode = (typeof LOGO_MODES)[number];
 
@@ -45,7 +45,9 @@ const DEFAULTS: AgentiSettings = {
 const coerce = (raw: Record<string, unknown>): AgentiSettings => {
   const out: AgentiSettings = { ...DEFAULTS, repos: {} };
   if (typeof raw.theme === 'string') out.theme = raw.theme;
-  if (TAB_IDS.includes(raw.lastTab as TabId)) out.lastTab = raw.lastTab as TabId;
+  //? `ide` was the tab's id before it became Settings, with the IDE picker as its first section
+  const lastTab = raw.lastTab === 'ide' ? 'settings' : raw.lastTab;
+  if (TAB_IDS.includes(lastTab as TabId)) out.lastTab = lastTab as TabId;
   if (LOGO_MODES.includes(raw.logoMode as LogoMode)) out.logoMode = raw.logoMode as LogoMode;
   if (typeof raw.defaultIde === 'string' && getIde(raw.defaultIde)) out.defaultIde = raw.defaultIde;
   if (raw.repos && typeof raw.repos === 'object') {
@@ -65,7 +67,11 @@ const coerce = (raw: Record<string, unknown>): AgentiSettings => {
 /** Keys a person sets on purpose — what may live in a tracked dotfile. */
 const CONFIG_KEYS = ['theme', 'logoMode'] as const satisfies readonly (keyof AgentiSettings)[];
 /** Keys agenti keeps up to date by itself as it is used. */
-const STATE_KEYS = ['lastTab', 'defaultIde', 'repos'] as const satisfies readonly (keyof AgentiSettings)[];
+const STATE_KEYS = [
+  'lastTab',
+  'defaultIde',
+  'repos',
+] as const satisfies readonly (keyof AgentiSettings)[];
 
 const pick = (from: object, keys: readonly string[]): Record<string, unknown> => {
   const values = from as Record<string, unknown>;
@@ -76,6 +82,10 @@ const pick = (from: object, keys: readonly string[]): Record<string, unknown> =>
 const raw = { appName: 'agenti', defaults: {}, coerce: (value: Record<string, unknown>) => value };
 const configFile = createConfigStore<Record<string, unknown>>(raw);
 const stateFile = createConfigStore<Record<string, unknown>>({ ...raw, kind: 'state' });
+
+/** The two files on their own — what the Settings tab's Clear dialog lists, one checkbox each. */
+export const configStore = configFile;
+export const stateStore = stateFile;
 
 /**
  * agenti's settings, kept in two files and handed out as one `AgentiSettings`.
@@ -124,6 +134,14 @@ export const settingsStore: ConfigStore<AgentiSettings> = {
       .text()
       .catch(() => '');
     if (current !== next) await configFile.save(pick(settings, CONFIG_KEYS));
+  },
+
+  inspect: () => configFile.inspect(),
+
+  /** Both files, the way every other store clears one: see `ConfigStore.clear`. */
+  async clear() {
+    const [config, state] = await Promise.all([configFile.clear(), stateFile.clear()]);
+    return config === 'missing' ? state : config;
   },
 };
 

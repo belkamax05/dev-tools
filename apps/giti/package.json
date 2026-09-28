@@ -1,5 +1,6 @@
 {
   "name": "giti",
+  "description": "Git dashboard and commands — status, branches, log, stash, remotes, vendored repos",
   "module": "src/run.ts",
   "type": "module",
   "scripts": {
@@ -21,5 +22,11 @@
     "ink": "^7.1.1",
     "react": "^19.2.8",
     "zod": "^4.4.3"
+  },
+  "dev-tools": {
+    "aliases": [
+      "git",
+      "g"
+    ]
   }
 }

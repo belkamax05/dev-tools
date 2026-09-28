@@ -1,7 +1,12 @@
 import { Text, useInput } from 'ink';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
+import ClearDataDialog, {
+  ClearButton,
+  type ClearResult,
+  type ClearTarget,
+} from '@/dev-tools/ui/components/ClearDataDialog';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
@@ -24,9 +29,17 @@ export interface SettingsViewProps {
   onThemeChange: (id: string) => void;
   refreshSeconds: number;
   onRefreshChange: (seconds: number) => void;
+  /** The files the Clear dialog offers — giti's config and state. Without them, no Clear row. */
+  clearTargets?: ClearTarget[];
+  /** Called once the dialog has cleared files; the app quits so nothing writes them back. */
+  onCleared?: (results: ClearResult[]) => void;
+  onCaptureInput?: (captured: boolean) => void;
 }
 
-type Setting = { kind: 'theme'; id: string } | { kind: 'refresh'; seconds: number };
+type Setting =
+  | { kind: 'theme'; id: string }
+  | { kind: 'refresh'; seconds: number }
+  | { kind: 'clear' };
 
 const refreshLabel = (seconds: number) => (seconds === 0 ? 'Off' : `Every ${seconds}s`);
 
@@ -39,20 +52,30 @@ export const SettingsView = ({
   onThemeChange,
   refreshSeconds,
   onRefreshChange,
+  clearTargets,
+  onCleared,
+  onCaptureInput,
 }: SettingsViewProps) => {
   const colors = useColors();
   const [current, setCurrent] = useState<Setting | undefined>(undefined);
+  const [clearing, setClearing] = useState(false);
+  const canClear = Boolean(clearTargets?.length && onCleared);
 
   const apply = (setting: Setting | undefined) => {
     if (!setting) return;
     if (setting.kind === 'theme') onThemeChange(setting.id);
-    else onRefreshChange(setting.seconds);
+    else if (setting.kind === 'refresh') onRefreshChange(setting.seconds);
+    else setClearing(true);
   };
 
   //? Space applies too, the same as Enter and a click
-  useInput((input) => {
-    if (input === ' ') apply(current);
-  });
+  useInput(
+    (input) => {
+      if (input === ' ') apply(current);
+      else if (input === 'X' && canClear) setClearing(true);
+    },
+    { isActive: !clearing },
+  );
 
   const items: PickItem<Setting>[] = [
     { id: 'header-theme', label: 'Theme', isHeader: true },
@@ -78,44 +101,87 @@ export const SettingsView = ({
       isCurrent: seconds === refreshSeconds,
       value: { kind: 'refresh' as const, seconds },
     })),
+    ...(canClear
+      ? [
+          { id: 'header-reset', label: 'Reset', isHeader: true },
+          {
+            id: 'clear',
+            label: 'Clear settings & state…',
+            hint: 'X',
+            hintColor: colors.error,
+            value: { kind: 'clear' as const },
+          },
+        ]
+      : []),
   ];
+
+  if (clearing && clearTargets && onCleared) {
+    return (
+      <ClearDataDialog
+        title="Clear giti's settings and state"
+        targets={clearTargets}
+        onDone={onCleared}
+        onCancel={() => setClearing(false)}
+        onCaptureInput={onCaptureInput}
+      />
+    );
+  }
+
+  const detailFor = (item: PickItem<Setting> | undefined): ReactNode => {
+    const setting = item?.value;
+    if (!setting) return null;
+    if (setting.kind === 'theme') {
+      const theme = gitiTheme.palettes.find((t) => t.id === setting.id);
+      return (
+        <Box flexDirection="column">
+          <Text bold color={theme?.colors.accent}>
+            {theme?.label}
+          </Text>
+          <Text color={colors.muted}>{theme?.blurb}</Text>
+        </Box>
+      );
+    }
+    if (setting.kind === 'clear') {
+      return (
+        <Text color={colors.muted} wrap="wrap">
+          Remove giti's config (theme, refresh rate) and state (last tab, Overview details) from
+          disk, after a confirmation that lists both. giti quits afterwards and starts from its
+          defaults next time.
+        </Text>
+      );
+    }
+    return (
+      <Box flexDirection="column">
+        <Text bold color={colors.accent}>
+          {refreshLabel(setting.seconds)}
+        </Text>
+        <Text color={colors.muted} wrap="wrap">
+          {setting.seconds === 0
+            ? 'Only the file watcher keeps the dashboard current — a change it misses shows after [r] or the next action.'
+            : `The repository is re-read every ${setting.seconds}s in the background, on top of the file watcher, so nothing stays stale for longer than that.`}
+        </Text>
+      </Box>
+    );
+  };
 
   return (
     <ListDetail
       title="Settings"
       items={items}
       emptyText="Nothing to set."
-      detailTitle={current?.kind === 'refresh' ? 'Auto refresh' : 'Theme'}
+      detailTitle={
+        current?.kind === 'refresh' ? 'Auto refresh' : current?.kind === 'clear' ? 'Reset' : 'Theme'
+      }
       activateLabel="apply"
       onActivate={(item) => apply(item.value)}
+      hints={canClear ? [{ key: 'X', label: 'clear all', onPress: () => setClearing(true) }] : []}
       onSelectionChange={(item) => setCurrent(item?.value)}
-      renderDetail={(item) => {
-        const setting = item?.value;
-        if (!setting) return null;
-        if (setting.kind === 'theme') {
-          const theme = gitiTheme.palettes.find((t) => t.id === setting.id);
-          return (
-            <Box flexDirection="column">
-              <Text bold color={theme?.colors.accent}>
-                {theme?.label}
-              </Text>
-              <Text color={colors.muted}>{theme?.blurb}</Text>
-            </Box>
-          );
-        }
-        return (
-          <Box flexDirection="column">
-            <Text bold color={colors.accent}>
-              {refreshLabel(setting.seconds)}
-            </Text>
-            <Text color={colors.muted} wrap="wrap">
-              {setting.seconds === 0
-                ? 'Only the file watcher keeps the dashboard current — a change it misses shows after [r] or the next action.'
-                : `The repository is re-read every ${setting.seconds}s in the background, on top of the file watcher, so nothing stays stale for longer than that.`}
-            </Text>
-          </Box>
-        );
-      }}
+      renderDetail={(item) => (
+        <Box flexDirection="column">
+          {canClear && <ClearButton onPress={() => setClearing(true)} />}
+          {detailFor(item)}
+        </Box>
+      )}
     />
   );
 };

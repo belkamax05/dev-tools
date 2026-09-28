@@ -2,6 +2,7 @@ import { relative } from 'node:path';
 import { render } from 'ink';
 
 import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
+import { describeClearResults } from '@/dev-tools/ui/components/ClearDataDialog';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import getCommandEntries from '../../utils/getCommandEntries';
@@ -62,6 +63,7 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
 
   //? Written by the app on its way out and read once the session returns.
   let picked: string | undefined;
+  let cleared: string | undefined;
 
   await runTuiSession(
     (frame) => (
@@ -84,6 +86,13 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
         onRunCommand={(command) => {
           picked = command;
         }}
+        clearTargets={[
+          { id: 'config', label: 'Settings', store: configStore, detail: 'theme, refresh rate' },
+          { id: 'state', label: 'State', store: stateStore, detail: 'last tab, Overview details' },
+        ]}
+        onCleared={(results) => {
+          cleared = describeClearResults(results);
+        }}
       />
     ),
     {
@@ -95,6 +104,7 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
     },
   );
 
+  if (cleared) console.log(`giti: ${cleared}`);
   return picked;
 };
 

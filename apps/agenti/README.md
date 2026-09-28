@@ -7,7 +7,7 @@ plus two commands for scripts and CI.
 ```sh
 agenti                        # dashboard for the repository you are in
 agenti --user                 # the same for your user-wide setup (~/.agents → ~/.claude, …)
-agenti agents|mcp|skills|health|ide
+agenti agents|mcp|skills|health|settings   # (`agenti ide` still opens Settings)
 agenti ide claude-code        # make an IDE the primary one
 agenti status [--check] [--json]   # --check exits 1 on drift — for CI
 agenti sync [--skills] [--quiet]   # make every IDE match, wherever that is safe unattended
@@ -47,7 +47,7 @@ call.
 | 🔌 MCP | `p` to IDE · `a` to reference · `P` all missing · `S` scope (project / local / user) · `y`/`n` approve/deny (Claude Code) · `d` on/off · `x` remove · `i` tools · `s` set token · `e`/`E` edit |
 | 🧩 Skills | `/` search · `i` install · `u` update · `x` remove · `e` edit · `G` this repo / user-wide · `R` restore from `skills-lock.json` |
 | 🩺 Health | `f` fix · `F` fix all — git hygiene, secrets in shared files, pending MCP approvals, unrestored skills, instructions, stale links, SKILL.md validity, broken links, rule size |
-| 💻 IDE | `Space` keep this IDE in step · `Enter` make primary · `l` launch in the repo · `→` into the details (binary, MCP file, config) · `g` logo drawing |
+| 🔧 Settings | **IDE** section: `Space` keep this IDE in step · `Enter` make primary · `l` launch in the repo · `→` into the details (binary, folder, MCP file). Then Theme, Logo drawing (`g` cycles it from anywhere on the tab), Files (config and state), and Reset — `X` clears both files after a confirmation |
 
 Everywhere: `1-5`/`Tab` switch tab, `[` / `]` switch IDE, `r` refresh, `t` theme, `q` quit.
 Deletes, overwrites and mode switches ask first. `e` hands the terminal to `$VISUAL`/`$EDITOR`,

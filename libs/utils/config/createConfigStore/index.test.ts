@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -95,7 +103,11 @@ describe('createConfigStore', () => {
     const before = process.env.XDG_STATE_HOME;
     process.env.XDG_STATE_HOME = stateHome;
     try {
-      const state = createConfigStore({ appName: 'test-app', kind: 'state', defaults: { tab: 'a' } });
+      const state = createConfigStore({
+        appName: 'test-app',
+        kind: 'state',
+        defaults: { tab: 'a' },
+      });
 
       //? The point of the split: config may be a stow-linked dotfile, and state that rewrites
       //? itself every run must not land beside it.
@@ -110,5 +122,40 @@ describe('createConfigStore', () => {
       else process.env.XDG_STATE_HOME = before;
       rmSync(stateHome, { recursive: true, force: true });
     }
+  });
+
+  test('clear removes a plain file and its emptied directory; a missing file is no error', async () => {
+    const store = createConfigStore({ appName: 'clear-app', defaults: DEFAULTS });
+    expect(await store.clear()).toBe('missing');
+    await store.save({ ...DEFAULTS, rows: 3 });
+    expect(await store.inspect()).toEqual({ path: store.path, exists: true, linked: false });
+    expect(await store.clear()).toBe('removed');
+    expect(existsSync(store.path)).toBe(false);
+    expect(existsSync(store.directory)).toBe(false);
+    expect(await store.load()).toEqual(DEFAULTS);
+  });
+
+  test('clear resets a stow-linked file through the link instead of deleting it', async () => {
+    const dotfiles = join(home, 'dotfiles', 'config.json');
+    mkdirSync(join(home, 'dotfiles'));
+    await Bun.write(dotfiles, '{"theme":"forest","compact":true,"rows":3}\n');
+    const store = createConfigStore({ appName: 'linked-app', defaults: DEFAULTS });
+    mkdirSync(store.directory, { recursive: true });
+    symlinkSync(dotfiles, store.path);
+
+    expect((await store.inspect()).linked).toBe(true);
+    expect(await store.clear()).toBe('reset');
+    expect(lstatSync(store.path).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(readFileSync(dotfiles, 'utf8'))).toEqual(DEFAULTS);
+  });
+
+  test('an explicit path puts the store anywhere, and clears it the same way', async () => {
+    const path = join(home, 'project', '.app', 'state.json');
+    const store = createConfigStore({ appName: 'any', path, defaults: { notes: {} } });
+    expect(store.path).toBe(path);
+    await store.save({ notes: { a: 1 } });
+    expect(existsSync(path)).toBe(true);
+    expect(await store.clear()).toBe('removed');
+    expect(existsSync(path)).toBe(false);
   });
 });

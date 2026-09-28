@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import useViewport from '../../hooks/useViewport';
 import { useColors, useTuiTheme } from '../../providers/TuiThemeProvider';
+import type { TuiTheme } from '../../theme';
 import Box from '../Box';
 import type { Hint } from '../HintBar';
 import HintBar from '../HintBar';
@@ -16,6 +17,19 @@ const LIST_SHARE = 0.42;
 
 /** Below this the two panes are stacked rather than set side by side. */
 const SIDE_BY_SIDE_COLUMNS = 96;
+
+/**
+ * Cells a list row's own text has, for a `ListDetail` on a terminal this wide: the list pane's
+ * width less its border and padding (4) and the cursor marker every row starts with (2).
+ *
+ * For a caller laying its labels out as a table — fixed columns that must fit the pane rather
+ * than be cut off at its edge — which needs the same answer `ListDetail` uses to size the pane.
+ */
+export const listTextWidth = (columns: number, theme: TuiTheme): number => {
+  const appWidth = Math.max(columns - theme.sizes.app.horizontalMargin, theme.sizes.app.minWidth);
+  const paneWidth = columns >= SIDE_BY_SIDE_COLUMNS ? Math.floor(appWidth * LIST_SHARE) : appWidth;
+  return Math.max(1, paneWidth - 6);
+};
 
 export interface ListDetailProps<T> {
   /** Names the list pane, with its count in the badge. */
@@ -66,8 +80,11 @@ export interface ListDetailProps<T> {
   initialSelectedId?: string;
   /** What Enter is called in the hints, when "open" is not what it does. */
   activateLabel?: string;
-  /** See `PickList`'s own — false makes a click select only, leaving Enter to activate. */
-  activateOnClick?: boolean;
+  /**
+   * See `PickList`'s own — false makes a click select only, leaving Enter to activate; a
+   * function decides per row.
+   */
+  activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
 }
 
 /**

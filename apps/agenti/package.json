@@ -1,5 +1,6 @@
 {
   "name": "agenti",
+  "description": "AI agent setup (.agents, AGENTS.md, MCP, skills) kept in step across IDEs",
   "module": "src/run.ts",
   "type": "module",
   "private": true,
@@ -20,5 +21,16 @@
     "@modelcontextprotocol/sdk": "^1.20.0",
     "ink": "^7.1.1",
     "react": "^19.2.8"
+  },
+  "dev-tools": {
+    "aliases": {
+      "agent": "",
+      "agents": "",
+      "ai": "",
+      "mcp": "mcp",
+      "mcps": "mcp",
+      "skill": "skills",
+      "skills": "skills"
+    }
   }
 }

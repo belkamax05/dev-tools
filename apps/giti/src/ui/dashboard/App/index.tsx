@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import AppShell from '@/dev-tools/ui/components/AppShell';
 import Box from '@/dev-tools/ui/components/Box';
+import type { ClearResult, ClearTarget } from '@/dev-tools/ui/components/ClearDataDialog';
 import type { FooterAction } from '@/dev-tools/ui/components/Footer';
 import type { TabDefinition } from '@/dev-tools/ui/components/TabStrip';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
@@ -80,6 +81,10 @@ export interface AppProps {
   /** Whether Overview opens with its details expanded (`+`) — remembered between runs. */
   initialDetails?: boolean;
   onDetailsChange?: (details: boolean) => void;
+  /** The files Settings' Clear dialog offers; left out, Settings has no Clear row. */
+  clearTargets?: ClearTarget[];
+  /** The Clear dialog ran: report it once the terminal is back. */
+  onCleared?: (results: ClearResult[]) => void;
 }
 
 const StatusNote = ({ text, tone }: { text: string; tone: Tone }) => {
@@ -152,6 +157,8 @@ export const App = ({
   onRefreshChange,
   initialDetails = false,
   onDetailsChange,
+  clearTargets,
+  onCleared,
 }: AppProps) => {
   const { exit } = useApp();
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
@@ -384,6 +391,17 @@ export const App = ({
           onThemeChange={changeTheme}
           refreshSeconds={refreshSeconds}
           onRefreshChange={changeRefresh}
+          clearTargets={clearTargets}
+          onCaptureInput={setIsInputCaptured}
+          onCleared={
+            onCleared &&
+            ((results) => {
+              onCleared(results);
+              //? Quit rather than carry on: the next tab switch or setting would write the
+              //? files straight back from what is still in memory
+              exit();
+            })
+          }
         />
       ) : snapshot === undefined ? (
         <Box paddingX={1}>

@@ -17,7 +17,7 @@ export interface Session {
   expanded: Set<string>;
   /** The Agents tab shows file content (or a diff) only once asked to, and keeps showing it. */
   preview: boolean;
-  /** Where the IDE tab's keyboard was: the list, or which link in the detail pane. */
+  /** Where Settings' IDE section had the keyboard: the list, or which link in the detail pane. */
   ideFocus: { pane: 'list' | 'detail'; link: number };
   /** Which of the scope's IDEs the tabs are showing. */
   activeIde?: string;
