@@ -15,8 +15,19 @@ built on them, whose executables live in `bin/` — one shim per app, calling it
 | `processi` | the process table, btop-style — sort, scope to a folder, stop ([README](apps/processi/README.md)) |
 | `pkgi` | the current folder's npm packages — updates, versions, notes, compare ([README](apps/pkgi/README.md)) |
 
-Sourcing `include` prepends that `bin/` to `PATH`; `.envrc` does so via
-direnv whenever you `cd` into the repo (run `direnv allow` once).
+Three ways to get them on `PATH`, all defined once in `nix/`:
+
+- `.envrc`: direnv, only while you're inside the repo (run `direnv allow` once). With Nix
+  it's `use nix` (`shell.nix`); without Nix it only adds `bin/`.
+- `include`, sourced from your shell rc, puts them in every shell. With Nix it builds the same
+  environment as a profile under `.cache/nix/`, rebuilt only when `nix/` changes (see
+  `nix/lib/activate.sh`). Without Nix, or with `DEV_TOOLS_NIX=0`, it only adds `bin/`.
+- `nix-shell`, for a throwaway shell.
+
+The Nix side (`nix/packages/*.nix`: latest bun from nixos-unstable, git-subrepo) is also an *env module*
+(`nix/module.nix`). A repo that embeds dev-tools composes it with its own module through
+`nix/lib/mk-env.nix`, and the embedding repo's packages win on a name clash. See
+dfs-fe-internal's `nix/env.nix`.
 
 ## Layout
 
