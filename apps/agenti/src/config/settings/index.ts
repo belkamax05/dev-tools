@@ -65,7 +65,11 @@ const coerce = (raw: Record<string, unknown>): AgentiSettings => {
 /** Keys a person sets on purpose — what may live in a tracked dotfile. */
 const CONFIG_KEYS = ['theme', 'logoMode'] as const satisfies readonly (keyof AgentiSettings)[];
 /** Keys agenti keeps up to date by itself as it is used. */
-const STATE_KEYS = ['lastTab', 'defaultIde', 'repos'] as const satisfies readonly (keyof AgentiSettings)[];
+const STATE_KEYS = [
+  'lastTab',
+  'defaultIde',
+  'repos',
+] as const satisfies readonly (keyof AgentiSettings)[];
 
 const pick = (from: object, keys: readonly string[]): Record<string, unknown> => {
   const values = from as Record<string, unknown>;
@@ -124,6 +128,14 @@ export const settingsStore: ConfigStore<AgentiSettings> = {
       .text()
       .catch(() => '');
     if (current !== next) await configFile.save(pick(settings, CONFIG_KEYS));
+  },
+
+  inspect: () => configFile.inspect(),
+
+  /** Both files, the way every other store clears one: see `ConfigStore.clear`. */
+  async clear() {
+    const [config, state] = await Promise.all([configFile.clear(), stateFile.clear()]);
+    return config === 'missing' ? state : config;
   },
 };
 

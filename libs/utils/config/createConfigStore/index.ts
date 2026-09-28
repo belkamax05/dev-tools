@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { lstat, rm, rmdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 import { appConfigDir, appStateDir } from '../configHome';
 
@@ -15,6 +16,11 @@ export interface ConfigStoreOptions<T extends object> {
    * itself between runs — see `stateHome` for why those two must not share a file.
    */
   kind?: 'config' | 'state';
+  /**
+   * An explicit file, for a store that lives outside the app's own directories — a per-project
+   * file whose place a project decides. Overrides `kind` and `fileName` for where it is kept.
+   */
+  path?: string;
   /**
    * Turn whatever was parsed into a valid `T`.
    *
@@ -41,7 +47,53 @@ export interface ConfigStore<T extends object> {
   defaults: T;
   load: () => Promise<T>;
   save: (config: T) => Promise<void>;
+  /** Whether the file exists, and whether it is a symlink — a stow-managed dotfile. */
+  inspect: () => Promise<StoreFileInfo>;
+  /**
+   * Get rid of what is stored, so the next load is a first run.
+   *
+   * A plain file is deleted, and its directory too if that leaves it empty. A symlink — a config
+   * stowed from dotfiles — is *reset* instead: written back to the defaults through the link.
+   * Deleting the link would leave the tracked file as it was and break the stow link, so the
+   * next save would create a stray plain file where the link used to be.
+   */
+  clear: () => Promise<ClearOutcome>;
 }
+
+export interface StoreFileInfo {
+  path: string;
+  exists: boolean;
+  linked: boolean;
+}
+
+export type ClearOutcome = 'removed' | 'reset' | 'missing';
+
+/**
+ * `inspect` and `clear` for any single file, so a store that is not built by `createConfigStore`
+ * (one combining two files, say) clears its files exactly the way every other store does.
+ */
+export const inspectFile = async (path: string): Promise<StoreFileInfo> => {
+  try {
+    const stat = await lstat(path);
+    return { path, exists: true, linked: stat.isSymbolicLink() };
+  } catch {
+    return { path, exists: false, linked: false };
+  }
+};
+
+export const clearFile = async (path: string, defaults: object): Promise<ClearOutcome> => {
+  const info = await inspectFile(path);
+  if (!info.exists) return 'missing';
+  if (info.linked) {
+    await Bun.write(path, `${JSON.stringify(defaults, null, 2)}\n`);
+    return 'reset';
+  }
+  await rm(path, { force: true });
+  //? Only succeeds on an empty directory, which is the point: an app's folder goes with its last
+  //? file, and one still holding anything else is left alone
+  await rmdir(dirname(path)).catch(() => {});
+  return 'removed';
+};
 
 /**
  * Coerce each key by the shape of its default.
@@ -76,9 +128,15 @@ export const createConfigStore = <T extends object>({
   kind = 'config',
   fileName = kind === 'state' ? 'state.json' : 'config.json',
   coerce = coerceByType,
+  path: explicitPath,
 }: ConfigStoreOptions<T>): ConfigStore<T> => {
-  const directory = () => (kind === 'state' ? appStateDir(appName) : appConfigDir(appName));
-  const path = () => join(directory(), fileName);
+  const directory = () =>
+    explicitPath
+      ? dirname(explicitPath)
+      : kind === 'state'
+        ? appStateDir(appName)
+        : appConfigDir(appName);
+  const path = () => explicitPath ?? join(directory(), fileName);
 
   return {
     get path() {
@@ -104,6 +162,9 @@ export const createConfigStore = <T extends object>({
       //? opened and edited by hand as readily as by a settings screen.
       await Bun.write(path(), `${JSON.stringify(config, null, 2)}\n`);
     },
+
+    inspect: () => inspectFile(path()),
+    clear: () => clearFile(path(), defaults),
   };
 };
 
