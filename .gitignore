@@ -32,3 +32,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# Nix (see nix/lib/activate.sh, nix/lib/discover-packages.nix)
+/nix/packages/.enabled.json
+.direnv
