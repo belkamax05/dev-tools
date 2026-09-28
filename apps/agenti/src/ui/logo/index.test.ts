@@ -15,6 +15,7 @@ const support = (kitty: boolean): GraphicsSupport => ({
   sixel: false,
   iterm2: false,
   truecolor: true,
+  imagesInCells: false,
   cellWidth: 10,
   cellHeight: 20,
   cellSizeSource: 'assumed',
