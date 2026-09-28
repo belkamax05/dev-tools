@@ -195,6 +195,7 @@ export const AgentsView = ({
   ides,
   session,
   notify,
+  isActive,
   onCaptureInput,
   handoff,
   refreshKey,
@@ -642,7 +643,7 @@ export const AgentsView = ({
       else if (input === 'x') remove(node);
       else if (input === 'o') reveal(node);
     },
-    { isActive: !prompt.isOpen },
+    { isActive: isActive && !prompt.isOpen },
   );
 
   const hints: Hint[] = [
@@ -820,7 +821,7 @@ export const AgentsView = ({
         //? A click selects; the row's own triangle and checkbox are the actions
         activateOnClick={false}
         initialSelectedId={session.selected.agents}
-        isInputActive={!prompt.isOpen}
+        isInputActive={isActive && !prompt.isOpen}
         onActivate={(item) => {
           if (item.id === INSTRUCTIONS_ID) return togglePreview();
           const node = item.value;

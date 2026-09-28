@@ -27,6 +27,11 @@ export interface AppShellProps<Id extends string = string> {
   onTabChange: (id: Id) => void;
   /** Draw every tab with its name rather than shrinking the closed ones. */
   fullWidthTabs?: boolean;
+  /**
+   * A strip under the tabs, on every tab — controls that apply whichever one
+   * is open. Its rows are the app's to add to the `appShell` chrome price.
+   */
+  underTabs?: ReactNode;
 
   /** Sizes, breakpoints and display rules. Defaults to the stock tables. */
   theme?: TuiTheme;
@@ -70,6 +75,7 @@ export const AppShell = <Id extends string = string>({
   activeTab,
   onTabChange,
   fullWidthTabs = false,
+  underTabs,
   theme,
   palette,
   opaqueBackground = false,
@@ -182,6 +188,12 @@ export const AppShell = <Id extends string = string>({
                 onSelect={onTabChange}
               />
             </Box>
+
+            {underTabs && (
+              <Box marginBottom={1} flexShrink={0}>
+                {underTabs}
+              </Box>
+            )}
 
             {/* The view, growing into whatever the chrome did not take. */}
             <Box flexGrow={1} flexDirection="column" overflow="hidden">

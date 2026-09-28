@@ -79,6 +79,7 @@ export const McpView = ({
   ide,
   session,
   notify,
+  isActive,
   onCaptureInput,
   handoff,
   refreshKey,
@@ -398,7 +399,7 @@ export const McpView = ({
       else if (input === 'n') approve(c, false);
       else if (input === 'x') removeFromIde(c);
     },
-    { isActive: !prompt.isOpen && Boolean(targetDef) },
+    { isActive: isActive && !prompt.isOpen && Boolean(targetDef) },
   );
 
   //? Row actions are the toolbar's; the strip keeps the ones about the files
@@ -557,7 +558,7 @@ export const McpView = ({
         reservedChrome={['viewHeader']}
         activateLabel="tools / set"
         initialSelectedId={session.selected.mcp}
-        isInputActive={!prompt.isOpen}
+        isInputActive={isActive && !prompt.isOpen}
         onActivate={(item) => {
           if (item.value?.kind === 'token') setToken(item.value.token);
           else if (item.value?.kind === 'server') loadTools(item.value.comparison);

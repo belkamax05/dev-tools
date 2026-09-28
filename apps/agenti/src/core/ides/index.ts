@@ -264,10 +264,21 @@ export const getIde = (id: string | undefined): IdeDefinition | undefined =>
 export const layoutFor = (ide: IdeDefinition, scope: ScopeKind): IdeLayout | undefined =>
   ide.layouts[scope];
 
-/** Its MCP targets that belong to a scope: project/local for a repository, user for home. */
+/**
+ * Its MCP targets a scope can compare against: every one of them for a
+ * repository, only the user ones for home.
+ *
+ * A repository keeps its user-scope targets too, because some IDEs have
+ * nothing else — Antigravity and Devin read MCP servers only from one global
+ * file — and copying a repository's reference servers into that file is how
+ * they get them at all. Those come last, after the repository's own scopes.
+ */
 export const mcpTargetsFor = (ide: IdeDefinition, scope: ScopeKind): IdeMcpTarget[] =>
-  ide.mcp.filter((target) =>
-    scope === 'user' ? target.scope === 'user' : target.scope !== 'user',
-  );
+  scope === 'user'
+    ? ide.mcp.filter((target) => target.scope === 'user')
+    : [
+        ...ide.mcp.filter((target) => target.scope !== 'user'),
+        ...ide.mcp.filter((target) => target.scope === 'user'),
+      ];
 
 export default IDES;

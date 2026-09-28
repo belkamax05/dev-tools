@@ -27,9 +27,9 @@ import agentiTheme from '../../theme';
 import type { ViewProps } from '../../types';
 
 export interface SettingsViewProps extends ViewProps {
-  /** Make an IDE the primary one — adding it if it was not in the set. */
+  /** Make an IDE the primary one — adding it if it was not in the set; the app's switch, which reports it. */
   onSelectIde: (id: string) => void;
-  /** Add an IDE to the set kept in step, or take it out (never the last one). */
+  /** Add an IDE to the set kept in step, or take it out (never the last one) — the app's switch, which reports what it did. */
   onToggleIde: (id: string) => void;
   /** agenti's config file — shown, and openable, so where a choice goes is never a mystery. */
   settingsPath: string;
@@ -95,6 +95,7 @@ export const SettingsView = ({
   session,
   notify,
   handoff,
+  isActive,
   onCaptureInput,
   onSelectIde,
   onToggleIde,
@@ -136,22 +137,10 @@ export const SettingsView = ({
   const choose = (candidate: IdeDefinition | undefined) => {
     if (!candidate || candidate.id === primary?.id) return;
     onSelectIde(candidate.id);
-    notify(`${candidate.name} is now the primary IDE`, 'ok');
   };
 
   const toggle = (candidate: IdeDefinition | undefined) => {
-    if (!candidate) return;
-    if (included(candidate) && ides.length === 1) {
-      notify('Keep at least one IDE — add another before removing this one', 'warn');
-      return;
-    }
-    onToggleIde(candidate.id);
-    notify(
-      included(candidate)
-        ? `${candidate.name} is no longer kept in step`
-        : `${candidate.name} is now kept in step too`,
-      'ok',
-    );
+    if (candidate) onToggleIde(candidate.id);
   };
 
   const launch = (candidate: IdeDefinition | undefined) => {
@@ -317,7 +306,7 @@ export const SettingsView = ({
         else apply(current);
       }
     },
-    { isActive: !clearing },
+    { isActive: isActive && !clearing },
   );
 
   if (clearing) {
@@ -503,7 +492,7 @@ export const SettingsView = ({
         //? toolbar are the actions, so a stray click never changes the primary IDE
         activateOnClick={(item) => item.value?.kind !== 'ide'}
         activateLabel={currentIde ? 'make primary' : 'apply'}
-        isInputActive={focus === 'list'}
+        isInputActive={isActive && focus === 'list'}
         hints={[
           ...(currentIde ? [{ key: 'Space', label: 'include' }] : []),
           {

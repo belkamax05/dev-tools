@@ -43,8 +43,13 @@ export interface RasterTechnique {
    * the size on screen, so the resolution is the layout and cannot be traded.
    */
   scalesToCellBox: boolean;
-  /** Escape sequence that paints the image into exactly `cols` x `rows` cells. */
-  encode: (raster: RasterCanvas, cols: number, rows: number) => string;
+  /**
+   * Escape sequence that paints the image into exactly `cols` x `rows` cells.
+   *
+   * `imageId` is for a protocol that names its images (kitty): each id holds
+   * one picture, so two on screen at once need two ids. Others ignore it.
+   */
+  encode: (raster: RasterCanvas, cols: number, rows: number, imageId?: number) => string;
 }
 
 export type Technique = TextTechnique | RasterTechnique;
@@ -113,11 +118,11 @@ export const RASTER_TECHNIQUES: RasterTechnique[] = [
     supported: (support) => support.kitty,
     // c=/r= hand the terminal a cell box and let it do the scaling.
     scalesToCellBox: true,
-    encode: (raster, cols, rows) =>
+    encode: (raster, cols, rows, imageId = KITTY_IMAGE_ID) =>
       encodeKittyImage(raster.rgba, raster.width, raster.height, {
         cols,
         rows,
-        id: KITTY_IMAGE_ID,
+        id: imageId,
       }),
   },
   {
@@ -184,9 +189,9 @@ export function bestTechnique(support: GraphicsSupport, force = false): Techniqu
   return raster ?? (findTechnique('halfblock') as Technique);
 }
 
-/** Wipe any placement this app left behind, so quitting does not strand an image. */
-export function clearRasterArtifacts(): string {
-  return `${ESC}_Ga=d,d=i,i=${KITTY_IMAGE_ID}${ESC}\\`;
+/** Wipe a placement this app left behind, so quitting does not strand an image. */
+export function clearRasterArtifacts(imageId = KITTY_IMAGE_ID): string {
+  return `${ESC}_Ga=d,d=i,i=${imageId}${ESC}\\`;
 }
 
 export default ALL_TECHNIQUES;

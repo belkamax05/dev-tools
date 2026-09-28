@@ -8,6 +8,8 @@ export interface InkRenderOptions {
   debug?: boolean;
   exitOnCtrlC?: boolean;
   patchConsole?: boolean;
+  /** Called after every frame Ink renders. */
+  onRender?: (metrics: { renderTime: number }) => void;
 }
 
 /** The subset of ink's `Instance` this lib drives. */

@@ -50,6 +50,12 @@ call.
 | 🔧 Settings | **IDE** section: `Space` keep this IDE in step · `Enter` make primary · `l` launch in the repo · `→` into the details (binary, folder, MCP file). Then Theme, Logo drawing (`g` cycles it from anywhere on the tab), Files (config and state), and Reset — `X` clears both files after a confirmation |
 
 Everywhere: `1-5`/`Tab` switch tab, `[` / `]` switch IDE, `r` refresh, `t` theme, `q` quit.
+
+Under the tabs, every IDE agenti knows is a toggle, drawn with its logo (kitty graphics where
+the terminal has them, braille otherwise): click one to keep it in step or stop, hold the button
+on it to make it primary. `Shift+1-5` toggles by position. `I` gives the strip the keyboard —
+`←/→` move, `Space` toggles, `Enter` makes primary, `Esc` hands the keyboard back to the tab.
+
 Deletes, overwrites and mode switches ask first. `e` hands the terminal to `$VISUAL`/`$EDITOR`,
 and launching Claude Code hands it the terminal; the dashboard comes back where it was.
 
@@ -58,6 +64,9 @@ and launching Claude Code hands it the terminal; the dashboard comes back where 
 The reference config is `.agents/mcp_config.json` (or `config/mcp_config.json`). Each IDE's own
 scopes are shown one at a time: Claude Code's project `.mcp.json`, plus its local and user
 scopes, which are changed only through `claude mcp` since Claude Code owns `~/.claude.json`.
+IDEs with only a global file — Antigravity's `~/.gemini/antigravity/mcp_config.json`, Devin's
+`~/.config/devin/mcp_config.json`, Cursor's `~/.cursor/mcp.json` — show it inside a repository
+too (last, marked "every repo"), so the reference servers can be copied into it with `p` / `P`.
 Claude Code will not start a project server until it is approved; agenti shows that and
 approves or denies in `.claude/settings.local.json`.
 

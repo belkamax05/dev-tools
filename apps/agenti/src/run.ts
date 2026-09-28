@@ -40,7 +40,7 @@ const mcpCounts = (scope: Scope, ide: IdeDefinition) => {
   //? Only the shared, file-based project scope is compared: that is what a
   //? repository owns, and what sync keeps in step
   for (const target of mcpTargetsFor(ide, scope.kind)) {
-    if (target.kind !== 'file') continue;
+    if (target.kind !== 'file' || target.scope !== 'project') continue;
     for (const comparison of buildComparisons(
       source.servers,
       readMcpTarget(scope.root, target).servers,
