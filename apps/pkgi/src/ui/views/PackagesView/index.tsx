@@ -3,6 +3,7 @@ import { type ReactNode, useRef, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
+import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
@@ -83,6 +84,17 @@ const PackageDetail = ({
       row.local ? {} : getVersionDetails(row.name, row.latest ?? row.current, registry),
     [row.name, row.latest, row.current, registry],
   );
+  //? Home and Repo are often the same page (a GitHub README) — one link then, not two
+  const homepage = details?.homepage;
+  const repo =
+    details?.repository && details.repository !== homepage?.replace(/#.*$/, '')
+      ? details.repository
+      : undefined;
+  const links = [
+    ...(homepage ? [{ label: 'Home', url: homepage }] : []),
+    ...(repo ? [{ label: 'Repo', url: repo }] : []),
+    ...(row.local ? [] : [{ label: 'npm', url: `https://www.npmjs.com/package/${row.name}` }]),
+  ];
   return (
     <Box flexDirection="column">
       <Text bold color={colors.heading} wrap="truncate">
@@ -149,13 +161,16 @@ const PackageDetail = ({
             <Text color={colors.muted}>{details.license}</Text>
           </Field>
         )}
-        {(details?.homepage || details?.repository) && (
-          <Field label="Home">
-            <Text color={colors.muted} wrap="truncate">
-              {details.homepage ?? details.repository}
-            </Text>
-          </Field>
-        )}
+        {links.map((link) => (
+          <LinkRow
+            key={link.label}
+            label={link.label}
+            labelWidth={12}
+            value={link.url}
+            color={colors.muted}
+            onOpen={() => openUrl(link.url)}
+          />
+        ))}
       </Box>
       {row.deprecated && (
         <Box marginTop={1}>

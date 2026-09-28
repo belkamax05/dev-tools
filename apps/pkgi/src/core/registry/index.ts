@@ -181,6 +181,31 @@ export interface VersionDetails {
   license?: string;
 }
 
+/**
+ * A `repository` field as a page a browser can open. package.json allows several spellings —
+ * `github:owner/repo`, `gitlab:…`, `bitbucket:…`, a bare `owner/repo` (GitHub), and git URLs over
+ * `git+https`, `git+ssh`, `git://` or scp-style `git@host:owner/repo` — and only an https URL is
+ * worth a link. Undefined for anything that does not resolve to one.
+ */
+export const repositoryWebUrl = (value: string): string | undefined => {
+  const trimmed = value.trim();
+  const hosts: Record<string, string> = {
+    github: 'github.com',
+    gitlab: 'gitlab.com',
+    bitbucket: 'bitbucket.org',
+  };
+  const shorthand = trimmed.match(/^(github|gitlab|bitbucket):([\w.-]+\/[\w.-]+)$/);
+  if (shorthand?.[1] && shorthand[2]) return `https://${hosts[shorthand[1]]}/${shorthand[2]}`;
+  if (/^[\w.-]+\/[\w.-]+$/.test(trimmed)) return `https://github.com/${trimmed}`;
+  const url = trimmed
+    .replace(/^git\+/, '')
+    .replace(/^(ssh|git):\/\/(?:[\w.-]+@)?([\w.-]+)(?::\d+)?\//, 'https://$2/')
+    .replace(/^[\w.-]+@([\w.-]+):/, 'https://$1/')
+    .replace(/\.git(#.*)?$/, '$1')
+    .replace(/#.*$/, '');
+  return /^https?:\/\//.test(url) ? url : undefined;
+};
+
 const detailsMemo = new Map<string, Promise<VersionDetails>>();
 
 /**
@@ -199,13 +224,11 @@ export const getVersionDetails = (
     .then((response) => (response.ok ? response.json() : {}))
     .then((doc: Record<string, unknown>) => {
       const repository = doc.repository as { url?: string } | string | undefined;
+      const rawRepository = typeof repository === 'string' ? repository : repository?.url;
       return {
         description: typeof doc.description === 'string' ? doc.description : undefined,
         homepage: typeof doc.homepage === 'string' ? doc.homepage : undefined,
-        repository:
-          typeof repository === 'string'
-            ? repository
-            : repository?.url?.replace(/^git\+/, '').replace(/\.git$/, ''),
+        repository: rawRepository ? repositoryWebUrl(rawRepository) : undefined,
         license: typeof doc.license === 'string' ? doc.license : undefined,
       };
     })
