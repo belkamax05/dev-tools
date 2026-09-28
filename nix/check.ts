@@ -98,6 +98,23 @@ await check(
   },
 );
 
+await check('install: only the shell runs pkgi, for the folders env.nix lists', async () => {
+  const { install, installScript, envScript, hook } = await evalJson(`
+    let e = import ${nixDir}/env.nix { }; in {
+      inherit (e) install;
+      installScript = builtins.readFile e.installScript;
+      envScript = builtins.readFile "\${e.profile}/share/dev-tools/env.sh";
+      hook = e.shell.shellHook;
+    }`);
+
+  assertEqual(install, [root]);
+  const pkgi = join(root, 'bin/pkgi');
+  if (!installScript.includes(`${pkgi} install --frozen --if-changed`))
+    throw new Error(`install script doesn't run ${pkgi}:\n${installScript}`);
+  if (!hook.includes('-install.sh')) throw new Error(`shellHook doesn't source it:\n${hook}`);
+  if (envScript.includes('pkgi')) throw new Error(`the profile's env.sh installs:\n${envScript}`);
+});
+
 await check('shell.nix evaluates to a shell with the same packages', async () => {
   await $`nix-instantiate ${join(root, 'shell.nix')}`.quiet();
 });

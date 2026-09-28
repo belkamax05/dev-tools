@@ -6,6 +6,9 @@ import { join } from 'node:path';
 import {
   addCommand,
   detectPackageManager,
+  findLockfile,
+  installCommand,
+  parsePackageManagerField,
   readManifest,
   removeCommand,
   setVersionCommand,
@@ -66,6 +69,33 @@ describe('detectPackageManager', () => {
     expect((await detectPackageManager(join(root, 'apps/web'))).name).toBe('bun');
   });
 
+  test('packageManager outranks a lockfile beside it, and carries its version and root', async () => {
+    write('package-lock.json', '');
+    write('package.json', { packageManager: 'bun@1.4.2' });
+    write('apps/web/package.json', {});
+    expect(await detectPackageManager(join(root, 'apps/web'))).toMatchObject({
+      name: 'bun',
+      version: '1.4.2',
+      root,
+    });
+  });
+
+  test('parsePackageManagerField drops the integrity hash and ignores unknown managers', () => {
+    expect(parsePackageManagerField('pnpm@9.1.0+sha512.abc')).toEqual({
+      name: 'pnpm',
+      version: '9.1.0',
+    });
+    expect(parsePackageManagerField('deno@2.0.0')).toBeUndefined();
+    expect(parsePackageManagerField(undefined)).toBeUndefined();
+  });
+
+  test('findLockfile only sees the given manager’s lockfile', () => {
+    write('yarn.lock', '');
+    expect(findLockfile(root, 'bun')).toBeUndefined();
+    write('bun.lockb', '');
+    expect(findLockfile(root, 'bun')).toBe(join(root, 'bun.lockb'));
+  });
+
   test('a forced one wins over the lockfile', async () => {
     write('yarn.lock', '');
     expect((await detectPackageManager(root, 'pnpm')).name).toBe('pnpm');
@@ -102,6 +132,37 @@ describe('commands', () => {
       '--dev',
     ]);
     expect(removeCommand('bun', ['a', 'b'])).toEqual(['bun', 'remove', 'a', 'b']);
+  });
+
+  test('install: plain, or frozen to the lockfile in each manager’s own words', () => {
+    expect(installCommand('bun')).toEqual(['bun', 'install']);
+    expect(installCommand('bun', { frozen: true })).toEqual([
+      'bun',
+      'install',
+      '--frozen-lockfile',
+    ]);
+    expect(installCommand('npm', { frozen: true })).toEqual(['npm', 'ci']);
+    expect(installCommand('pnpm', { frozen: true })).toEqual([
+      'pnpm',
+      'install',
+      '--frozen-lockfile',
+    ]);
+    expect(installCommand('yarn', { frozen: true, version: '1.22.22' })).toEqual([
+      'yarn',
+      'install',
+      '--frozen-lockfile',
+    ]);
+    expect(installCommand('yarn', { frozen: true, version: '4.5.0' })).toEqual([
+      'yarn',
+      'install',
+      '--immutable',
+    ]);
+    write('.yarnrc.yml', '');
+    expect(installCommand('yarn', { frozen: true, dir: root })).toEqual([
+      'yarn',
+      'install',
+      '--immutable',
+    ]);
   });
 
   test('shellQuote leaves plain words alone and quotes the rest', () => {

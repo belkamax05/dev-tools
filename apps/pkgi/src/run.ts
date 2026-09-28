@@ -13,9 +13,12 @@ import {
   writeFolderState,
 } from './config/settings';
 import { buildComparison, cellVersion, loadColumns, toAbsolute } from './core/compare';
+import { isInstallCurrent, managerVersionMismatch, writeInstallStamp } from './core/install';
 import {
   addCommand,
   detectPackageManager,
+  findLockfile,
+  installCommand,
   readManifest,
   removeCommand,
   setVersionCommand,
@@ -33,6 +36,14 @@ usage:
   pkgi outdated [--json]          the ones with a newer version; exits 1 when there are any
   pkgi update <pkg>[@version]...  move packages to a version (latest by default), keeping
                                   their section and range style (^, ~, exact)
+  pkgi install [--frozen] [--if-changed]
+                                  install everything, with the package manager
+                                  package.json's packageManager names (else the
+                                  lockfile's), from the workspace root. --frozen
+                                  installs exactly what the lockfile pins and fails
+                                  rather than rewrite it (a missing lockfile is
+                                  generated); --if-changed does nothing when
+                                  node_modules already matches the lockfile
   pkgi add <pkg>[@version]... [--dev]
   pkgi remove <pkg>...
   pkgi compare [path...] [--different] [--json]
@@ -43,7 +54,7 @@ usage:
   pkgi config [--init]            where settings and notes live; --init writes a
                                   commented pkgi.config.ts here
 
-Add --dry-run to update/add/remove to print the command instead of running it.
+Add --dry-run to install/update/add/remove to print the command instead of running it.
 `;
 
 const UPDATE_MARK: Record<string, string> = {
@@ -184,6 +195,31 @@ export const run = async (...argv: string[]) => {
         dryRun,
       );
     }
+    return;
+  }
+
+  if (first === 'install' && !rest.length) {
+    const manager = await detectPackageManager(dir, settings.packageManager);
+    const root = manager.root ?? dir;
+    const lockfile = findLockfile(root, manager.name);
+    if (flags.has('--if-changed') && (await isInstallCurrent(root, manager.name, lockfile))) return;
+    const frozen = flags.has('--frozen') && lockfile !== undefined;
+    if (flags.has('--frozen') && !frozen) {
+      console.log(`No ${manager.name} lockfile in ${root} yet — installing to generate one.`);
+    }
+    const mismatch = dryRun
+      ? undefined
+      : await managerVersionMismatch(manager.name, manager.version);
+    if (mismatch) {
+      console.error(
+        `pkgi: package.json pins ${manager.name}@${manager.version}, but ${manager.name} on PATH is ${mismatch} — the install may differ from one made with the pinned version`,
+      );
+    }
+    const argv = installCommand(manager.name, { frozen, version: manager.version, dir: root });
+    await runCommand(root, argv, dryRun);
+    const written = findLockfile(root, manager.name);
+    if (!dryRun && !process.exitCode && written)
+      await writeInstallStamp(root, manager.name, written);
     return;
   }
 

@@ -11,6 +11,7 @@ pkgi packages|compare|add|settings
 pkgi list [--outdated] [--offline] [--json]
 pkgi outdated                     # exits 1 when anything is behind — for CI
 pkgi update react zod@4.2.0       # keeps each package's section and range style (^, ~, exact)
+pkgi install [--frozen] [--if-changed]   # everything, from the lockfile — see Installing
 pkgi add hono [--dev]    pkgi remove left-pad
 pkgi compare ../web ../api [--different]
 pkgi note react "pinned until the SSR fix lands"   pkgi note react --clear   pkgi notes
@@ -18,8 +19,28 @@ pkgi config [--init]              # where everything lives; --init writes pkgi.c
 ```
 
 Every change to `package.json` is made by the folder's package manager — detected from the
-nearest lockfile (a workspace member's is at the root), else `packageManager`, else npm — and in
-the dashboard it is handed the terminal, so its output and failures are the real ones.
+nearest folder that names one (a workspace member's is the root), where `package.json`'s
+`packageManager` outranks a lockfile beside it, else npm — and in the dashboard it is handed the
+terminal, so its output and failures are the real ones.
+
+## Installing
+
+`pkgi install` with no package names is that manager's own install, run at the root it was
+detected from: `bun install`, `npm install`, `yarn install`, `pnpm install`.
+
+- `--frozen` installs exactly what the lockfile pins and fails rather than rewrite it
+  (`--frozen-lockfile`, `npm ci`, Yarn Berry's `--immutable`), so the versions are the ones a
+  plain install from that lockfile gives anyone else. With no lockfile yet it does a plain
+  install, which writes the manager's own one.
+- `--if-changed` does nothing when `node_modules` was last installed by pkgi from this very
+  lockfile — the hash is kept in `node_modules/.pkgi-install.json`, so a pull or branch switch
+  that changes the lockfile, or deleting `node_modules`, installs again.
+- When `packageManager` pins a version (`bun@1.4.2`) and the manager on `PATH` is another one,
+  it says so before installing.
+
+dev-tools' Nix shells run `pkgi install --frozen --if-changed` on entry for the folders their
+env modules list under `install` — see `nix/lib/mk-env.nix`. Nothing installs on its own
+outside a Nix shell.
 
 ## Tabs
 
