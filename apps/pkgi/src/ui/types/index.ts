@@ -13,6 +13,8 @@ export interface Session {
   filter: string;
   onlyOutdated: boolean;
   onlyDifferent: boolean;
+  /** The Compare tab's package-name filter. */
+  compareFilter?: string;
   /** The Add tab's last search, so coming back from an install shows the same results. */
   search?: string;
   /** The Add tab's prod/dev switch; undefined until toggled, then it overrides `installAs`. */

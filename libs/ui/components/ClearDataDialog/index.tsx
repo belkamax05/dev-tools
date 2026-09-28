@@ -13,6 +13,7 @@ import { useColors } from '../../providers/TuiThemeProvider';
 import ActionButton from '../ActionButton';
 import Box from '../Box';
 import Panel from '../Panel';
+import Toolbar from '../Toolbar';
 
 /** One file the dialog offers to clear. */
 export interface ClearTarget {
@@ -239,5 +240,16 @@ export const ClearDataDialog = ({
     </Box>
   );
 };
+
+/**
+ * The button that opens the dialog, for the top of a Settings view's detail pane.
+ *
+ * There as well as the Reset row at the foot of the settings list: that list is long enough to
+ * scroll on an ordinary terminal, and an action nobody can see is an action nobody has. Same key
+ * (`X`) in every app, same label, same danger colour.
+ */
+export const ClearButton = ({ onPress }: { onPress: () => void }) => (
+  <Toolbar actions={[{ hotkey: 'X', label: 'Clear settings & state…', onPress, tone: 'danger' }]} />
+);
 
 export default ClearDataDialog;

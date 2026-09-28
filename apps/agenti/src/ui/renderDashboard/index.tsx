@@ -3,6 +3,7 @@ import { render } from 'ink';
 
 import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
 import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
+import { describeClearResults } from '@/dev-tools/ui/components/ClearDataDialog';
 
 import settingsStore, { hasOwnIde, type TabId } from '../../config/settings';
 import type { Scope } from '../../core/scope';
@@ -26,12 +27,13 @@ export const renderDashboard = async (scope: Scope, initialTab?: TabId): Promise
     //? `agenti mcp` means the MCP tab, whatever was open last time. Otherwise a
     //? repo that has never picked an IDE opens on the picker — the question
     //? every other tab depends on — and one that has opens where the user left off
-    tab: initialTab ?? (hasOwnIde(settings, root) ? settings.lastTab : 'ide'),
+    tab: initialTab ?? (hasOwnIde(settings, root) ? settings.lastTab : 'settings'),
     selected: {},
     expanded: new Set(['rules', 'skills', 'workflows']),
     preview: false,
     ideFocus: { pane: 'list', link: 0 },
   };
+  let cleared: string | undefined;
 
   await runTuiSession(
     (frame) => (
@@ -48,6 +50,9 @@ export const renderDashboard = async (scope: Scope, initialTab?: TabId): Promise
           settingsStore.save(next).catch(() => {});
         }}
         onHandoff={frame.handoff}
+        onCleared={(results) => {
+          cleared = describeClearResults(results);
+        }}
       />
     ),
     {
@@ -63,6 +68,7 @@ export const renderDashboard = async (scope: Scope, initialTab?: TabId): Promise
           : `Back from ${intent.label}`,
     },
   );
+  if (cleared) console.log(`agenti: ${cleared}`);
 };
 
 export default renderDashboard;

@@ -45,6 +45,16 @@ export interface ProcessesViewProps {
 
 const MY_UID = process.getuid?.();
 
+/**
+ * The fixed-width columns every row starts with, and the header drawn over them. One function for
+ * both, so the labels cannot drift from the values: the header goes in the list's title, which
+ * `PickList` draws from the same cell the rows' two-cell cursor marker starts in — hence the two
+ * leading spaces on the header only.
+ */
+const columns = (pid: string, cpu: string, mem: string, name: string) =>
+  `${pid.padStart(7)} ${cpu.padStart(5)} ${mem.padStart(5)}  ${name}`;
+const HEADER = `  ${columns('PID', 'CPU%', 'MEM', 'NAME')}`;
+
 const next = <T,>(list: readonly T[], at: T): T => list[(list.indexOf(at) + 1) % list.length] ?? at;
 
 const Detail = ({
@@ -150,7 +160,12 @@ export const ProcessesView = ({
     const branch = tree && row.depth > 0 ? `${'  '.repeat(row.depth - 1)}└ ` : '';
     return {
       id: String(row.pid),
-      label: `${String(row.pid).padStart(7)} ${row.cpu.toFixed(1).padStart(5)} ${formatRss(row.rss).padStart(5)}  ${branch}${row.name}`,
+      label: columns(
+        String(row.pid),
+        row.cpu.toFixed(1),
+        formatRss(row.rss),
+        `${branch}${row.name}`,
+      ),
       hint: row.uid !== MY_UID ? row.user : row.pid === process.pid ? 'processi' : undefined,
       hintColor: row.uid !== MY_UID ? colors.muted : colors.accent,
       value: row,
@@ -278,7 +293,9 @@ export const ProcessesView = ({
       </Box>
       <ListDetail
         key={items.map((item) => item.id).join(',')}
-        title={`${tree ? 'Tree' : 'Processes'} (${rows.length})  PID  CPU%  MEM`}
+        //? Column headings, not a name: the tab already says which view this is, and the count is
+        //? drawn at the right of this row by the list itself
+        title={HEADER}
         items={items}
         emptyText={
           isLoading && !data

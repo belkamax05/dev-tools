@@ -3,6 +3,7 @@ import { useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import ClearDataDialog, {
+  ClearButton,
   type ClearResult,
   type ClearTarget,
 } from '@/dev-tools/ui/components/ClearDataDialog';
@@ -320,7 +321,12 @@ export const SettingsView = ({
           setCurrent(item?.value);
           session.selected.settings = item?.id;
         }}
-        renderDetail={(item) => (item?.value ? detail(item.value) : null)}
+        renderDetail={(item) => (
+          <Box flexDirection="column">
+            <ClearButton onPress={() => setClearing(true)} />
+            {item?.value ? detail(item.value) : null}
+          </Box>
+        )}
       />
     </Box>
   );

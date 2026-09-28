@@ -214,7 +214,9 @@ export const run = async (...argv: string[]) => {
     return;
   }
 
-  if (first !== undefined && !TAB_IDS.includes(first as TabId)) {
+  //? `agenti ide` alone opened the IDE tab, which is now the first section of Settings
+  const tab = first === 'ide' ? 'settings' : first;
+  if (tab !== undefined && !TAB_IDS.includes(tab as TabId)) {
     console.error(`Unknown command "${first}".\n`);
     process.stderr.write(HELP);
     process.exitCode = 1;
@@ -222,7 +224,7 @@ export const run = async (...argv: string[]) => {
   }
 
   const { default: renderDashboard } = await import('./ui/renderDashboard');
-  await renderDashboard(scope, first as TabId | undefined);
+  await renderDashboard(scope, tab as TabId | undefined);
   //? A skills install or an MCP server still starting when the user quit would
   //? otherwise hold the process open with the terminal already handed back
   process.exit(0);

@@ -5,12 +5,13 @@ import { useMemo, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
-import ListDetail from '@/dev-tools/ui/components/ListDetail';
+import ListDetail, { listTextWidth } from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import useViewport from '@/dev-tools/ui/hooks/useViewport';
+import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
   buildComparison,
@@ -21,6 +22,7 @@ import {
   toAbsolute,
   toRelative,
 } from '../../../core/compare';
+import type { DependencyType } from '../../../config/settings';
 import { detectPackageManager, setVersionCommand } from '../../../core/manifest';
 import { compareVersions } from '../../../core/semver';
 import type { ViewProps } from '../../types';
@@ -34,6 +36,173 @@ export interface OfferedFolder {
   source: FolderSource;
   hasManifest: boolean;
 }
+
+/** No version column grows past this; a longer version (a nightly's hash) is cut with `…`. */
+export const MAX_VERSION_COLUMN = 16;
+
+const fitEnd = (text: string, width: number) =>
+  text.length > width ? `${text.slice(0, Math.max(0, width - 1))}…` : text.padEnd(width);
+
+/** Paths keep their end — `…/apps/web` says more than `../../pro…`. */
+const fitStart = (text: string, width: number) =>
+  text.length > width ? `…${text.slice(text.length - Math.max(0, width - 1))}` : text.padEnd(width);
+
+/**
+ * Lay the comparison out as a table that fits `width` cells: a header line and one line per row,
+ * every `│` in the same column on every line.
+ *
+ * Each version column is as wide as the longest thing in it — its header or any version —
+ * capped at `MAX_VERSION_COLUMN`; the package name gets whatever width is left. Widths are taken
+ * from every row given rather than from the rows on screen, so the columns stay put as the list
+ * scrolls instead of shifting with whichever versions happen to be in view.
+ */
+export const layoutCompareTable = (
+  headers: string[],
+  rows: { name: string; versions: string[] }[],
+  width: number,
+): { header: string; lines: string[] } => {
+  const widths = headers.map((header, at) =>
+    Math.min(
+      MAX_VERSION_COLUMN,
+      Math.max(1, header.length, ...rows.map((row) => row.versions[at]?.length ?? 0)),
+    ),
+  );
+  const versionsWidth = widths.reduce((sum, columnWidth) => sum + columnWidth + 3, 0);
+  const longestName = Math.max('PACKAGE'.length, ...rows.map((row) => row.name.length));
+  const nameWidth = Math.max(6, Math.min(longestName, width - versionsWidth));
+  const line = (name: string, cells: string[], fitCell: typeof fitEnd) =>
+    fitEnd(name, nameWidth) +
+    widths.map((columnWidth, at) => ` │ ${fitCell(cells[at] ?? '', columnWidth)}`).join('');
+  return {
+    header: line('PACKAGE', headers, fitStart),
+    lines: rows.map((row) => line(row.name, row.versions, fitEnd)),
+  };
+};
+
+const SECTION_LABEL: Record<DependencyType, string> = {
+  dependencies: 'prod',
+  devDependencies: 'dev',
+  peerDependencies: 'peer',
+  optionalDependencies: 'optional',
+};
+
+/** Where a folder stands against the newest version any folder has. */
+export type CellStanding = 'newest' | 'behind' | 'same' | 'missing' | 'unknown';
+
+export const cellStanding = (row: CompareRow, at: number): CellStanding => {
+  const cell = row.cells[at];
+  const version = cellVersion(cell);
+  if (!cell) return 'missing';
+  if (!version || !row.highest) return 'unknown';
+  const highest = row.highest;
+  //? "Newest" only means something beside a folder that is behind — a row that differs only
+  //? because some folder lacks the package has nothing to rank
+  const anyBehind = row.cells.some((other) => {
+    const otherVersion = cellVersion(other);
+    return otherVersion !== undefined && compareVersions(otherVersion, highest) < 0;
+  });
+  if (!anyBehind) return 'same';
+  return compareVersions(version, highest) < 0 ? 'behind' : 'newest';
+};
+
+/**
+ * One sentence on what the row means, for someone who has not read the table yet: the same
+ * everywhere, or who is behind the newest version and where that newest version is, and which
+ * folders do not have the package at all.
+ */
+export const summarizeRow = (row: CompareRow, labels: string[]): string => {
+  const where = (standing: CellStanding) =>
+    labels.filter((_, at) => cellStanding(row, at) === standing);
+  const missing = where('missing');
+  const missingNote = missing.length ? `not a dependency in ${missing.join(', ')}` : '';
+  if (!row.differs) return `Same version everywhere: ${row.highest ?? '?'}`;
+  const behind = where('behind');
+  const parts = [
+    behind.length
+      ? `Behind the newest ${row.highest} (${where('newest').join(', ')}): ${behind.join(', ')}`
+      : `On ${row.highest} wherever it is declared`,
+    missingNote,
+  ];
+  return parts.filter(Boolean).join(' · ');
+};
+
+const STANDING_MARK: Record<CellStanding, string> = {
+  newest: ' ★',
+  behind: ' ↓',
+  same: '',
+  missing: '',
+  unknown: '',
+};
+
+/**
+ * The detail pane of the comparison: a sentence saying what the row means, then one labelled line
+ * per folder — installed version, declared range and section — and a key for the marks.
+ */
+const CompareDetail = ({ row, labels }: { row: CompareRow; labels: string[] }) => {
+  const colors = useColors();
+  const lines = labels.map((label, at) => {
+    const cell = row.cells[at];
+    const standing = cellStanding(row, at);
+    return {
+      label,
+      standing,
+      installed: cell ? `${cell.installed ?? 'not installed'}${STANDING_MARK[standing]}` : '—',
+      declared: cell ? cell.range : '—',
+      section: cell ? SECTION_LABEL[cell.type] : 'not a dependency',
+    };
+  });
+  const width = (values: string[], heading: string) =>
+    Math.max(heading.length, ...values.map((value) => value.length)) + 2;
+  const folderWidth = width(labels, 'FOLDER');
+  const installedWidth = width(
+    lines.map((line) => line.installed),
+    'INSTALLED',
+  );
+  const declaredWidth = width(
+    lines.map((line) => line.declared),
+    'DECLARED',
+  );
+  const standingColor = (standing: CellStanding) =>
+    standing === 'behind'
+      ? colors.warn
+      : standing === 'newest' || standing === 'same'
+        ? colors.ok
+        : colors.muted;
+
+  return (
+    <Box flexDirection="column">
+      <Text bold color={colors.heading} wrap="truncate">
+        {row.name}
+      </Text>
+      <Text color={row.differs ? colors.warn : colors.ok} wrap="wrap">
+        {summarizeRow(row, labels)}
+      </Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text color={colors.muted} bold wrap="truncate">
+          {`${'FOLDER'.padEnd(folderWidth)}${'INSTALLED'.padEnd(installedWidth)}${'DECLARED'.padEnd(declaredWidth)}SECTION`}
+        </Text>
+        {lines.map((line, at) => (
+          <Text key={line.label} wrap="truncate">
+            <Text color={at === 0 ? colors.accent : colors.text}>
+              {line.label.padEnd(folderWidth)}
+            </Text>
+            <Text color={standingColor(line.standing)}>
+              {line.installed.padEnd(installedWidth)}
+            </Text>
+            <Text color={colors.text}>{line.declared.padEnd(declaredWidth)}</Text>
+            <Text color={colors.muted}>{line.section}</Text>
+          </Text>
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <Text color={colors.muted} wrap="wrap">
+          ★ newest · ↓ behind the newest · INSTALLED is what node_modules has, DECLARED the range in
+          package.json · here is the folder pkgi was started in
+        </Text>
+      </Box>
+    </Box>
+  );
+};
 
 const SOURCE_LABEL: Record<FolderSource, string> = {
   config: 'pkgi.config.ts',
@@ -97,6 +266,9 @@ export const CompareView = ({
   );
   const [picking, setPicking] = useState(selection.length === 0);
   const [onlyDifferent, setOnlyDifferent] = useState(session.onlyDifferent);
+  const [filter, setFilter] = useState(session.compareFilter ?? '');
+  const viewport = useViewport();
+  const theme = useTuiTheme();
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.compare);
   const [pickId, setPickId] = useState<string | undefined>(undefined);
 
@@ -113,7 +285,17 @@ export const CompareView = ({
 
   const columns = loaded?.columns ?? [];
   const comparison = buildComparison(columns);
-  const rows = onlyDifferent ? comparison.filter((row) => row.differs) : comparison;
+  const rows = comparison.filter(
+    (row) =>
+      (!onlyDifferent || row.differs) &&
+      (!filter || row.name.toLowerCase().includes(filter.toLowerCase())),
+  );
+  const changeFilter = (value: string) => {
+    setFilter(value);
+    session.compareFilter = value;
+  };
+  const askFilter = () =>
+    prompt.ask('Filter packages:', (value) => changeFilter(value.trim()), { initial: filter });
   const current = rows.find((row) => row.name === currentId);
 
   // — the folder picker —
@@ -195,6 +377,8 @@ export const CompareView = ({
         return;
       }
       if (input === 'p' || input === 'f') setPicking(true);
+      else if (input === '/') askFilter();
+      else if (key.escape && filter) changeFilter('');
       else if (input === 'd') {
         setOnlyDifferent((was) => {
           session.onlyDifferent = !was;
@@ -371,10 +555,23 @@ export const CompareView = ({
     );
   }
 
-  const items: PickItem<CompareRow>[] = rows.map((row) => ({
+  const folderLabels = columns.map((column, at) => (at === 0 ? 'here' : column.label));
+  //? Room the table may take: the list's text width less, on the rows, the one-cell hint and its
+  //? space, and on the header, the `n/n` position the list draws at the right of its title row
+  const badge = `${rows.length}/${rows.length}`.length + 1;
+  const table = layoutCompareTable(
+    folderLabels,
+    rows.map((row) => ({
+      name: row.name,
+      versions: row.cells.map((cell) => cellVersion(cell) ?? '—'),
+    })),
+    listTextWidth(viewport.columns, theme) - Math.max(2, badge),
+  );
+  const items: PickItem<CompareRow>[] = rows.map((row, at) => ({
     id: row.name,
-    label: `${row.differs ? '≠' : ' '} ${row.name}`,
-    hint: row.cells.map((cell) => cellVersion(cell) ?? '—').join(' │ '),
+    label: table.lines[at] ?? row.name,
+    //? A one-cell hint on every row, so every label gets the same room and the columns line up
+    hint: row.differs ? '≠' : '=',
     hintColor: row.differs ? colors.warn : colors.muted,
     value: row,
   }));
@@ -382,6 +579,8 @@ export const CompareView = ({
   const differing = comparison.filter((row) => row.differs).length;
   const hints: Hint[] = [
     { key: 'p', label: 'folders', onPress: () => setPicking(true) },
+    { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
+    ...(filter ? [{ key: 'Esc', label: 'clear', onPress: () => changeFilter('') }] : []),
     {
       key: 'd',
       label: onlyDifferent ? 'show all' : `only different (${differing})`,
@@ -400,16 +599,25 @@ export const CompareView = ({
           <Text color={colors.muted} wrap="truncate">
             {isLoading && !loaded
               ? 'Reading every folder…'
-              : `${columns.map((column) => column.label).join(' │ ')} · ${comparison.length} packages · ${differing} differ`}
+              : `${rows.length} of ${comparison.length} packages · ${differing} differ${
+                  filter ? ` · matching "${filter}"` : ''
+                } · here = ${dir}`}
           </Text>
         )}
       </Box>
       <ListDetail
-        key={`${onlyDifferent}|${selectionKey}|${rows.length}`}
-        title={`Compare (${rows.length})`}
+        key={`${onlyDifferent}|${filter}|${selectionKey}|${rows.length}`}
+        //? The column headings, drawn by the list from the cell its rows' cursor marker starts in
+        title={`  ${table.header}`}
         items={items}
         emptyText={
-          isLoading ? 'Reading every folder…' : onlyDifferent ? 'No differences.' : 'No packages.'
+          isLoading
+            ? 'Reading every folder…'
+            : filter
+              ? 'No package matches the filter.'
+              : onlyDifferent
+                ? 'No differences.'
+                : 'No packages.'
         }
         detailTitle={current?.name ?? 'Package'}
         reservedChrome={['viewHeader']}
@@ -427,7 +635,6 @@ export const CompareView = ({
           const row = item?.value;
           if (!row) return null;
           const targets = behind(row);
-          const labelWidth = Math.max(8, ...columns.map((column) => column.label.length)) + 2;
           return (
             <Box flexDirection="column">
               <Toolbar
@@ -454,31 +661,7 @@ export const CompareView = ({
                   { hotkey: 'p', label: 'Folders…', onPress: () => setPicking(true) },
                 ]}
               />
-              <Text bold color={colors.heading}>
-                {row.name}
-              </Text>
-              {columns.map((column, at) => {
-                const cell = row.cells[at];
-                const version = cellVersion(cell);
-                const isHighest = version && version === row.highest;
-                return (
-                  <Box key={column.dir} flexDirection="row">
-                    <Box width={labelWidth} flexShrink={0}>
-                      <Text color={at === 0 ? colors.accent : colors.muted} wrap="truncate">
-                        {column.label}
-                      </Text>
-                    </Box>
-                    <Text
-                      color={!cell ? colors.muted : isHighest ? colors.ok : colors.warn}
-                      wrap="truncate"
-                    >
-                      {cell
-                        ? `${version ?? '?'}${cell.installed ? '' : ' (not installed)'}  ${cell.range} · ${cell.type}${isHighest && row.differs ? ' ★' : ''}`
-                        : '— not declared'}
-                    </Text>
-                  </Box>
-                );
-              })}
+              <CompareDetail row={row} labels={folderLabels} />
             </Box>
           );
         }}

@@ -1,8 +1,9 @@
 import { Text, useInput } from 'ink';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import ClearDataDialog, {
+  ClearButton,
   type ClearResult,
   type ClearTarget,
 } from '@/dev-tools/ui/components/ClearDataDialog';
@@ -126,6 +127,43 @@ export const SettingsView = ({
     );
   }
 
+  const detailFor = (item: PickItem<Setting> | undefined): ReactNode => {
+    const setting = item?.value;
+    if (!setting) return null;
+    if (setting.kind === 'theme') {
+      const theme = gitiTheme.palettes.find((t) => t.id === setting.id);
+      return (
+        <Box flexDirection="column">
+          <Text bold color={theme?.colors.accent}>
+            {theme?.label}
+          </Text>
+          <Text color={colors.muted}>{theme?.blurb}</Text>
+        </Box>
+      );
+    }
+    if (setting.kind === 'clear') {
+      return (
+        <Text color={colors.muted} wrap="wrap">
+          Remove giti's config (theme, refresh rate) and state (last tab, Overview details) from
+          disk, after a confirmation that lists both. giti quits afterwards and starts from its
+          defaults next time.
+        </Text>
+      );
+    }
+    return (
+      <Box flexDirection="column">
+        <Text bold color={colors.accent}>
+          {refreshLabel(setting.seconds)}
+        </Text>
+        <Text color={colors.muted} wrap="wrap">
+          {setting.seconds === 0
+            ? 'Only the file watcher keeps the dashboard current — a change it misses shows after [r] or the next action.'
+            : `The repository is re-read every ${setting.seconds}s in the background, on top of the file watcher, so nothing stays stale for longer than that.`}
+        </Text>
+      </Box>
+    );
+  };
+
   return (
     <ListDetail
       title="Settings"
@@ -138,42 +176,12 @@ export const SettingsView = ({
       onActivate={(item) => apply(item.value)}
       hints={canClear ? [{ key: 'X', label: 'clear all', onPress: () => setClearing(true) }] : []}
       onSelectionChange={(item) => setCurrent(item?.value)}
-      renderDetail={(item) => {
-        const setting = item?.value;
-        if (!setting) return null;
-        if (setting.kind === 'theme') {
-          const theme = gitiTheme.palettes.find((t) => t.id === setting.id);
-          return (
-            <Box flexDirection="column">
-              <Text bold color={theme?.colors.accent}>
-                {theme?.label}
-              </Text>
-              <Text color={colors.muted}>{theme?.blurb}</Text>
-            </Box>
-          );
-        }
-        if (setting.kind === 'clear') {
-          return (
-            <Text color={colors.muted} wrap="wrap">
-              Remove giti's config (theme, refresh rate) and state (last tab, Overview details) from
-              disk, after a confirmation that lists both. giti quits afterwards and starts from its
-              defaults next time.
-            </Text>
-          );
-        }
-        return (
-          <Box flexDirection="column">
-            <Text bold color={colors.accent}>
-              {refreshLabel(setting.seconds)}
-            </Text>
-            <Text color={colors.muted} wrap="wrap">
-              {setting.seconds === 0
-                ? 'Only the file watcher keeps the dashboard current — a change it misses shows after [r] or the next action.'
-                : `The repository is re-read every ${setting.seconds}s in the background, on top of the file watcher, so nothing stays stale for longer than that.`}
-            </Text>
-          </Box>
-        );
-      }}
+      renderDetail={(item) => (
+        <Box flexDirection="column">
+          {canClear && <ClearButton onPress={() => setClearing(true)} />}
+          {detailFor(item)}
+        </Box>
+      )}
     />
   );
 };

@@ -3,6 +3,7 @@ import { Text, useApp, useInput } from 'ink';
 import { useCallback, useState } from 'react';
 
 import AppShell from '@/dev-tools/ui/components/AppShell';
+import type { ClearResult } from '@/dev-tools/ui/components/ClearDataDialog';
 import type { FooterAction } from '@/dev-tools/ui/components/Footer';
 import type { TabDefinition } from '@/dev-tools/ui/components/TabStrip';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
@@ -10,8 +11,10 @@ import { nextThemeId } from '@/dev-tools/ui/theme';
 
 import {
   type AgentiSettings,
+  configStore,
   hasOwnIde,
   ideIdsFor,
+  stateStore,
   type TabId,
   toggleRepoIde,
   withRepoIde,
@@ -22,8 +25,8 @@ import agentiTheme from '../theme';
 import type { Handoff, Session, Tone } from '../types';
 import AgentsView from '../views/AgentsView';
 import HealthView from '../views/HealthView';
-import IdeView from '../views/IdeView';
 import McpView from '../views/McpView';
+import SettingsView from '../views/SettingsView';
 import SkillsView from '../views/SkillsView';
 
 /**
@@ -37,7 +40,7 @@ export const TABS: readonly TabDefinition<TabId>[] = [
   { id: 'mcp', icon: '🔌', label: '🔌 MCP' },
   { id: 'skills', icon: '🧩', label: '🧩 Skills' },
   { id: 'health', icon: '🩺', label: '🩺 Health' },
-  { id: 'ide', icon: '💻', label: '💻 IDE' },
+  { id: 'settings', icon: '🔧', label: '🔧 Settings' },
 ];
 
 export const isTabId = (value: string | undefined): value is TabId =>
@@ -53,6 +56,8 @@ export interface AppProps {
   onSettingsChange: (settings: AgentiSettings) => void;
   /** Hand the terminal back to the CLI for something that needs it, then reopen. */
   onHandoff: (intent: Handoff) => void;
+  /** The Clear dialog ran: report it once the terminal is back. */
+  onCleared: (results: ClearResult[]) => void;
 }
 
 const StatusNote = ({ text, tone }: { text: string; tone: Tone }) => {
@@ -88,6 +93,7 @@ export const App = ({
   notice,
   onSettingsChange,
   onHandoff,
+  onCleared,
 }: AppProps) => {
   const { exit } = useApp();
   const [settings, setSettings] = useState(initialSettings);
@@ -222,10 +228,28 @@ export const App = ({
       {tab === 'mcp' && <McpView key={ide.id} {...viewProps} />}
       {tab === 'skills' && <SkillsView {...viewProps} />}
       {tab === 'health' && <HealthView {...viewProps} />}
-      {tab === 'ide' && (
-        <IdeView
+      {tab === 'settings' && (
+        <SettingsView
           {...viewProps}
           settingsPath={settingsPath}
+          statePath={stateStore.path}
+          themeId={settings.theme}
+          onThemeChange={(theme) => updateSettings({ ...settings, theme })}
+          clearTargets={[
+            { id: 'config', label: 'Settings', store: configStore, detail: 'theme, logo drawing' },
+            {
+              id: 'state',
+              label: 'State',
+              store: stateStore,
+              detail: 'IDEs per repository, last tab',
+            },
+          ]}
+          onCleared={(results) => {
+            onCleared(results);
+            //? Quit rather than carry on: the next tab switch or IDE pick would write the files
+            //? straight back from what is still in memory
+            exit();
+          }}
           hasOwnChoice={hasOwnIde(settings, root)}
           onSelectIde={(id) => {
             updateSettings(withRepoIde(settings, root, id));

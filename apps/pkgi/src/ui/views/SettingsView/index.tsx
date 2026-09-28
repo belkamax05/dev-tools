@@ -6,9 +6,11 @@ import { useMemo, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import ClearDataDialog, {
+  ClearButton,
   type ClearResult,
   type ClearTarget,
 } from '@/dev-tools/ui/components/ClearDataDialog';
+import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
@@ -395,9 +397,12 @@ export const SettingsView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>
         {prompt.line ?? (
-          <Text color={colors.muted} wrap="truncate">
-            {`Saved per folder in ${context.statePath}`}
-          </Text>
+          <LinkRow
+            label="Saved per folder in"
+            labelWidth={20}
+            value={context.statePath}
+            onOpen={() => apply({ kind: 'stateFile' })}
+          />
         )}
       </Box>
       <ListDetail
@@ -423,6 +428,7 @@ export const SettingsView = ({
           if (!setting) return null;
           return (
             <Box flexDirection="column">
+              <ClearButton onPress={() => setClearing(true)} />
               {key && key in state.settings && (
                 <Toolbar
                   actions={[{ hotkey: 'x', label: 'Drop the override', onPress: () => reset(key) }]}

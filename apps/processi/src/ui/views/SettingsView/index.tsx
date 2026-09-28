@@ -1,8 +1,9 @@
 import { Text, useInput } from 'ink';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import ClearDataDialog, {
+  ClearButton,
   type ClearResult,
   type ClearTarget,
 } from '@/dev-tools/ui/components/ClearDataDialog';
@@ -123,6 +124,49 @@ export const SettingsView = ({
     );
   }
 
+  const detailFor = (item: PickItem<Setting> | undefined): ReactNode => {
+    const setting = item?.value;
+    if (!setting) return null;
+    if (setting.kind === 'theme') {
+      const theme = processiTheme.palettes.find((candidate) => candidate.id === setting.id);
+      return (
+        <Box flexDirection="column">
+          <Text bold color={theme?.colors.accent}>
+            {theme?.label}
+          </Text>
+          <Text color={colors.muted}>{theme?.blurb}</Text>
+        </Box>
+      );
+    }
+    if (setting.kind === 'refresh') {
+      return (
+        <Text color={colors.muted} wrap="wrap">
+          {setting.seconds === 0
+            ? 'The table is read when a tab opens, after an action and on [r] — never on its own.'
+            : `The process table is re-read every ${setting.seconds}s, and CPU is what each process used over that interval. The timer stops while a question is on screen.`}
+        </Text>
+      );
+    }
+    if (setting.kind === 'clear') {
+      return (
+        <Text color={colors.muted} wrap="wrap">
+          Remove processi's config (theme, refresh rate) and state (last tab, sort, scope) from
+          disk, after a confirmation that lists both. processi quits afterwards and starts from its
+          defaults next time.
+        </Text>
+      );
+    }
+    return (
+      <Box flexDirection="column">
+        <Text color={colors.text}>{configPath}</Text>
+        <Text color={colors.muted} wrap="wrap">
+          Plain JSON, safe to keep in dotfiles. The tab, sort and scope are kept apart, in
+          processi's state directory.
+        </Text>
+      </Box>
+    );
+  };
+
   return (
     <ListDetail
       title="Settings"
@@ -139,48 +183,12 @@ export const SettingsView = ({
         setCurrent(item?.value);
         session.selected.settings = item?.id;
       }}
-      renderDetail={(item) => {
-        const setting = item?.value;
-        if (!setting) return null;
-        if (setting.kind === 'theme') {
-          const theme = processiTheme.palettes.find((candidate) => candidate.id === setting.id);
-          return (
-            <Box flexDirection="column">
-              <Text bold color={theme?.colors.accent}>
-                {theme?.label}
-              </Text>
-              <Text color={colors.muted}>{theme?.blurb}</Text>
-            </Box>
-          );
-        }
-        if (setting.kind === 'refresh') {
-          return (
-            <Text color={colors.muted} wrap="wrap">
-              {setting.seconds === 0
-                ? 'The table is read when a tab opens, after an action and on [r] — never on its own.'
-                : `The process table is re-read every ${setting.seconds}s, and CPU is what each process used over that interval. The timer stops while a question is on screen.`}
-            </Text>
-          );
-        }
-        if (setting.kind === 'clear') {
-          return (
-            <Text color={colors.muted} wrap="wrap">
-              Remove processi's config (theme, refresh rate) and state (last tab, sort, scope) from
-              disk, after a confirmation that lists both. processi quits afterwards and starts from
-              its defaults next time.
-            </Text>
-          );
-        }
-        return (
-          <Box flexDirection="column">
-            <Text color={colors.text}>{configPath}</Text>
-            <Text color={colors.muted} wrap="wrap">
-              Plain JSON, safe to keep in dotfiles. The tab, sort and scope are kept apart, in
-              processi's state directory.
-            </Text>
-          </Box>
-        );
-      }}
+      renderDetail={(item) => (
+        <Box flexDirection="column">
+          <ClearButton onPress={() => setClearing(true)} />
+          {detailFor(item)}
+        </Box>
+      )}
     />
   );
 };
