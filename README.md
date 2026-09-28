@@ -29,6 +29,13 @@ The Nix side (`nix/packages/*.nix`: latest bun from nixos-unstable, git-subrepo)
 `nix/lib/mk-env.nix`, and the embedding repo's packages win on a name clash. See
 dfs-fe-internal's `nix/env.nix`.
 
+The Nix *shell* (`nix-shell`, direnv) also installs npm packages on entry: every folder an env
+module lists under `install` gets `pkgi install --frozen --if-changed` — the package manager
+`packageManager` names, installing exactly what its lockfile pins, and nothing at all while
+`node_modules` already matches it. dev-tools' own `env.nix` lists this repo; an embedding repo
+lists its own root. `include`'s global profile never installs. `DEV_TOOLS_AUTO_INSTALL=0` opts
+out.
+
 ## Layout
 
 ```

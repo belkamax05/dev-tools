@@ -96,24 +96,56 @@ export const readManifest = async (
   };
 };
 
-const LOCKFILES: [string, PackageManagerName][] = [
-  ['bun.lock', 'bun'],
-  ['bun.lockb', 'bun'],
-  ['pnpm-lock.yaml', 'pnpm'],
-  ['yarn.lock', 'yarn'],
-  ['package-lock.json', 'npm'],
-  ['npm-shrinkwrap.json', 'npm'],
-];
+/** Each manager's lockfiles, the one it writes today first. */
+export const LOCKFILE_NAMES: Record<PackageManagerName, string[]> = {
+  bun: ['bun.lock', 'bun.lockb'],
+  pnpm: ['pnpm-lock.yaml'],
+  yarn: ['yarn.lock'],
+  npm: ['package-lock.json', 'npm-shrinkwrap.json'],
+};
+
+const LOCKFILES = Object.entries(LOCKFILE_NAMES).flatMap(([name, files]) =>
+  files.map((file) => [file, name as PackageManagerName] as const),
+);
+
+/** The lockfile `manager` keeps in `dir` itself, if it has written one there yet. */
+export const findLockfile = (dir: string, manager: PackageManagerName): string | undefined =>
+  LOCKFILE_NAMES[manager].map((file) => join(dir, file)).find((path) => existsSync(path));
 
 export interface DetectedManager {
   name: PackageManagerName;
   /** How it was decided — shown in the Settings tab so the choice is never a mystery. */
   reason: string;
+  /** The exact version `packageManager` pins (`bun@1.4.2` → `1.4.2`), when that decided it. */
+  version?: string;
+  /** The folder the decision was read from — a workspace member's is its root. */
+  root?: string;
 }
 
+/** `bun@1.4.2`, `pnpm@9.1.0+sha512.…` → name and version, or undefined for anything else. */
+export const parsePackageManagerField = (
+  field: unknown,
+): { name: PackageManagerName; version?: string } | undefined => {
+  if (typeof field !== 'string') return undefined;
+  const [name, version] = field.split('+')[0]?.split('@') ?? [];
+  if (!name || !(name in LOCKFILE_NAMES)) return undefined;
+  return { name: name as PackageManagerName, version: version || undefined };
+};
+
+const readPackageManagerField = async (dir: string) => {
+  try {
+    const pkg = (await Bun.file(join(dir, 'package.json')).json()) as { packageManager?: unknown };
+    const parsed = parsePackageManagerField(pkg.packageManager);
+    return parsed && { ...parsed, field: pkg.packageManager as string };
+  } catch {
+    return undefined;
+  }
+};
+
 /**
- * Which package manager this folder uses: the setting if there is one, else the nearest lockfile
- * (a workspace member's is at the root), else `package.json`'s `packageManager` field, else npm.
+ * Which package manager this folder uses: the setting if there is one, else the nearest folder
+ * (this one, then each parent — a workspace member's is the root) that says so, where
+ * `package.json`'s `packageManager` field outranks a lockfile beside it, else npm.
  */
 export const detectPackageManager = async (
   dir: string,
@@ -122,24 +154,23 @@ export const detectPackageManager = async (
   if (forced) return { name: forced, reason: 'set in pkgi settings' };
   let at = dir;
   while (true) {
+    const where = at === dir ? '' : ` in ${at}`;
+    const declared = await readPackageManagerField(at);
+    if (declared) {
+      return {
+        name: declared.name,
+        version: declared.version,
+        root: at,
+        reason: `packageManager field (${declared.field})${where}`,
+      };
+    }
     for (const [file, name] of LOCKFILES) {
-      if (existsSync(join(at, file))) {
-        return { name, reason: at === dir ? file : `${file} in ${at}` };
-      }
+      if (existsSync(join(at, file))) return { name, root: at, reason: `${file}${where}` };
     }
     const parent = dirname(at);
     if (parent === at) break;
     at = parent;
   }
-  try {
-    const field = (
-      (await Bun.file(join(dir, 'package.json')).json()) as { packageManager?: string }
-    ).packageManager;
-    const name = field?.split('@')[0] as PackageManagerName | undefined;
-    if (name && LOCKFILES.some(([, known]) => known === name)) {
-      return { name, reason: `packageManager field (${field})` };
-    }
-  } catch {}
   return { name: 'npm', reason: 'no lockfile found — npm by default' };
 };
 
@@ -221,6 +252,33 @@ export const removeCommand = (manager: PackageManagerName, names: string[]): str
   ...REMOVE[manager],
   ...names,
 ];
+
+/**
+ * Install everything the manifest declares. `frozen` installs exactly what the lockfile pins and
+ * fails rather than rewrite it — the same versions anyone running the manager's plain install
+ * gets from that lockfile. Yarn's flag depends on its generation: v1 has `--frozen-lockfile`,
+ * Berry (2+, recognised by its version or its `.yarnrc.yml`) `--immutable`.
+ */
+export const installCommand = (
+  manager: PackageManagerName,
+  { frozen = false, version, dir }: { frozen?: boolean; version?: string; dir?: string } = {},
+): string[] => {
+  if (!frozen) return [manager, 'install'];
+  switch (manager) {
+    case 'npm':
+      return ['npm', 'ci'];
+    case 'yarn': {
+      const major = version ? Number.parseInt(version, 10) : undefined;
+      const berry =
+        major !== undefined
+          ? major >= 2
+          : dir !== undefined && existsSync(join(dir, '.yarnrc.yml'));
+      return ['yarn', 'install', berry ? '--immutable' : '--frozen-lockfile'];
+    }
+    default:
+      return [manager, 'install', '--frozen-lockfile'];
+  }
+};
 
 /** Quote a command for display, and for `sh -c` when several run in a row. */
 export const shellQuote = (argv: string[]): string =>

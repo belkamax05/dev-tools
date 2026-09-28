@@ -28,9 +28,26 @@ export const IDE_STRIP_KEYS = ['!', '@', '#', '$', '%', '^', '&', '*', '('] as c
 const stateLabel = (isOn: boolean, isPrimary: boolean, isHolding = false) =>
   isHolding && !isPrimary ? '◔ hold…' : isPrimary ? '▣ primary' : isOn ? '▣ on' : '▢ off';
 
-/** Cells a chip takes: the logo and the space after it, the wider of its two lines, the gap. */
+/** The widest the state line gets, whatever state the IDE is in. */
+const STATE_COLS = Math.max(
+  ...[
+    stateLabel(true, true),
+    stateLabel(true, false),
+    stateLabel(false, false),
+    stateLabel(false, false, true),
+  ].map((label) => label.length),
+);
+
+/**
+ * The text column's width — fixed, not sized to what it says. A chip that grew
+ * from "on" to "primary" would push every logo after it along, and a terminal
+ * that keeps images in cells (xterm.js) then has to wipe the screen to move them.
+ */
+const textCols = (ide: IdeDefinition) => Math.max(ide.name.length, STATE_COLS);
+
+/** Cells a chip takes: the logo and the space after it, its text, the gap. */
 const chipWidth = (ide: IdeDefinition, withLogo: boolean) =>
-  (withLogo ? LOGO_COLS + 1 : 0) + Math.max(ide.name.length, stateLabel(true, true).length) + 2;
+  (withLogo ? LOGO_COLS + 1 : 0) + textCols(ide) + 2;
 
 interface ChipProps {
   ide: IdeDefinition;
@@ -94,7 +111,7 @@ const Chip = ({
           />
         </Box>
       )}
-      <Box flexDirection="column">
+      <Box flexDirection="column" width={textCols(ide)} flexShrink={0}>
         <Text
           color={nameColor}
           bold={isShown}

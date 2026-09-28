@@ -7,9 +7,42 @@ import {
   type RasterTechnique,
   type Subject,
 } from '../../../terminal-canvas/index.ts';
-import { onFrame } from '../../terminal/frames';
+import { emitFrame, onFrame } from '../../terminal/frames';
 
 const ESC = '\u001B';
+
+/** Erase the whole display — see `requestWipe`. */
+const ERASE_DISPLAY = `${ESC}[2J`;
+
+let wipePending = false;
+
+/**
+ * Clear every cell on screen, have Ink put its text straight back, and have
+ * every overlay repaint — once, however many ask in the same tick.
+ *
+ * Needed wherever a picture moves or goes away, because a terminal can keep an
+ * image in the cells it covered rather than in a layer above them. xterm.js —
+ * the terminal in VS Code and every editor built on it — does exactly that:
+ * each cell holds a tile of the image, writing text over the cell keeps the
+ * tile, and once the image is replaced or deleted the orphaned tiles are drawn
+ * as grey placeholder blocks, until the cell is erased. Only a full-line erase
+ * drops them (`ED 2` resets each line); erasing a range, as Ink does when it
+ * rewrites a line, does not. kitty removes an old placement itself, so this
+ * runs only where `imagesInCells` says it is needed.
+ *
+ * Through Ink's `write`, not the raw stream: Ink erases its frame, lets the
+ * write through and redraws the frame after it, so the text is back within the
+ * same write. The pictures come back on the frame event that follows.
+ */
+const requestWipe = (write: (data: string) => void) => {
+  if (wipePending) return;
+  wipePending = true;
+  setTimeout(() => {
+    wipePending = false;
+    write(ERASE_DISPLAY);
+    emitFrame();
+  }, 0);
+};
 
 /**
  * The terminal addresses cells from 1; Ink lays out from 0. The app owns the
@@ -121,6 +154,11 @@ export interface RasterOverlayOptions {
   cellWidth: number;
   cellHeight: number;
   /**
+   * The terminal keeps images in cells (`GraphicsSupport.imagesInCells`): a
+   * picture that moves or goes away wipes the screen, or leaves grey blocks.
+   */
+  imagesInCells?: boolean;
+  /**
    * Which image this is, for a protocol that keeps one picture per id (kitty).
    * Leave it out for a lone image; give each its own when several share the
    * screen, or each paint replaces the last.
@@ -143,8 +181,18 @@ export interface RasterOverlayOptions {
  * the canvas is not at the same row twice.
  */
 export function useRasterOverlay(options: RasterOverlayOptions): void {
-  const { technique, subject, time, animating, target, cellWidth, cellHeight, imageId } = options;
-  const { stdout } = useStdout();
+  const {
+    technique,
+    subject,
+    time,
+    animating,
+    target,
+    cellWidth,
+    cellHeight,
+    imagesInCells = false,
+    imageId,
+  } = options;
+  const { stdout, write } = useStdout();
 
   // The framebuffer is large and the subject overwrites every pixel, so it is
   // kept across frames and only reallocated when the geometry changes.
@@ -158,6 +206,8 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
   // here so a frame this component did not cause can schedule it too.
   const paintRef = useRef<(() => void) | undefined>(undefined);
   const pendingRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Where the picture was last painted, so a move can wipe what it left behind.
+  const placedRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!technique) {
@@ -176,6 +226,16 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
       // from the wrong one spills over whatever is next to it.
       const { x, y, width: cols, height: rows } = measureElement(node);
       if (cols <= 0 || rows <= 0) return;
+
+      //? Moved or resized: the old cells may still hold the old picture. Wipe
+      //? rather than paint — the frame after the wipe paints it here
+      const placed = `${x},${y},${cols}x${rows}`;
+      if (imagesInCells && placedRef.current !== undefined && placedRef.current !== placed) {
+        placedRef.current = placed;
+        requestWipe(write);
+        return;
+      }
+      placedRef.current = placed;
 
       const { width, height } = rasterPixelSize(cols, rows, cellWidth, cellHeight, {
         animated: subject.animated,
@@ -230,8 +290,10 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
     return () => {
       frameRef.current = undefined;
       stdout.write(clearRasterArtifacts(imageId));
+      if (imagesInCells && placedRef.current !== undefined) requestWipe(write);
+      placedRef.current = undefined;
     };
-  }, [technique, stdout, imageId]);
+  }, [technique, stdout, write, imageId, imagesInCells]);
 }
 
 export default useRasterOverlay;

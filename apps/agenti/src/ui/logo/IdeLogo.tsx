@@ -59,6 +59,7 @@ export const IdeLogo = ({ ide, mode, maxCols, maxRows, imageId }: IdeLogoProps) 
     target: ref,
     cellWidth: support.cellWidth,
     cellHeight: support.cellHeight,
+    imagesInCells: support.imagesInCells,
     imageId,
   });
 

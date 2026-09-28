@@ -7,5 +7,9 @@
 import ./lib/mk-env.nix {
   inherit pkgs;
   name = "dev-tools";
-  modules = [ (import ./module.nix { inherit pkgs unstable; }) ];
+  modules = [
+    (import ./module.nix { inherit pkgs unstable; })
+    # Standalone only: installs dev-tools' own packages in its shell.
+    { install = [ (toString ../.) ]; }
+  ];
 }

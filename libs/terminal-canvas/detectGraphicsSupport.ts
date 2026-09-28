@@ -26,6 +26,14 @@ export interface GraphicsSupport {
   sixel: boolean;
   iterm2: boolean;
   truecolor: boolean;
+  /**
+   * Whether the terminal keeps an image in the text cells it covers rather than
+   * in a layer above them — xterm.js, so VS Code and every editor built on it.
+   * There, replacing or deleting an image leaves its tiles behind in the cells,
+   * drawn as grey placeholders until the cells are erased; see
+   * `useRasterOverlay`. No query answers this, so it comes from the environment.
+   */
+  imagesInCells: boolean;
   /** Cell size in device pixels. Falls back to a common 10x20 if unmeasurable. */
   cellWidth: number;
   cellHeight: number;
@@ -59,6 +67,9 @@ function sniffEnv(): GraphicsSupport {
   const isIterm2 = program === 'iTerm.app' || env.LC_TERMINAL === 'iTerm2';
   const isKonsole = Boolean(env.KONSOLE_VERSION);
   const isFoot = term.includes('foot');
+  //? Every xterm.js host: VS Code and its forks (Cursor, Windsurf, Antigravity,
+  //? Devin…) all keep VS Code's TERM_PROGRAM
+  const isXtermJs = ['vscode', 'Hyper', 'Tabby'].includes(program);
 
   return {
     kitty: isKitty || isGhostty || isWezTerm,
@@ -68,6 +79,7 @@ function sniffEnv(): GraphicsSupport {
     sixel: isFoot || isWezTerm || isKonsole,
     iterm2: isIterm2 || isWezTerm,
     truecolor: env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit',
+    imagesInCells: isXtermJs,
     cellWidth: DEFAULT_CELL_WIDTH,
     cellHeight: DEFAULT_CELL_HEIGHT,
     cellSizeSource: 'assumed',
@@ -141,6 +153,7 @@ export function detectGraphicsSupport(): Promise<GraphicsSupport> {
         sixel: da1 ? attributes.includes('4') : fallback.sixel,
         iterm2: fallback.iterm2,
         truecolor: true,
+        imagesInCells: fallback.imagesInCells,
         cellWidth: cell.width,
         cellHeight: cell.height,
         cellSizeSource: cell.source,
