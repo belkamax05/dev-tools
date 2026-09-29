@@ -15,11 +15,13 @@ export interface InstallStamp {
   manager: PackageManagerName;
   lockfile: string;
   hash: string;
+  /** The Nix build this node_modules was copied from, when `pkgi install --nix` put it there. */
+  store?: string;
 }
 
 export const stampPath = (dir: string) => join(dir, 'node_modules', '.pkgi-install.json');
 
-const hashFile = async (path: string) =>
+export const hashFile = async (path: string) =>
   new Bun.CryptoHasher('sha256').update(await Bun.file(path).arrayBuffer()).digest('hex');
 
 const currentStamp = async (
@@ -31,16 +33,21 @@ const currentStamp = async (
   hash: await hashFile(lockfile),
 });
 
-/** True when `node_modules` was last installed by pkgi from exactly this lockfile, by this manager. */
+/**
+ * True when `node_modules` was last installed by pkgi from exactly this lockfile, by this manager
+ * — with `fromNix`, only when it was copied from a Nix build of it that is still in the store.
+ */
 export const isInstallCurrent = async (
   dir: string,
   manager: PackageManagerName,
   lockfile: string | undefined,
+  { fromNix = false }: { fromNix?: boolean } = {},
 ): Promise<boolean> => {
   if (!lockfile || !existsSync(stampPath(dir))) return false;
   try {
     const stamp = (await Bun.file(stampPath(dir)).json()) as Partial<InstallStamp>;
     const now = await currentStamp(manager, lockfile);
+    if (fromNix && !(stamp.store && existsSync(stamp.store))) return false;
     return (
       stamp.manager === now.manager && stamp.lockfile === now.lockfile && stamp.hash === now.hash
     );
@@ -53,9 +60,14 @@ export const writeInstallStamp = async (
   dir: string,
   manager: PackageManagerName,
   lockfile: string,
+  store?: string,
 ) => {
+  const stamp: InstallStamp = {
+    ...(await currentStamp(manager, lockfile)),
+    ...(store && { store }),
+  };
   await mkdir(dirname(stampPath(dir)), { recursive: true });
-  await writeFile(stampPath(dir), `${JSON.stringify(await currentStamp(manager, lockfile))}\n`);
+  await writeFile(stampPath(dir), `${JSON.stringify(stamp)}\n`);
 };
 
 /**

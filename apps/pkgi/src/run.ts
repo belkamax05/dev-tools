@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import exec from '@/dev-tools/utils/process/exec';
 
@@ -14,6 +14,7 @@ import {
 } from './config/settings';
 import { buildComparison, cellVersion, loadColumns, toAbsolute } from './core/compare';
 import {
+  hashFile,
   isInstallCurrent,
   managerVersionMismatch,
   stampPath,
@@ -24,11 +25,19 @@ import {
   detectPackageManager,
   findLockfile,
   installCommand,
+  lockfileOnlyCommand,
   readManifest,
   removeCommand,
   setVersionCommand,
   shellQuote,
 } from './core/manifest';
+import {
+  buildManifest,
+  buildNodeModules,
+  OWN_LIFECYCLE,
+  placeNodeModules,
+  pruneBuilds,
+} from './core/nix';
 import { buildRows, fetchInfos, isOutdated } from './core/packages';
 
 const HELP = `pkgi — the packages of the folder you are in: installed, latest, notes, compare
@@ -41,7 +50,7 @@ usage:
   pkgi outdated [--json]          the ones with a newer version; exits 1 when there are any
   pkgi update <pkg>[@version]...  move packages to a version (latest by default), keeping
                                   their section and range style (^, ~, exact)
-  pkgi install [--frozen] [--if-changed] [--print-watched]
+  pkgi install [--frozen | --nix] [--if-changed] [--print-watched]
                                   install everything, with the package manager
                                   package.json's packageManager names (else the
                                   lockfile's), from the workspace root. --frozen
@@ -50,7 +59,10 @@ usage:
                                   generated); --if-changed does nothing when
                                   node_modules already matches the lockfile;
                                   --print-watched installs nothing and prints the
-                                  files whose change means installing again
+                                  files whose change means installing again;
+                                  --nix builds node_modules in the Nix store from
+                                  the lockfile alone (any manager's) and copies it
+                                  in - same lockfile, same store path
   pkgi add <pkg>[@version]... [--dev]
   pkgi remove <pkg>...
   pkgi compare [path...] [--different] [--json]
@@ -98,6 +110,65 @@ const runCommand = async (dir: string, argv: string[], dryRun: boolean) => {
   if (dryRun) return;
   const result = await exec(argv, { cwd: dir, stream: true });
   if (result.exitCode !== 0) process.exitCode = result.exitCode;
+};
+
+/**
+ * `pkgi install --nix`: node_modules as a Nix build of the lockfile (see core/nix and dev-tools'
+ * nix/lib/node-modules.nix). Keyed by the lockfile's hash alone — whether `bun add`, a pull or a
+ * checkout wrote it doesn't matter. Without a lockfile yet, the manager writes one first.
+ */
+const installThroughNix = async (
+  root: string,
+  manager: Awaited<ReturnType<typeof detectPackageManager>>,
+  found: string | undefined,
+  ifChanged: boolean,
+  dryRun: boolean,
+) => {
+  let lockfile = found;
+  if (!lockfile) {
+    console.log(`No ${manager.name} lockfile in ${root} yet — writing one.`);
+    await runCommand(root, lockfileOnlyCommand(manager.name), dryRun);
+    lockfile = findLockfile(root, manager.name);
+    if (dryRun) return;
+    if (!lockfile) {
+      console.error(`pkgi: ${manager.name} wrote no lockfile in ${root}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  if (ifChanged && (await isInstallCurrent(root, manager.name, lockfile, { fromNix: true })))
+    return;
+  const mismatch = await managerVersionMismatch(manager.name, manager.version);
+  if (mismatch) {
+    console.error(
+      `pkgi: package.json pins ${manager.name}@${manager.version}, but ${manager.name} on PATH is ${mismatch} — the build uses the one on PATH`,
+    );
+  }
+  const key = (await hashFile(lockfile)).slice(0, 32);
+  try {
+    const manifest = await buildManifest(root, manager.name, lockfile, manager.version);
+    console.log(
+      `pkgi: node_modules for ${basename(lockfile)} ${key.slice(0, 12)} — ${manifest.tarballs.length} packages, built by Nix`,
+    );
+    if (dryRun) return;
+    const out = await buildNodeModules(root, manifest, key);
+    await placeNodeModules(root, out, manifest.workspaces);
+    await writeInstallStamp(root, manager.name, lockfile, out);
+    await pruneBuilds(root);
+    console.log(`pkgi: node_modules ← ${out}`);
+    for (const dir of manifest.workspaces) {
+      const at = join(root, dir);
+      const scripts =
+        ((await Bun.file(join(at, 'package.json')).json()) as { scripts?: Record<string, string> })
+          .scripts ?? {};
+      for (const name of OWN_LIFECYCLE) {
+        if (scripts[name]) await runCommand(at, [manager.name, 'run', name], false);
+      }
+    }
+  } catch (error) {
+    console.error(`pkgi: ${(error as Error).message}`);
+    process.exitCode = 1;
+  }
 };
 
 /** `name@1.2.3` → ['name', '1.2.3']; `@scope/name` keeps its leading `@`. */
@@ -211,6 +282,10 @@ export const run = async (...argv: string[]) => {
     const lockfile = findLockfile(root, manager.name);
     if (flags.has('--print-watched')) {
       for (const path of [stampPath(root), ...(lockfile ? [lockfile] : [])]) console.log(path);
+      return;
+    }
+    if (flags.has('--nix')) {
+      await installThroughNix(root, manager, lockfile, flags.has('--if-changed'), dryRun);
       return;
     }
     if (flags.has('--if-changed') && (await isInstallCurrent(root, manager.name, lockfile))) return;

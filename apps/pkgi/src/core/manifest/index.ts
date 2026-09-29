@@ -254,6 +254,21 @@ export const removeCommand = (manager: PackageManagerName, names: string[]): str
 ];
 
 /**
+ * Write the lockfile without installing, for a folder that has none yet. Classic Yarn has no
+ * lockfile-only mode, so it installs.
+ */
+export const lockfileOnlyCommand = (manager: PackageManagerName): string[] => {
+  switch (manager) {
+    case 'npm':
+      return ['npm', 'install', '--package-lock-only'];
+    case 'yarn':
+      return ['yarn', 'install'];
+    default:
+      return [manager, 'install', '--lockfile-only'];
+  }
+};
+
+/**
  * Install everything the manifest declares. `frozen` installs exactly what the lockfile pins and
  * fails rather than rewrite it — the same versions anyone running the manager's plain install
  * gets from that lockfile. Yarn's flag depends on its generation: v1 has `--frozen-lockfile`,

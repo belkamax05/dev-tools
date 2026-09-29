@@ -109,7 +109,7 @@ await check('install: only the shell runs pkgi, for the folders env.nix lists', 
 
   assertEqual(install, [root]);
   const pkgi = join(root, 'bin/pkgi');
-  if (!installScript.includes(`${pkgi} install --frozen --if-changed`))
+  if (!installScript.includes(`${pkgi} install --nix --if-changed`))
     throw new Error(`install script doesn't run ${pkgi}:\n${installScript}`);
   if (!installScript.includes('watch_file') || !installScript.includes('--print-watched'))
     throw new Error(`install script doesn't have direnv watch pkgi's files:\n${installScript}`);

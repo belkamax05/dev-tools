@@ -30,9 +30,10 @@ The Nix side (`nix/packages/*.nix`: latest bun from nixos-unstable, git-subrepo)
 dfs-fe-internal's `nix/env.nix`.
 
 The Nix *shell* (`nix-shell`, direnv) also installs npm packages on entry: every folder an env
-module lists under `install` gets `pkgi install --frozen --if-changed` — the package manager
-`packageManager` names, installing exactly what its lockfile pins, and nothing at all while
-`node_modules` already matches it. dev-tools' own `env.nix` lists this repo; an embedding repo
+module lists under `install` gets `pkgi install --nix --if-changed` — node_modules built in the Nix
+store from the lockfile of the manager `packageManager` names (`nix/lib/node-modules.nix`), so the
+same lockfile is always the same store path, and nothing at all happens while `node_modules` is
+already the build of the current one. dev-tools' own `env.nix` lists this repo; an embedding repo
 lists its own root. `include`'s global profile never installs. `DEV_TOOLS_AUTO_INSTALL=0` opts
 out.
 
