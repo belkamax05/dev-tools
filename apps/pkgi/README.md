@@ -35,11 +35,15 @@ detected from: `bun install`, `npm install`, `yarn install`, `pnpm install`.
 - `--if-changed` does nothing when `node_modules` was last installed by pkgi from this very
   lockfile — the hash is kept in `node_modules/.pkgi-install.json`, so a pull or branch switch
   that changes the lockfile, or deleting `node_modules`, installs again.
+- `--print-watched` installs nothing: it prints that stamp and the lockfile, the files whose
+  change (or deletion) means installing again — what the Nix shell hands direnv to watch.
 - When `packageManager` pins a version (`bun@1.4.2`) and the manager on `PATH` is another one,
   it says so before installing.
 
 dev-tools' Nix shells run `pkgi install --frozen --if-changed` on entry for the folders their
-env modules list under `install` — see `nix/lib/mk-env.nix`. Nothing installs on its own
+env modules list under `install`, and under direnv watch the `--print-watched` files, so deleting
+`node_modules` or pulling a new lockfile installs again at the next prompt — see
+`nix/lib/mk-env.nix`. Nothing installs on its own
 outside a Nix shell.
 
 ## Tabs
