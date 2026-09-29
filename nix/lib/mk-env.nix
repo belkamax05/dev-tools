@@ -13,12 +13,14 @@
 #               module's dirs land ahead of an earlier one's.
 #   variables - exported env vars. Later module wins.
 #   install   - folders whose packages the *shell* installs on entry, with
-#               `pkgi install --frozen --if-changed` (see apps/pkgi's
-#               README): the package manager package.json's packageManager
-#               names - so the pinned bun among `packages` - installing
-#               exactly what the lockfile pins, the same versions a plain
-#               `bun install` gives outside Nix; a no-op while node_modules
-#               already matches the lockfile. List a repo's own root here
+#               `pkgi install --nix --if-changed` (see apps/pkgi's
+#               README): node_modules built in the Nix store from the
+#               lockfile of the manager package.json's packageManager
+#               names (./node-modules.nix), by that manager - so the
+#               pinned one among `packages` - and copied in. Keyed by the
+#               lockfile alone: the same lockfile is the same store path,
+#               whatever wrote it; a no-op while node_modules is already
+#               the build of the current one. List a repo's own root here
 #               from its env module, not dev-tools' shared module.nix - an
 #               embedded copy (dfs-fe-internal's libs/dev-tools) is a
 #               workspace member its root's install already covers.
@@ -68,7 +70,7 @@ let
       0 | false | no | off) ;;
       *)
           for _dt_install_dir in ${lib.escapeShellArgs install}; do
-              (cd "$_dt_install_dir" && bun ${lib.escapeShellArg pkgi} install --frozen --if-changed) >&2 ||
+              (cd "$_dt_install_dir" && bun ${lib.escapeShellArg pkgi} install --nix --if-changed) >&2 ||
                   printf '%s: installing packages in %s failed - see above, then run `pkgi install` there\n' \
                       ${lib.escapeShellArg name} "$_dt_install_dir" >&2
               # Under direnv: re-run at the next prompt when node_modules'
