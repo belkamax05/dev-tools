@@ -13,7 +13,12 @@ import {
   writeFolderState,
 } from './config/settings';
 import { buildComparison, cellVersion, loadColumns, toAbsolute } from './core/compare';
-import { isInstallCurrent, managerVersionMismatch, writeInstallStamp } from './core/install';
+import {
+  isInstallCurrent,
+  managerVersionMismatch,
+  stampPath,
+  writeInstallStamp,
+} from './core/install';
 import {
   addCommand,
   detectPackageManager,
@@ -36,14 +41,16 @@ usage:
   pkgi outdated [--json]          the ones with a newer version; exits 1 when there are any
   pkgi update <pkg>[@version]...  move packages to a version (latest by default), keeping
                                   their section and range style (^, ~, exact)
-  pkgi install [--frozen] [--if-changed]
+  pkgi install [--frozen] [--if-changed] [--print-watched]
                                   install everything, with the package manager
                                   package.json's packageManager names (else the
                                   lockfile's), from the workspace root. --frozen
                                   installs exactly what the lockfile pins and fails
                                   rather than rewrite it (a missing lockfile is
                                   generated); --if-changed does nothing when
-                                  node_modules already matches the lockfile
+                                  node_modules already matches the lockfile;
+                                  --print-watched installs nothing and prints the
+                                  files whose change means installing again
   pkgi add <pkg>[@version]... [--dev]
   pkgi remove <pkg>...
   pkgi compare [path...] [--different] [--json]
@@ -202,6 +209,10 @@ export const run = async (...argv: string[]) => {
     const manager = await detectPackageManager(dir, settings.packageManager);
     const root = manager.root ?? dir;
     const lockfile = findLockfile(root, manager.name);
+    if (flags.has('--print-watched')) {
+      for (const path of [stampPath(root), ...(lockfile ? [lockfile] : [])]) console.log(path);
+      return;
+    }
     if (flags.has('--if-changed') && (await isInstallCurrent(root, manager.name, lockfile))) return;
     const frozen = flags.has('--frozen') && lockfile !== undefined;
     if (flags.has('--frozen') && !frozen) {

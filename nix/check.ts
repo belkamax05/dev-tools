@@ -111,6 +111,8 @@ await check('install: only the shell runs pkgi, for the folders env.nix lists', 
   const pkgi = join(root, 'bin/pkgi');
   if (!installScript.includes(`${pkgi} install --frozen --if-changed`))
     throw new Error(`install script doesn't run ${pkgi}:\n${installScript}`);
+  if (!installScript.includes('watch_file') || !installScript.includes('--print-watched'))
+    throw new Error(`install script doesn't have direnv watch pkgi's files:\n${installScript}`);
   if (!hook.includes('-install.sh')) throw new Error(`shellHook doesn't source it:\n${hook}`);
   if (envScript.includes('pkgi')) throw new Error(`the profile's env.sh installs:\n${envScript}`);
 });

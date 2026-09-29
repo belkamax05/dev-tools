@@ -24,6 +24,9 @@
 #               workspace member its root's install already covers.
 #               Only the shell: profile's env.sh is sourced at every shell
 #               startup by `include`, which shouldn't install anything.
+#               Under direnv it also watches node_modules' install stamp
+#               and the lockfile, so deleting node_modules or pulling a new
+#               lockfile installs again at the next prompt - no reload.
 #               DEV_TOOLS_AUTO_INSTALL=0 turns it off.
 # So list modules base first: [ dev-tools, the repo embedding it ].
 {
@@ -68,8 +71,21 @@ let
               (cd "$_dt_install_dir" && bun ${lib.escapeShellArg pkgi} install --frozen --if-changed) >&2 ||
                   printf '%s: installing packages in %s failed - see above, then run `pkgi install` there\n' \
                       ${lib.escapeShellArg name} "$_dt_install_dir" >&2
+              # Under direnv: re-run at the next prompt when node_modules'
+              # install stamp or the lockfile changes or goes away - direnv
+              # otherwise only re-evaluates on its own watched *.nix/.envrc,
+              # never on `rm -rf node_modules` or a pull that moves the
+              # lockfile. A heredoc, not a pipe: watch_file must run in this
+              # shell to land in DIRENV_WATCHES.
+              if command -v watch_file >/dev/null 2>&1; then
+                  while IFS= read -r _dt_watch; do
+                      [ -n "$_dt_watch" ] && watch_file "$_dt_watch"
+                  done <<_dt_watched_
+      $(cd "$_dt_install_dir" && bun ${lib.escapeShellArg pkgi} install --print-watched)
+      _dt_watched_
+              fi
           done
-          unset _dt_install_dir
+          unset _dt_install_dir _dt_watch
           ;;
       esac
     ''
