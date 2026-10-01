@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  forPlatform,
   parseBunLock,
   parseNpmLock,
   parsePnpmLock,
@@ -142,5 +143,71 @@ ink@^7:
 
   test('Yarn Berry is refused with the reason', () => {
     expect(() => parseYarnLock('__metadata:\n  version: 8\n')).toThrow(/Berry/);
+  });
+});
+
+describe('bun.lock from another registry', () => {
+  test('the full archive URL bun writes for a scoped registry is used as is', () => {
+    const url = 'https://npm.example/repo/@acme/thing/-/thing-1.0.0-build.2.tgz';
+    const contents = parseBunLock(`{
+      "lockfileVersion": 1,
+      "workspaces": { "": { "name": "root" } },
+      "packages": {
+        "@acme/thing": ["@acme/thing@1.0.0-build.2", "${url}", {}, "${SHA}"],
+      },
+    }`);
+    expect(contents.tarballs.map((t) => t.url)).toEqual([url]);
+  });
+});
+
+describe('forPlatform', () => {
+  const contents = parseBunLock(`{
+    "lockfileVersion": 1,
+    "workspaces": { "": { "name": "root" } },
+    "packages": {
+      "plain": ["plain@1.0.0", "", {}, "${SHA}"],
+      "linux-x64": ["linux-x64@1.0.0", "", { "os": "linux", "cpu": "x64" }, "${SHA}"],
+      "win-x64": ["win-x64@1.0.0", "", { "os": "win32", "cpu": "x64" }, "${SHA}"],
+      "linux-arm": ["linux-arm@1.0.0", "", { "os": "linux", "cpu": "arm64" }, "${SHA}"],
+      "riscv": ["riscv@1.0.0", "", { "os": "linux", "cpu": "none" }, "${SHA}"],
+      "not-linux": ["not-linux@1.0.0", "", { "os": ["!linux"] }, "${SHA}"],
+      "multi": ["multi@1.0.0", "", { "os": ["darwin", "linux"] }, "${SHA}"],
+    },
+  }`);
+
+  test('keeps what this os/cpu installs, drops the rest', () => {
+    expect(forPlatform(contents.tarballs, 'linux', 'x64').map((t) => t.name)).toEqual([
+      'linux-x64',
+      'multi',
+      'plain',
+    ]);
+    expect(forPlatform(contents.tarballs, 'darwin', 'arm64').map((t) => t.name)).toEqual([
+      'multi',
+      'not-linux',
+      'plain',
+    ]);
+  });
+
+  test('npm and pnpm lockfiles carry os/cpu too', () => {
+    const npm = parseNpmLock(
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          '': { name: 'root' },
+          'node_modules/w': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/w/-/w-1.0.0.tgz',
+            integrity: SHA,
+            os: ['win32'],
+          },
+        },
+      }),
+    );
+    expect(forPlatform(npm.tarballs, 'linux', 'x64')).toEqual([]);
+    const pnpm = parsePnpmLock(
+      `lockfileVersion: '9.0'\npackages:\n  w@1.0.0:\n    resolution: {integrity: ${SHA}}\n    cpu: [arm64]\n`,
+    );
+    expect(forPlatform(pnpm.tarballs, 'linux', 'x64')).toEqual([]);
+    expect(forPlatform(pnpm.tarballs, 'linux', 'arm64')).toHaveLength(1);
   });
 });

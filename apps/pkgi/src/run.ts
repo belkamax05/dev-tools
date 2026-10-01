@@ -40,10 +40,16 @@ import {
 import {
   buildManifest,
   buildNodeModules,
+  clearFailures,
+  failedBefore,
+  type NixManifest,
   OWN_LIFECYCLE,
   placeNodeModules,
+  prefetchAuthenticated,
   pruneBuilds,
+  recordFailure,
 } from './core/nix';
+import { readNpmrcAuth } from './core/npmrc';
 import { buildRows, fetchInfos, isOutdated } from './core/packages';
 import { getManyPackageInfo } from './core/registry';
 import {
@@ -85,7 +91,9 @@ usage:
                                   installs exactly what the lockfile pins and fails
                                   rather than rewrite it (a missing lockfile is
                                   generated); --if-changed does nothing when
-                                  node_modules already matches the lockfile;
+                                  node_modules already matches the lockfile (with
+                                  --nix, also when the last build of it failed and
+                                  nothing it depends on changed);
                                   --print-watched installs nothing and prints the
                                   files whose change means installing again;
                                   --nix builds node_modules in the Nix store from
@@ -218,15 +226,29 @@ const installThroughNix = async (
     );
   }
   const key = (await hashFile(lockfile)).slice(0, 32);
+  const auths = await readNpmrcAuth(root);
+  let manifest: NixManifest | undefined;
   try {
-    const manifest = await buildManifest(root, manager.name, lockfile, manager.version);
+    manifest = await buildManifest(root, manager.name, lockfile, manager.version);
+    if (ifChanged && (await failedBefore(root, manifest, auths))) {
+      console.error(
+        `pkgi: the last Nix build for ${basename(lockfile)} ${key.slice(0, 12)} failed, and nothing it depends on has changed since — not retrying on its own; run \`pkgi install --nix\` to try again`,
+      );
+      process.exitCode = 1;
+      return;
+    }
     console.log(
       `pkgi: node_modules for ${basename(lockfile)} ${key.slice(0, 12)} — ${manifest.tarballs.length} packages, built by Nix`,
     );
     if (dryRun) return;
-    const out = await buildNodeModules(root, manifest, key);
+    const out = await buildNodeModules(
+      root,
+      await prefetchAuthenticated(root, manifest, auths),
+      key,
+    );
     await placeNodeModules(root, out, manifest.workspaces);
     await writeInstallStamp(root, manager.name, lockfile, out);
+    await clearFailures(root);
     await pruneBuilds(root);
     console.log(`pkgi: node_modules ← ${out}`);
     for (const dir of manifest.workspaces) {
@@ -239,7 +261,9 @@ const installThroughNix = async (
       }
     }
   } catch (error) {
-    console.error(`pkgi: ${(error as Error).message}`);
+    const message = (error as Error).message;
+    console.error(`pkgi: ${message}`);
+    if (manifest && !dryRun) await recordFailure(root, manifest, auths, message);
     process.exitCode = 1;
   }
 };

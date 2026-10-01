@@ -76,6 +76,17 @@ branch is a copy, not a build.
 - pnpm 11 re-checks a lockfile's publish times against registry metadata before installing; the
   build's copy of `pnpm-workspace.yaml` sets `minimumReleaseAge: 0` for that step only, since the
   tarballs are already hash-verified and pnpm applied the policy when it wrote the lockfile.
+- Only this platform's tarballs: a package whose `os`/`cpu` rules out this machine
+  (`@nx/nx-win32-x64-msvc` on Linux) is an optional dependency the manager skips, so it isn't
+  fetched either.
+- Private registries: Nix's sandbox never sees `.npmrc`, so a tarball behind its credentials
+  (`//host/path/:_authToken`, `:_auth`, or `:username` + `:_password`, in the project's or your
+  `~/.npmrc`) would get a 401. pkgi downloads those itself first with the credentials, checks
+  them against the lockfile's hash, and adds them with `nix-store --add-fixed` — at the very path
+  the build's fetch resolves to, so Nix finds them already there.
+- A failed build is remembered (`.cache/pkgi/nix/*.failed`): `--if-changed` doesn't retry it until
+  the lockfile, the install inputs or the credentials change, so a build that can't succeed
+  doesn't run again on every direnv load. `pkgi install --nix` by hand always retries.
 
 dev-tools' Nix shells run `pkgi install --nix --if-changed` on entry for the folders their env
 modules list under `install`, and under direnv watch the `--print-watched` files, so deleting

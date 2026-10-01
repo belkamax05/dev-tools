@@ -2,9 +2,12 @@
 # (`pkgi install --nix`, apps/pkgi/src/core/nix) reads the lockfile of the
 # manager package.json names and writes the manifest this takes:
 #
-#   tarballs   - every archive the lockfile pins, with the integrity hash
-#                the lockfile itself records: each is a fetchurl, so fetched
-#                once and verified, network allowed only there
+#   tarballs   - every archive the lockfile pins for this platform, with
+#                the integrity hash the lockfile itself records: each is a
+#                fetchurl, so fetched once and verified, network allowed
+#                only there. One behind .npmrc credentials (which the
+#                sandbox never sees) pkgi has already added to the store at
+#                that fetchurl's own path, and names it `storeName`
 #   files      - the install's inputs besides them (the lockfile, every
 #                workspace's package.json, patches, manager config), copied
 #                into the store alone - nothing else in the repo can change
@@ -14,6 +17,11 @@
 #                files the build copy gets instead of the checkout's (pnpm's
 #                release-age check, which needs registry metadata - see
 #                pkgi's core/nix)
+#                and `rehost`: registries other than the default one the
+#                tarballs come from (an .npmrc scope's), rewritten to the
+#                local registry in the copy's lockfile and manager config,
+#                which would otherwise send the manager to a host the
+#                sandbox can't reach
 #   workspaces - the folders whose node_modules become the output
 #
 # The build is the sandbox's: no network. The tarballs are served back to
@@ -61,7 +69,7 @@ let
     map (t: {
       name = urlPath t.url;
       path = pkgs.fetchurl {
-        name = storeName t.url;
+        name = t.storeName or (storeName t.url);
         inherit (t) url;
         hash = t.integrity;
       };
@@ -75,9 +83,15 @@ let
     lib.mapAttrsToList (key: value: "export ${key}=\"${withRegistry value}\"\n") (m.install.env or { })
   );
   installArgv = lib.concatMapStringsSep " " (arg: "\"${withRegistry arg}\"") m.install.argv;
+  rehost = lib.concatMapStrings (
+    file:
+    lib.concatMapStrings (
+      origin: "substituteInPlace ${lib.escapeShellArg file} --replace-quiet ${lib.escapeShellArg origin} \"$registry_url\"\n"
+    ) (m.install.rehost.origins or [ ])
+  ) (m.install.rehost.files or [ ]);
   overlay = lib.concatStrings (
     lib.mapAttrsToList (
-      path: text: "cp ${pkgs.writeText "overlay" text} ${lib.escapeShellArg path}\n"
+      path: text: "cp --no-preserve=mode ${pkgs.writeText "overlay" text} ${lib.escapeShellArg path}\n"
     ) (m.install.overlay or { })
   );
 in
@@ -117,6 +131,7 @@ pkgs.runCommand "${m.name}-node-modules"
     server=$!
     while [ ! -s "$TMPDIR/port" ]; do sleep 0.1; done
     registry_url="http://127.0.0.1:$(cat "$TMPDIR/port")/"
+    ${rehost}
 
     ${installEnv}
     ${installArgv}
