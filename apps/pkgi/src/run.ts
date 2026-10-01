@@ -15,7 +15,7 @@ import {
   writeFolderState,
 } from './config/settings';
 import { buildComparison, cellVersion, loadColumns, toAbsolute } from './core/compare';
-import { getSupport, type SupportInfo } from './core/eol';
+import type { SupportInfo } from './core/eol';
 import {
   hashFile,
   isInstallCurrent,
@@ -47,6 +47,11 @@ import {
 import { buildRows, fetchInfos, isOutdated } from './core/packages';
 import { getManyPackageInfo } from './core/registry';
 import {
+  getManyPackageSupport,
+  isUnsupported,
+  supportLabel,
+} from './core/support';
+import {
   buildReport,
   entryStatus,
   folderLabels,
@@ -61,9 +66,14 @@ const HELP = `pkgi — the packages of the folder you are in: installed, latest,
 usage:
   pkgi                            open the dashboard
   pkgi <tab>                      open it on a tab: ${TAB_IDS.join(', ')}
-  pkgi list [--outdated] [--offline] [--json]
-                                  every dependency: declared, installed, latest
+  pkgi list [--outdated] [--eol] [--offline] [--json] [--verbose]
+                                  every dependency: declared, installed, latest, support
+                                  (endoflife.date's window, else "stale" when the
+                                  registry shows no release in 2 years, or the line in
+                                  use none in a year while 2+ majors behind)
   pkgi outdated [--json]          the ones with a newer version; exits 1 when there are any
+  pkgi eol [--json] [--verbose]   the ones past their end of life, ending within 90 days,
+                                  stale or deprecated; exits 1 when there are any
   pkgi update <pkg>[@version]...  move packages to a version (latest by default), keeping
                                   their section and range style (^, ~, exact)
   pkgi update                     every package behind by a minor or patch (majors are
@@ -86,6 +96,7 @@ usage:
                                   without names: the dashboard's Add tab (registry search)
   pkgi remove <pkg>...            without names: tick them from a list
   pkgi run <script> [args...]     a package.json script, with the folder's package manager
+  pkgi run                        without a script: the Scripts tab, to pick one
   pkgi start [args...]            pkgi run start
   pkgi audit                      the package manager's security audit
   pkgi clear-cache                empty the package manager's download cache
@@ -273,20 +284,24 @@ const report = async (
         maxAgeMs: settings.cacheHours * 3600_000,
       });
 
-  //? endoflife.date is asked about the oldest version in use — the one that runs out first
-  const support: Record<string, SupportInfo | undefined> = {};
-  if (!options.offline) {
-    for (const name of names) {
-      const oldest = versionsInUse(
-        columns.flatMap((column) =>
-          column.manifest.dependencies
-            .filter((dep) => dep.name === name)
-            .map((dep) => ({ folder: column.label, ...dep })),
-        ),
-      )[0];
-      if (oldest) support[name] = await getSupport(name, oldest);
-    }
-  }
+  //? Judged on the oldest version in use — the one that runs out first
+  const support: Record<string, SupportInfo | undefined> = options.offline
+    ? {}
+    : await getManyPackageSupport(
+        names.map((name) => ({
+          name,
+          info: infos[name],
+          current:
+            versionsInUse(
+              columns.flatMap((column) =>
+                column.manifest.dependencies
+                  .filter((dep) => dep.name === name)
+                  .map((dep) => ({ folder: column.label, ...dep })),
+              ),
+            )[0] ?? '',
+        })),
+        { registry: settings.registry },
+      );
 
   const out = options.reportDir ? resolve(dir, options.reportDir) : undefined;
   const jsonPath = out && join(out, 'dependencies-report.json');
@@ -350,9 +365,9 @@ export const run = async (...argv: string[]) => {
     const [script, ...args] = command === 'start' ? ['start', ...tail] : tail;
     const dir = process.cwd();
     if (!script) {
-      console.error('usage: pkgi run <script> [args...]');
-      process.exitCode = 1;
-      return;
+      const { default: renderDashboard } = await import('./ui/renderDashboard');
+      await renderDashboard(dir, 'scripts');
+      process.exit(0);
     }
     const { settings } = await loadFolderContext(dir);
     const manager = await detectPackageManager(dir, settings.packageManager);
@@ -376,30 +391,46 @@ export const run = async (...argv: string[]) => {
     console.error(`pkgi: ignoring ${context.project.path}: ${context.project.error}`);
   }
 
-  if (first === 'list' || first === 'ls' || first === 'outdated') {
+  if (first === 'list' || first === 'ls' || first === 'outdated' || first === 'eol') {
     const manifest = await readManifest(dir, settings.dependencyTypes);
     if (!manifest.exists) {
       console.error(`No package.json in ${dir}`);
       process.exitCode = 1;
       return;
     }
-    const infos = flags.has('--offline') ? {} : await fetchInfos(manifest, settings);
+    const offline = flags.has('--offline');
+    const infos = offline ? {} : await fetchInfos(manifest, settings);
     let rows = buildRows(manifest, infos, state.notes, settings);
+    const support = offline
+      ? {}
+      : await getManyPackageSupport(
+          rows.filter((row) => !row.local),
+          { registry: settings.registry },
+        );
     const onlyOutdated = first === 'outdated' || flags.has('--outdated');
+    const onlyUnsupported = first === 'eol' || flags.has('--eol');
     if (onlyOutdated) rows = rows.filter(isOutdated);
+    if (onlyUnsupported)
+      rows = rows.filter((row) => isUnsupported(support[row.name]) || row.deprecated);
     if (flags.has('--json'))
       console.log(
         JSON.stringify(
-          rows.map(({ info: _info, ...row }) => row),
+          rows.map(({ info: _info, ...row }) => ({ ...row, support: support[row.name] })),
           null,
           2,
         ),
       );
     else if (!rows.length)
-      console.log(onlyOutdated ? 'Everything is up to date.' : 'No dependencies.');
+      console.log(
+        onlyUnsupported
+          ? 'Nothing past its end of life, ending soon, stale or deprecated.'
+          : onlyOutdated
+            ? 'Everything is up to date.'
+            : 'No dependencies.',
+      );
     else
       table(
-        ['PACKAGE', 'TYPE', 'DECLARED', 'INSTALLED', 'LATEST', 'UPDATE', 'NOTE'],
+        ['PACKAGE', 'TYPE', 'DECLARED', 'INSTALLED', 'LATEST', 'UPDATE', 'SUPPORT', 'NOTE'],
         rows.map((row) => [
           row.name,
           SHORT_TYPE[row.type],
@@ -413,10 +444,13 @@ export const run = async (...argv: string[]) => {
           ]
             .filter(Boolean)
             .join(' '),
+          support[row.name]
+            ? `${supportLabel(support[row.name])}${flags.has('--verbose') ? ` (${support[row.name]?.summary})` : ''}`
+            : '',
           row.note ?? '',
         ]),
       );
-    if (first === 'outdated' && rows.length) process.exitCode = 1;
+    if ((first === 'outdated' || first === 'eol') && rows.length) process.exitCode = 1;
     return;
   }
 

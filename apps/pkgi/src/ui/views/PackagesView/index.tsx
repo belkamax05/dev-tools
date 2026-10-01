@@ -13,11 +13,12 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import openUrl from '@/dev-tools/utils/system/openUrl';
 
 import type { DependencyType } from '../../../config/settings';
-import { ENDOFLIFE_PRODUCTS, getSupport, type SupportInfo } from '../../../core/eol';
+import type { SupportInfo } from '../../../core/eol';
 import { readManifest, removeCommand, setVersionCommand, shellQuote } from '../../../core/manifest';
 import { buildRows, fetchInfos, isOutdated, type PackageRow } from '../../../core/packages';
 import { getVersionDetails, type VersionDetails } from '../../../core/registry';
 import { majorDistance } from '../../../core/semver';
+import { getManyPackageSupport, isUnsupported, supportLabel } from '../../../core/support';
 import type { ViewProps } from '../../types';
 import VersionPicker from '../../VersionPicker';
 
@@ -34,6 +35,7 @@ type Colors = ReturnType<typeof useColors>;
 export const updateColor = (row: PackageRow, colors: Colors, support?: SupportInfo) => {
   if (row.deprecated || support?.status === 'eol') return colors.error;
   if (row.update === 'major') return colors.error;
+  if (support?.status === 'ending' || support?.status === 'stale') return colors.warn;
   if (row.update === 'minor') return colors.warn;
   if (row.update === 'patch') return colors.ok;
   if (row.prerelease) return colors.highlight;
@@ -50,8 +52,9 @@ const rowHint = (row: PackageRow, support: SupportInfo | undefined, checking: bo
   else if (!row.info && checking) parts.push('…');
   if (row.info?.error === 'not-found') parts.push('not on registry');
   if (row.deprecated) parts.push('⚠ deprecated');
-  if (support?.status === 'eol') parts.push('⚠ EOL');
-  else if (support?.status === 'ending') parts.push('EOL soon');
+  if (support?.status === 'eol' || support?.status === 'stale')
+    parts.push(`⚠ ${supportLabel(support)}`);
+  else if (support) parts.push(supportLabel(support));
   if (row.mismatch) parts.push('≠ declared');
   if (row.note) parts.push('✎');
   return parts.join(' ');
@@ -144,7 +147,7 @@ const PackageDetail = ({
               color={
                 support.status === 'eol'
                   ? colors.error
-                  : support.status === 'ending'
+                  : support.status === 'ending' || support.status === 'stale'
                     ? colors.warn
                     : support.status === 'supported'
                       ? colors.ok
@@ -152,7 +155,11 @@ const PackageDetail = ({
               }
               wrap="truncate"
             >
-              {`${support.summary}${support.lts ? ' (LTS)' : ''} · ${support.product}`}
+              {`${support.summary}${support.lts ? ' (LTS)' : ''} · ${
+                support.basis === 'endoflife'
+                  ? `endoflife.date/${support.product}`
+                  : 'npm release dates'
+              }`}
             </Text>
           </Field>
         )}
@@ -213,6 +220,7 @@ export const PackagesView = ({
   const prompt = usePrompt(onCaptureInput);
   const [filter, setFilter] = useState(session.filter);
   const [onlyOutdated, setOnlyOutdated] = useState(session.onlyOutdated);
+  const [onlyUnsupported, setOnlyUnsupported] = useState(session.onlyUnsupported ?? false);
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.packages);
   const [picker, setPicker] = useState(session.picker?.mode === 'set' ? session.picker : undefined);
   const [check, setCheck] = useState(0);
@@ -238,26 +246,25 @@ export const PackagesView = ({
   }, [registryNames, settings.registry, settings.cacheHours, check]);
 
   const rows = manifest ? buildRows(manifest, infos ?? {}, context.state.notes, settings) : [];
+  //? Re-judged when a version in use or a registry answer changes — the registry-based verdict
+  //? needs `latest` and the last publish date, so it waits for those
   const supportKey = rows
-    .filter((row) => ENDOFLIFE_PRODUCTS[row.name])
-    .map((row) => `${row.name}@${row.current}`)
+    .filter((row) => !row.local)
+    .map((row) => `${row.name}@${row.current}>${row.latest ?? ''}/${row.info?.modified ?? ''}`)
     .join(',');
   const { data: support = {} } = useLoader(async () => {
-    const entries = await Promise.all(
-      rows
-        .filter((row) => ENDOFLIFE_PRODUCTS[row.name] && row.current)
-        .map(
-          async (row) =>
-            [row.name, await getSupport(row.name, row.current, force.current)] as const,
-        ),
+    const result = await getManyPackageSupport(
+      rows.filter((row) => !row.local),
+      { registry: settings.registry, force: force.current },
     );
     force.current = false;
-    return Object.fromEntries(entries.filter(([, info]) => info)) as Record<string, SupportInfo>;
-  }, [supportKey, check]);
+    return result;
+  }, [supportKey, settings.registry, check]);
 
   const visible = rows.filter(
     (row) =>
       (!onlyOutdated || isOutdated(row) || row.deprecated) &&
+      (!onlyUnsupported || isUnsupported(support[row.name]) || row.deprecated) &&
       (!filter ||
         row.name.toLowerCase().includes(filter.toLowerCase()) ||
         row.note?.toLowerCase().includes(filter.toLowerCase())),
@@ -372,6 +379,13 @@ export const PackagesView = ({
     notify('Asking the registry for every package…');
   };
 
+  const toggleUnsupported = () => {
+    setOnlyUnsupported((was) => {
+      session.onlyUnsupported = !was;
+      return !was;
+    });
+  };
+
   const toggleOutdated = () => {
     setOnlyOutdated((was) => {
       session.onlyOutdated = !was;
@@ -399,6 +413,7 @@ export const PackagesView = ({
       else if (input === 'n') editNote(current);
       else if (input === 'w' && current) openUrl(`https://www.npmjs.com/package/${current.name}`);
       else if (input === 'o') toggleOutdated();
+      else if (input === 'e') toggleUnsupported();
       else if (input === 'c') checkNow();
       else if (input === '/') askFilter();
       else if (key.escape && filter) {
@@ -457,11 +472,19 @@ export const PackagesView = ({
   ];
 
   const outdatedCount = rows.filter(isOutdated).length;
+  const unsupportedCount = rows.filter(
+    (row) => isUnsupported(support[row.name]) || row.deprecated,
+  ).length;
   const hints: Hint[] = [
     {
       key: 'o',
       label: onlyOutdated ? 'show all' : `outdated (${outdatedCount})`,
       onPress: toggleOutdated,
+    },
+    {
+      key: 'e',
+      label: onlyUnsupported ? 'show all' : `EOL/stale (${unsupportedCount})`,
+      onPress: toggleUnsupported,
     },
     { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
     { key: 'c', label: 'check now', onPress: checkNow },
@@ -479,9 +502,13 @@ export const PackagesView = ({
         ? `Checking the registry… ${progress.done}/${progress.total}`
         : !manifest
           ? 'Reading package.json…'
-          : `${rows.length} packages · ${outdatedCount} with updates · ${rows.filter((row) => row.deprecated).length} deprecated${
+          : `${rows.length} packages · ${outdatedCount} with updates · ${rows.filter((row) => row.deprecated).length} deprecated · ${
+              rows.filter((row) => isUnsupported(support[row.name])).length
+            } EOL/stale${
               age !== undefined ? ` · checked ${age < 1 ? 'just now' : `${age}m ago`}` : ''
-            }${onlyOutdated ? ' · outdated only' : ''}${filter ? ` · "${filter}"` : ''}`}
+            }${onlyOutdated ? ' · outdated only' : ''}${onlyUnsupported ? ' · EOL/stale only' : ''}${
+              filter ? ` · "${filter}"` : ''
+            }`}
     </Text>
   );
 

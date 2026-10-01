@@ -6,42 +6,69 @@ import { parseVersion } from '../semver';
 
 /**
  * npm package → endoflife.date product, for the packages whose support window is published
- * there. Several packages map to one product: `@types/node` follows Node's releases, every
- * `react-*` companion follows React's.
+ * there. Several packages map to one product when they are released in lockstep with it:
+ * `@types/node` follows Node's releases, `react-dom` React's, every `@angular/*` Angular's.
+ *
+ * Only products endoflife.date actually has (https://endoflife.date/api/all.json) — a name that
+ * isn't there answers 404 and the package silently gets no verdict. Everything not listed is
+ * judged from the registry instead (see core/support).
  */
 export const ENDOFLIFE_PRODUCTS: Record<string, string> = {
   node: 'nodejs',
   '@types/node': 'nodejs',
   next: 'nextjs',
+  'eslint-config-next': 'nextjs',
+  '@next/eslint-plugin-next': 'nextjs',
+  '@next/bundle-analyzer': 'nextjs',
+  '@next/third-parties': 'nextjs',
+  '@next/mdx': 'nextjs',
+  '@next/env': 'nextjs',
   react: 'react',
   'react-dom': 'react',
+  'react-is': 'react',
+  'react-test-renderer': 'react',
   '@types/react': 'react',
   '@types/react-dom': 'react',
+  'react-native': 'react-native',
   '@angular/core': 'angular',
-  angular: 'angular',
+  '@angular/common': 'angular',
+  '@angular/compiler': 'angular',
+  '@angular/compiler-cli': 'angular',
+  '@angular/platform-browser': 'angular',
+  '@angular/platform-browser-dynamic': 'angular',
+  '@angular/platform-server': 'angular',
+  '@angular/router': 'angular',
+  '@angular/forms': 'angular',
+  '@angular/animations': 'angular',
+  '@angular/cli': 'angular',
+  //? The `angular` package is AngularJS (1.x), a different product
+  angular: 'angularjs',
   vue: 'vue',
+  '@vue/compiler-sfc': 'vue',
+  '@vue/server-renderer': 'vue',
+  vuetify: 'vuetify',
   nuxt: 'nuxt',
-  typescript: 'typescript',
-  eslint: 'eslint',
-  webpack: 'webpack',
-  vite: 'vite',
-  nx: 'nx',
-  cypress: 'cypress',
-  jest: 'jest',
-  storybook: 'storybook',
-  '@storybook/react': 'storybook',
-  '@storybook/react-vite': 'storybook',
-  sass: 'sass',
-  express: 'express',
-  electron: 'electron',
   svelte: 'svelte',
-  '@sveltejs/kit': 'sveltekit',
+  eslint: 'eslint',
+  '@eslint/js': 'eslint',
+  electron: 'electron',
+  express: 'express',
   jquery: 'jquery',
+  'jquery-ui': 'jquery-ui',
   bootstrap: 'bootstrap',
   tailwindcss: 'tailwind-css',
+  '@tailwindcss/postcss': 'tailwind-css',
+  '@tailwindcss/vite': 'tailwind-css',
+  '@tailwindcss/cli': 'tailwind-css',
   'ember-source': 'emberjs',
-  '@nestjs/core': 'nestjs',
-  'react-native': 'react-native',
+  '@ionic/core': 'ionic',
+  '@ionic/angular': 'ionic',
+  '@ionic/react': 'ionic',
+  '@ionic/vue': 'ionic',
+  '@types/bun': 'bun',
+  'bun-types': 'bun',
+  pnpm: 'pnpm',
+  yarn: 'yarn',
 };
 
 export interface EolCycle {
@@ -53,14 +80,23 @@ export interface EolCycle {
   releaseDate?: string;
 }
 
-export type SupportStatus = 'supported' | 'ending' | 'eol' | 'unknown';
+/**
+ * `stale` is the registry's verdict, never endoflife.date's: no vendor says it is unsupported,
+ * but nothing has been released for it in a long time (see core/support).
+ */
+export type SupportStatus = 'supported' | 'ending' | 'eol' | 'stale' | 'unknown';
 
 export interface SupportInfo {
   status: SupportStatus;
+  /** The endoflife.date product, or `npm` for a verdict read from the registry. */
   product: string;
+  /** Where the verdict comes from: a published support window, or release dates. */
+  basis: 'endoflife' | 'registry';
   cycle?: string;
   /** Plain-language summary: "supported until 2026-04-30", "end of life since 2025-04-30". */
   summary: string;
+  /** The end of support (`YYYY-MM-DD`) when one is published. */
+  until?: string;
   lts: boolean;
   source: string;
 }
@@ -132,14 +168,23 @@ export const describeCycle = (
   now = Date.now(),
 ): SupportInfo => {
   const source = `https://endoflife.date/${product}`;
+  const basis = 'endoflife' as const;
   if (!cycle) {
-    return { status: 'unknown', product, summary: 'release line not listed', lts: false, source };
+    return {
+      status: 'unknown',
+      product,
+      basis,
+      summary: 'release line not listed',
+      lts: false,
+      source,
+    };
   }
   const lts = Boolean(cycle.lts);
   if (cycle.eol === true) {
     return {
       status: 'eol',
       product,
+      basis,
       cycle: cycle.cycle,
       summary: `${cycle.cycle} is end of life`,
       lts,
@@ -150,6 +195,7 @@ export const describeCycle = (
     return {
       status: 'supported',
       product,
+      basis,
       cycle: cycle.cycle,
       summary: `${cycle.cycle} is supported`,
       lts,
@@ -161,6 +207,7 @@ export const describeCycle = (
     return {
       status: 'unknown',
       product,
+      basis,
       cycle: cycle.cycle,
       summary: String(cycle.eol),
       lts,
@@ -171,8 +218,10 @@ export const describeCycle = (
     return {
       status: 'eol',
       product,
+      basis,
       cycle: cycle.cycle,
       summary: `${cycle.cycle} end of life since ${cycle.eol}`,
+      until: cycle.eol,
       lts,
       source,
     };
@@ -180,8 +229,10 @@ export const describeCycle = (
   return {
     status: end - now < SOON_MS ? 'ending' : 'supported',
     product,
+    basis,
     cycle: cycle.cycle,
     summary: `${cycle.cycle} supported until ${cycle.eol}`,
+    until: cycle.eol,
     lts,
     source,
   };

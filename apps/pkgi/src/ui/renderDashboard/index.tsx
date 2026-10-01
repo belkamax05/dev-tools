@@ -31,6 +31,9 @@ export const wrapCommands = (commands: string[][], statusFile: string): string[]
     'sh',
     '-c',
     [
+      //? A handler, not an ignore: Ctrl+C still stops the command (children get the default
+      //? disposition back on exec), but this shell lives on to report it and return to pkgi
+      'trap : INT',
       'printf "\\033[36m$ %s\\033[0m\\n\\n" "$1"',
       'eval "$1"',
       'code=$?',
@@ -60,6 +63,12 @@ export const renderDashboard = async (dir: string, initialTab?: TabId): Promise<
   const statusFile = join(tmpdir(), `pkgi-${process.pid}.status`);
   let result: { text: string; tone: 'ok' | 'error' } | undefined;
   let cleared: string | undefined;
+
+  //? Ctrl+C during a handoff goes to the whole foreground group, pkgi included: stopping a dev
+  //? server must bring the dashboard back, not take pkgi down with it. Inside the dashboard the
+  //? terminal is raw, so Ctrl+C there is a keypress and never this signal
+  const keepAlive = () => {};
+  process.on('SIGINT', keepAlive);
 
   const session: Session = {
     tab: initialTab ?? userState.tab,
@@ -129,6 +138,7 @@ export const renderDashboard = async (dir: string, initialTab?: TabId): Promise<
           : intent.label,
     },
   );
+  process.off('SIGINT', keepAlive);
   await flushRegistryCache();
   if (cleared) console.log(`pkgi: ${cleared}`);
 };

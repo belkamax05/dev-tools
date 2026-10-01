@@ -12,7 +12,11 @@ export interface Session {
   selected: Record<string, string | undefined>;
   filter: string;
   onlyOutdated: boolean;
+  /** Packages tab: only those past or near their end of life, stale or deprecated. */
+  onlyUnsupported?: boolean;
   onlyDifferent: boolean;
+  /** The Scripts tab's name/command filter. */
+  scriptFilter?: string;
   /** The Compare tab's package-name filter. */
   compareFilter?: string;
   /** The Add tab's last search, so coming back from an install shows the same results. */

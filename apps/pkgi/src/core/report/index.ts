@@ -242,11 +242,16 @@ export const renderMarkdown = (report: Report): string => {
   }
   const supported = active.filter((entry) => entry.support);
   if (supported.length) {
-    lines.push('## Support windows (endoflife.date)', '');
+    lines.push(
+      '## Support',
+      '',
+      'From endoflife.date where it publishes a window; otherwise "stale" from npm release dates.',
+      '',
+    );
     for (const entry of supported) {
       lines.push(
         `- **${entry.name}**: ${entry.support?.summary}${entry.support?.lts ? ' (LTS)' : ''} — ${
-          entry.links.eol
+          entry.support?.source
         }`,
       );
     }

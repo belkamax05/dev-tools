@@ -26,11 +26,13 @@ import type { Session, Tone } from '../types';
 import AddView from '../views/AddView';
 import CompareView from '../views/CompareView';
 import PackagesView from '../views/PackagesView';
+import ScriptsView from '../views/ScriptsView';
 import SettingsView from '../views/SettingsView';
 
 /** Every icon is East Asian Width *Wide* with no U+FE0F selector — see `TabDefinition`. */
 export const TABS: readonly TabDefinition<TabId>[] = [
   { id: 'packages', icon: '📦', label: '📦 Packages' },
+  { id: 'scripts', icon: '📜', label: '📜 Scripts' },
   { id: 'compare', icon: '🔀', label: '🔀 Compare' },
   { id: 'add', icon: '🔍', label: '🔍 Add' },
   { id: 'settings', icon: '🔧', label: '🔧 Settings' },
@@ -219,6 +221,7 @@ export const App = ({
       onHoverFooterAction={(action) => setFooterHint(action?.tooltip ?? null)}
     >
       {tab === 'packages' && <PackagesView {...viewProps} />}
+      {tab === 'scripts' && <ScriptsView {...viewProps} />}
       {tab === 'compare' && <CompareView {...viewProps} />}
       {tab === 'add' && <AddView {...viewProps} />}
       {tab === 'settings' && (

@@ -8,7 +8,7 @@ import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 import { defaultFolderStateFile } from '../paths';
 
 /** The dashboard's tabs, in order. */
-export const TAB_IDS = ['packages', 'compare', 'add', 'settings'] as const;
+export const TAB_IDS = ['packages', 'scripts', 'compare', 'add', 'settings'] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
 export const DEPENDENCY_TYPES = [

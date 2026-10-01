@@ -123,6 +123,7 @@ describe('renderMarkdown', () => {
           react: {
             status: 'eol',
             product: 'react',
+            basis: 'endoflife',
             cycle: '18',
             summary: '18 end of life since 2025-01-01',
             lts: false,

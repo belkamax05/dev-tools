@@ -7,8 +7,9 @@ directory: no list of repositories, no project layout assumed.
 
 ```sh
 pkgi                              # dashboard
-pkgi packages|compare|add|settings
-pkgi list [--outdated] [--offline] [--json]
+pkgi packages|scripts|compare|add|settings
+pkgi list [--outdated] [--eol] [--offline] [--json] [--verbose]
+pkgi eol                          # past end of life, ending within 90 days, stale or deprecated; exits 1 if any
 pkgi outdated                     # exits 1 when anything is behind — for CI
 pkgi update react zod@4.2.0       # keeps each package's section and range style (^, ~, exact)
 pkgi update                       # every minor/patch update at once; majors are listed, not taken
@@ -17,6 +18,7 @@ pkgi add hono [--dev]    pkgi remove left-pad
 pkgi add                          # no names: the Add tab, to search the registry
 pkgi remove                       # no names: tick packages from a list
 pkgi run build [args...]    pkgi start [args...]   # package.json scripts, with the folder's manager
+pkgi run                          # no script: the Scripts tab, to pick one
 pkgi audit    pkgi clear-cache    pkgi clear-modules
 pkgi compare ../web ../api [--different]
 pkgi report [../web ../api] [--offline] [--json] [--no-write]   # see Reports
@@ -80,6 +82,22 @@ modules list under `install`, and under direnv watch the `--print-watched` files
 `node_modules` or a lockfile that changes installs again at the next prompt — see
 `nix/lib/mk-env.nix`. Nothing installs on its own outside a Nix shell.
 
+## Support: end of life and stale packages
+
+Every package gets a support verdict where there is one to give, in the dashboard (each row, the
+detail panel, `e` to show only the ones that need attention), in `pkgi list` (the SUPPORT column),
+`pkgi eol` and `pkgi report`:
+
+- **endoflife.date** for what it publishes support windows for — Node (`@types/node`), React and
+  its lockstep packages, Next.js, Angular (`@angular/*`), Vue, Nuxt, Svelte, ESLint, Electron,
+  Express, Tailwind, Ionic, jQuery, Bootstrap, Ember, Bun, pnpm, Yarn (`ENDOFLIFE_PRODUCTS` in
+  `src/core/eol`). `EOL` past the end, `EOL <date>` within 90 days, `→ <month>` when supported.
+- **The registry** for everything else (and lines endoflife.date doesn't list): `stale` when the
+  package has published nothing for 2 years, or when the major line in use has had no release for
+  a year while `latest` is 2+ majors ahead. Never "supported" — recent releases show activity,
+  not a promise. The line check needs the full registry document, so it is fetched only for
+  packages 2+ majors behind, and its result is cached for a week (`~/.cache/pkgi/release-lines.json`).
+
 ## Reports
 
 `pkgi report` puts every package of several folders in one table: the range (and installed
@@ -97,12 +115,13 @@ dropped.
 
 | Tab | Keys |
 | --- | --- |
-| 📦 Packages | `u`/Enter update to latest · `U` to the prerelease · `v` pick any version · `A` every minor/patch update at once (majors are left to you) · `n` note · `x` remove · `w` npm page · `o` outdated only · `/` filter · `c` ask the registry now |
+| 📦 Packages | `u`/Enter update to latest · `U` to the prerelease · `v` pick any version · `A` every minor/patch update at once (majors are left to you) · `n` note · `x` remove · `w` npm page · `o` outdated only · `e` EOL/stale/deprecated only · `/` filter · `c` ask the registry now |
+| 📜 Scripts | `package.json`'s scripts, then its hooks and lifecycle scripts (`prebuild`, `postinstall`…) · Enter run · `a` run with arguments · `/` filter. A script gets the real terminal like any handoff — Ctrl+C stops it, Enter comes back to the list with its result |
 | 🔀 Compare | first a picker: tick folders (Space or click) from `pkgi.config.ts`, the ones saved here and the ones found nearby (workspace members, sibling projects); `a` adds a path, `s` saves a found one. Then a row per package with each folder's version: `a`/Enter align every folder to the newest, `u` just this one, `d` only differences, `p` back to the folders |
 | 🔍 Add | `/` search the registry · `i`/Enter add · `d` prod/dev · `v` a specific version |
 | 🔧 Settings | this folder's settings with where each comes from (`x` drops an override), compare folders (add from the nearby list), theme, and the files below |
 
-Everywhere: `1-4`/`Tab` switch tab, `r` re-read `package.json`, `t` theme, `q` quit.
+Everywhere: `1-5`/`Tab` switch tab, `r` re-read `package.json`, `t` theme, `q` quit.
 
 ## pkgi.config.ts
 
@@ -136,5 +155,5 @@ dashboard for this folder — so the file is the team's defaults and the dashboa
   notes with the team (the old web app kept them in a tracked `.settings/package-notes.json`).
 - **Per user** — the theme in `~/.config/pkgi/config.json`, the last tab in
   `~/.local/state/pkgi/state.json`.
-- **Cache** — registry answers (reused for `cacheHours`) and endoflife.date support windows (a
-  week) in `~/.cache/pkgi/`. Safe to delete.
+- **Cache** — registry answers (reused for `cacheHours`), endoflife.date support windows and
+  per-major release dates (a week each) in `~/.cache/pkgi/`. Safe to delete.

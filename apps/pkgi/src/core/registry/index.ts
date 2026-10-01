@@ -16,6 +16,8 @@ export interface PackageInfo {
   versions: string[];
   /** Only the deprecated versions, with the author's message. */
   deprecated: Record<string, string>;
+  /** When the package last changed on the registry — in practice, its last publish. */
+  modified?: string;
   fetchedAt: number;
   /** `not-found` for a package the registry does not have (a private or local one). */
   error?: string;
@@ -112,6 +114,7 @@ export const getPackageInfo = async (
     const doc = (await response.json()) as {
       'dist-tags'?: Record<string, string>;
       versions?: Record<string, { deprecated?: string }>;
+      modified?: string;
     };
     const distTags = doc['dist-tags'] ?? {};
     const versions = Object.keys(doc.versions ?? {}).sort(compareVersions);
@@ -128,6 +131,7 @@ export const getPackageInfo = async (
       distTags,
       versions,
       deprecated,
+      ...(typeof doc.modified === 'string' ? { modified: doc.modified } : {}),
       fetchedAt: Date.now(),
     };
     store[key] = info;
@@ -281,4 +285,59 @@ export const searchPackages = async (query: string, registry: string): Promise<S
     description: pkg.description,
     date: pkg.date,
   }));
+};
+
+/** The last stable release of each major line — `{ 18: '2024-04-26T…', 19: … }`. */
+export type ReleaseLines = Record<number, string>;
+
+/** Fold a package's publish times into {@link ReleaseLines}; prereleases don't keep a line alive. */
+export const toReleaseLines = (times: Record<string, string>): ReleaseLines => {
+  const lines: ReleaseLines = {};
+  for (const [version, time] of Object.entries(times)) {
+    if (version === 'created' || version === 'modified' || isPrerelease(version)) continue;
+    const major = Number.parseInt(version, 10);
+    if (Number.isNaN(major)) continue;
+    const known = lines[major];
+    if (!known || time > known) lines[major] = time;
+  }
+  return lines;
+};
+
+const LINES_FILE = () => join(pkgiCacheDir(), 'release-lines.json');
+/** Old lines only ever get fewer releases; a week-old answer is still right. */
+const LINES_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+let linesCache: Record<string, { fetchedAt: number; lines: ReleaseLines }> | undefined;
+
+/**
+ * {@link ReleaseLines} for one package. Needs the *full* registry document (only it has publish
+ * times), which can be megabytes — so callers ask only for packages a major or more behind, and
+ * the folded answer, a few bytes, is kept on disk for a week.
+ */
+export const getReleaseLines = async (
+  name: string,
+  registry: string,
+  force = false,
+): Promise<ReleaseLines | undefined> => {
+  if (!linesCache) {
+    try {
+      linesCache = JSON.parse(await Bun.file(LINES_FILE()).text());
+    } catch {
+      linesCache = {};
+    }
+  }
+  const store = linesCache ?? {};
+  const key = cacheKey(registry, name);
+  const cached = store[key];
+  if (cached && !force && Date.now() - cached.fetchedAt < LINES_MAX_AGE_MS) return cached.lines;
+  const times = await getPublishTimes(name, registry);
+  if (!Object.keys(times).length) return cached?.lines;
+  const lines = toReleaseLines(times);
+  store[key] = { fetchedAt: Date.now(), lines };
+  try {
+    await mkdir(pkgiCacheDir(), { recursive: true });
+    const temporary = `${LINES_FILE()}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await writeFile(temporary, JSON.stringify(store));
+    await rename(temporary, LINES_FILE());
+  } catch {}
+  return lines;
 };
