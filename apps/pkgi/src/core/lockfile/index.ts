@@ -9,6 +9,9 @@ export interface Tarball {
   url: string;
   /** Subresource-integrity string from the lockfile, e.g. `sha512-…`. */
   integrity: string;
+  /** package.json's `os` / `cpu`, when the lockfile records them — see `forPlatform`. */
+  os?: string[];
+  cpu?: string[];
 }
 
 /** What a lockfile says must be installed, independent of which manager wrote it. */
@@ -25,6 +28,49 @@ export const DEFAULT_REGISTRY = 'https://registry.npmjs.org';
 /** The registry's archive URL for a package: `@scope/name@1.0.0` → `…/@scope/name/-/name-1.0.0.tgz`. */
 export const registryTarballUrl = (name: string, version: string, registry = DEFAULT_REGISTRY) =>
   `${registry.replace(/\/$/, '')}/${name}/-/${basename(name)}-${version}.tgz`;
+
+/** A lockfile's `os` / `cpu` as a list — bun writes a single value as a plain string. */
+const platformList = (value: unknown): string[] | undefined =>
+  typeof value === 'string'
+    ? [value]
+    : Array.isArray(value)
+      ? value.filter((v): v is string => typeof v === 'string')
+      : undefined;
+
+/** `os` / `cpu` from a lockfile entry, left out when it doesn't restrict them. */
+const platformOf = (entry: unknown): Pick<Tarball, 'os' | 'cpu'> => {
+  const { os, cpu } = (entry ?? {}) as { os?: unknown; cpu?: unknown };
+  const out: Pick<Tarball, 'os' | 'cpu'> = {};
+  const osList = platformList(os);
+  const cpuList = platformList(cpu);
+  if (osList?.length) out.os = osList;
+  if (cpuList?.length) out.cpu = cpuList;
+  return out;
+};
+
+/**
+ * Whether `value` (this machine's `process.platform` / `process.arch`) passes a package's `os` /
+ * `cpu` list, as npm and bun read it: `!x` excludes x, any plain entry makes it an allow-list, and
+ * `none` — what bun writes for a platform it has no name for (netbsd, riscv64, wasm32) — allows
+ * nothing.
+ */
+const allows = (list: string[] | undefined, value: string): boolean => {
+  if (!list?.length || list.includes('any')) return true;
+  if (list.includes(`!${value}`)) return false;
+  const allowed = list.filter((entry) => !entry.startsWith('!'));
+  return allowed.length === 0 || allowed.includes(value);
+};
+
+/**
+ * The tarballs a manager would actually install on this platform: packages built for another
+ * os/cpu (`@nx/nx-win32-x64-msvc` on Linux) are optional dependencies it skips, so fetching them
+ * is wasted time.
+ */
+export const forPlatform = (
+  tarballs: Tarball[],
+  platform: string = process.platform,
+  arch: string = process.arch,
+): Tarball[] => tarballs.filter((t) => allows(t.os, platform) && allows(t.cpu, arch));
 
 /** `name@version` → its two halves; a scoped name keeps its leading `@`. */
 const splitIdent = (ident: string): [string, string] => {
@@ -51,7 +97,9 @@ const collector = () => {
 
 /**
  * `bun.lock` (text, JSONC). A registry package is `[ident, registry, info, integrity]` — registry
- * `""` means the default one; workspaces are listed under `workspaces` by path.
+ * `""` means the default one, and for a package from any other registry (an `.npmrc` scope) bun
+ * writes the archive's full URL there instead of the registry's; workspaces are listed under
+ * `workspaces` by path.
  */
 export const parseBunLock = (text: string): LockContents => {
   const lock = Bun.JSONC.parse(text) as {
@@ -70,8 +118,11 @@ export const parseBunLock = (text: string): LockContents => {
       out.add({
         name,
         version,
-        url: registryTarballUrl(name, version, registry || DEFAULT_REGISTRY),
+        url: /\.tgz$/.test(registry)
+          ? registry
+          : registryTarballUrl(name, version, registry || DEFAULT_REGISTRY),
         integrity,
+        ...platformOf(entry[2]),
       });
     } else {
       out.skip(`${key}: ${ident}`);
@@ -96,6 +147,8 @@ export const parseNpmLock = (text: string): LockContents => {
         integrity?: string;
         link?: boolean;
         inBundle?: boolean;
+        os?: string[];
+        cpu?: string[];
       }
     >;
   };
@@ -116,7 +169,7 @@ export const parseNpmLock = (text: string): LockContents => {
       entry.name ?? path.slice(path.lastIndexOf('node_modules/') + 'node_modules/'.length);
     const { version = '', resolved, integrity } = entry;
     if (resolved && integrity && /^https?:\/\//.test(resolved)) {
-      out.add({ name, version, url: resolved, integrity });
+      out.add({ name, version, url: resolved, integrity, ...platformOf(entry) });
     } else {
       out.skip(`${path}: ${resolved ?? version}`);
     }
@@ -131,7 +184,10 @@ export const parseNpmLock = (text: string): LockContents => {
 export const parsePnpmLock = (text: string): LockContents => {
   const lock = Bun.YAML.parse(text) as {
     importers?: Record<string, unknown>;
-    packages?: Record<string, { resolution?: { integrity?: string; tarball?: string } }>;
+    packages?: Record<
+      string,
+      { resolution?: { integrity?: string; tarball?: string }; os?: string[]; cpu?: string[] }
+    >;
   };
   const out = collector();
   for (const [key, entry] of Object.entries(lock.packages ?? {})) {
@@ -139,7 +195,13 @@ export const parsePnpmLock = (text: string): LockContents => {
     const [name, version] = splitIdent(ident);
     const { integrity, tarball } = entry.resolution ?? {};
     if (integrity && (!tarball || /^https?:\/\//.test(tarball))) {
-      out.add({ name, version, url: tarball ?? registryTarballUrl(name, version), integrity });
+      out.add({
+        name,
+        version,
+        url: tarball ?? registryTarballUrl(name, version),
+        integrity,
+        ...platformOf(entry),
+      });
     } else {
       out.skip(`${key}: ${tarball ?? 'no integrity'}`);
     }
