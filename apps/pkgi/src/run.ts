@@ -1,18 +1,21 @@
 import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
 
 import exec from '@/dev-tools/utils/process/exec';
 
 import {
   type DependencyType,
+  type FolderSettings,
   loadFolderContext,
+  type PackageNote,
   PROJECT_CONFIG_TEMPLATE,
   TAB_IDS,
   type TabId,
   writeFolderState,
 } from './config/settings';
 import { buildComparison, cellVersion, loadColumns, toAbsolute } from './core/compare';
+import { getSupport, type SupportInfo } from './core/eol';
 import {
   hashFile,
   isInstallCurrent,
@@ -22,12 +25,15 @@ import {
 } from './core/install';
 import {
   addCommand,
+  auditCommand,
+  clearCacheCommand,
   detectPackageManager,
   findLockfile,
   installCommand,
   lockfileOnlyCommand,
   readManifest,
   removeCommand,
+  runScriptCommand,
   setVersionCommand,
   shellQuote,
 } from './core/manifest';
@@ -39,6 +45,16 @@ import {
   pruneBuilds,
 } from './core/nix';
 import { buildRows, fetchInfos, isOutdated } from './core/packages';
+import { getManyPackageInfo } from './core/registry';
+import {
+  buildReport,
+  entryStatus,
+  folderLabels,
+  locationCell,
+  readPreviousPackages,
+  renderMarkdown,
+  versionsInUse,
+} from './core/report';
 
 const HELP = `pkgi — the packages of the folder you are in: installed, latest, notes, compare
 
@@ -50,7 +66,9 @@ usage:
   pkgi outdated [--json]          the ones with a newer version; exits 1 when there are any
   pkgi update <pkg>[@version]...  move packages to a version (latest by default), keeping
                                   their section and range style (^, ~, exact)
-  pkgi install [--frozen | --nix] [--if-changed] [--print-watched]
+  pkgi update                     every package behind by a minor or patch (majors are
+                                  left to you, one at a time)
+  pkgi install [--frozen | --nix] [--if-changed] [--print-watched] [--silent]
                                   install everything, with the package manager
                                   package.json's packageManager names (else the
                                   lockfile's), from the workspace root. --frozen
@@ -62,9 +80,23 @@ usage:
                                   files whose change means installing again;
                                   --nix builds node_modules in the Nix store from
                                   the lockfile alone (any manager's) and copies it
-                                  in - same lockfile, same store path
+                                  in - same lockfile, same store path; --silent
+                                  prints nothing unless it fails
   pkgi add <pkg>[@version]... [--dev]
-  pkgi remove <pkg>...
+                                  without names: the dashboard's Add tab (registry search)
+  pkgi remove <pkg>...            without names: tick them from a list
+  pkgi run <script> [args...]     a package.json script, with the folder's package manager
+  pkgi start [args...]            pkgi run start
+  pkgi audit                      the package manager's security audit
+  pkgi clear-cache                empty the package manager's download cache
+  pkgi clear-modules              delete this folder's node_modules
+  pkgi report [path...] [--offline] [--json] [--no-write]
+                                  every package of several folders in one table: versions
+                                  in each, latest, deprecation, end of life, notes. Without
+                                  paths, pkgi.config.ts's reportPaths (else this folder).
+                                  With reportDir set there, writes
+                                  dependencies-report.json and .md into it, keeping when
+                                  each package was first seen and when it was dropped
   pkgi compare [path...] [--different] [--json]
                                   this folder's packages beside other folders'; without
                                   paths, the ones last ticked in the dashboard
@@ -73,7 +105,8 @@ usage:
   pkgi config [--init]            where settings and notes live; --init writes a
                                   commented pkgi.config.ts here
 
-Add --dry-run to install/update/add/remove to print the command instead of running it.
+Add --dry-run to install/update/add/remove/audit/clear-cache/clear-modules to print the
+command instead of running it.
 `;
 
 const UPDATE_MARK: Record<string, string> = {
@@ -104,12 +137,41 @@ const table = (header: string[], rows: string[][]) => {
   for (const row of rows) console.log(line(row));
 };
 
-/** Run a package-manager command in the folder, its output straight to the terminal. */
-const runCommand = async (dir: string, argv: string[], dryRun: boolean) => {
-  console.log(`$ ${shellQuote(argv)}`);
+/**
+ * Run a package-manager command in the folder, its output straight to the terminal — or, `quiet`,
+ * captured and shown only when it fails.
+ */
+const runCommand = async (dir: string, argv: string[], dryRun: boolean, quiet = false) => {
+  if (!quiet || dryRun) console.log(`$ ${shellQuote(argv)}`);
   if (dryRun) return;
-  const result = await exec(argv, { cwd: dir, stream: true });
-  if (result.exitCode !== 0) process.exitCode = result.exitCode;
+  const result = await exec(argv, { cwd: dir, stream: !quiet });
+  if (result.exitCode === 0) return;
+  process.exitCode = result.exitCode;
+  if (quiet) {
+    console.error(`$ ${shellQuote(argv)}`);
+    for (const output of [result.stdout, result.stderr]) if (output) console.error(output);
+  }
+};
+
+/**
+ * Run a command that may want the keyboard — a dev server, a watcher, an interactive audit fix —
+ * with this process's stdin, which {@link exec} never hands over.
+ */
+const runInteractive = async (dir: string, argv: string[]) => {
+  console.log(`$ ${shellQuote(argv)}`);
+  try {
+    const child = Bun.spawn(argv, {
+      cwd: dir,
+      stdin: 'inherit',
+      stdout: 'inherit',
+      stderr: 'inherit',
+    });
+    const code = await child.exited;
+    if (code !== 0) process.exitCode = code;
+  } catch (error) {
+    console.error(`pkgi: ${(error as Error).message}`);
+    process.exitCode = 127;
+  }
 };
 
 /**
@@ -171,6 +233,102 @@ const installThroughNix = async (
   }
 };
 
+/**
+ * `pkgi report`: read every folder, ask the registry and endoflife.date about each package once,
+ * print the table, and — with a `reportDir` — write the JSON and Markdown, carrying the history
+ * over from the JSON already there.
+ */
+const report = async (
+  dir: string,
+  paths: string[],
+  options: {
+    notes: Record<string, PackageNote>;
+    settings: FolderSettings;
+    reportDir?: string;
+    offline: boolean;
+    json: boolean;
+    write: boolean;
+  },
+) => {
+  const missing = paths.filter((path) => !existsSync(join(toAbsolute(dir, path), 'package.json')));
+  for (const path of missing) console.error(`pkgi: no package.json in ${path} — left out`);
+  const present = paths.filter((path) => !missing.includes(path));
+  const labels = folderLabels(present);
+  const columns = (await loadColumns(dir, present.map((path) => toAbsolute(dir, path)))).map(
+    (column, at) => ({ ...column, label: labels[at] ?? column.label }),
+  );
+
+  const names = [
+    ...new Set(
+      columns.flatMap((column) =>
+        column.manifest.dependencies.filter((dep) => !dep.local).map((dep) => dep.name),
+      ),
+    ),
+  ];
+  const { settings } = options;
+  const infos = options.offline
+    ? {}
+    : await getManyPackageInfo(names, {
+        registry: settings.registry,
+        maxAgeMs: settings.cacheHours * 3600_000,
+      });
+
+  //? endoflife.date is asked about the oldest version in use — the one that runs out first
+  const support: Record<string, SupportInfo | undefined> = {};
+  if (!options.offline) {
+    for (const name of names) {
+      const oldest = versionsInUse(
+        columns.flatMap((column) =>
+          column.manifest.dependencies
+            .filter((dep) => dep.name === name)
+            .map((dep) => ({ folder: column.label, ...dep })),
+        ),
+      )[0];
+      if (oldest) support[name] = await getSupport(name, oldest);
+    }
+  }
+
+  const out = options.reportDir ? resolve(dir, options.reportDir) : undefined;
+  const jsonPath = out && join(out, 'dependencies-report.json');
+  let previous = {};
+  if (jsonPath && existsSync(jsonPath)) {
+    try {
+      previous = readPreviousPackages(await Bun.file(jsonPath).json());
+    } catch {}
+  }
+  const result = buildReport({
+    columns,
+    paths: present,
+    infos,
+    support,
+    notes: options.notes,
+    previous,
+    now: new Date().toISOString(),
+  });
+
+  if (options.json) console.log(JSON.stringify(result, null, 2));
+  else {
+    table(
+      ['PACKAGE', ...labels, 'LATEST', 'STATUS'],
+      Object.values(result.packages).map((entry) => [
+        entry.name,
+        ...labels.map((label) =>
+          locationCell(entry.locations.find((location) => location.folder === label)),
+        ),
+        entry.latest ?? '',
+        entryStatus(entry),
+      ]),
+    );
+  }
+
+  if (!out || !jsonPath || !options.write) return;
+  await mkdir(out, { recursive: true });
+  await writeFile(jsonPath, `${JSON.stringify(result, null, 2)}\n`);
+  await writeFile(join(out, 'dependencies-report.md'), renderMarkdown(result));
+  //? To stderr, so `pkgi report --json > file` stays valid JSON
+  console.error(`\npkgi: wrote ${jsonPath} and dependencies-report.md`);
+};
+
 /** `name@1.2.3` → ['name', '1.2.3']; `@scope/name` keeps its leading `@`. */
 const splitSpec = (spec: string): [string, string | undefined] => {
   const at = spec.lastIndexOf('@');
@@ -178,12 +336,30 @@ const splitSpec = (spec: string): [string, string | undefined] => {
 };
 
 /**
- * `pkgi [tab | list | outdated | update | add | remove | compare | note | notes | config]`.
+ * `pkgi [tab | list | outdated | update | install | add | remove | run | start | audit |
+ * clear-cache | clear-modules | compare | report | note | notes | config]`.
  *
  * Everything works on the current directory: no repository layout, no registry of projects. The
  * dashboard is imported lazily, as giti and agenti do, so the scripted commands never load Ink.
  */
 export const run = async (...argv: string[]) => {
+  //? Before any flag parsing: everything after the script name is the script's own, `--help`
+  //? and `--watch` included
+  if (argv[0] === 'run' || argv[0] === 'start') {
+    const [command, ...tail] = argv;
+    const [script, ...args] = command === 'start' ? ['start', ...tail] : tail;
+    const dir = process.cwd();
+    if (!script) {
+      console.error('usage: pkgi run <script> [args...]');
+      process.exitCode = 1;
+      return;
+    }
+    const { settings } = await loadFolderContext(dir);
+    const manager = await detectPackageManager(dir, settings.packageManager);
+    await runInteractive(dir, runScriptCommand(manager.name, script, args));
+    return;
+  }
+
   const flags = new Set(argv.filter((arg) => arg.startsWith('--')));
   const [first, ...rest] = argv.filter((arg) => !arg.startsWith('--'));
   const dir = process.cwd();
@@ -245,14 +421,34 @@ export const run = async (...argv: string[]) => {
   }
 
   if (first === 'update' || first === 'upgrade') {
-    if (!rest.length) {
-      console.error('usage: pkgi update <pkg>[@version]...');
-      process.exitCode = 1;
-      return;
-    }
     const manifest = await readManifest(dir);
     const manager = await detectPackageManager(dir, settings.packageManager);
     const infos = await fetchInfos(manifest, settings);
+    if (!rest.length) {
+      //? The dashboard's [A]: majors are each a migration to read the notes for, not a bulk step
+      const safe = buildRows(manifest, infos, state.notes, settings).filter(
+        (row) => !row.local && row.latest && (row.update === 'minor' || row.update === 'patch'),
+      );
+      if (!safe.length) console.log('Nothing behind by only a minor or patch.');
+      for (const row of safe) {
+        await runCommand(
+          dir,
+          setVersionCommand(manager.name, row.name, row.latest as string, row.type, row.range),
+          dryRun,
+        );
+      }
+      const majors = buildRows(manifest, infos, state.notes, settings).filter(
+        (row) => !row.local && row.update === 'major',
+      );
+      if (majors.length) {
+        console.log(
+          `\nLeft behind by a major (pkgi update <pkg> for each): ${majors
+            .map((row) => `${row.name} ${row.current} → ${row.latest}`)
+            .join(', ')}`,
+        );
+      }
+      return;
+    }
     for (const spec of rest) {
       const [name, wanted] = splitSpec(spec);
       const dep = manifest.dependencies.find((candidate) => candidate.name === name);
@@ -290,7 +486,7 @@ export const run = async (...argv: string[]) => {
     }
     if (flags.has('--if-changed') && (await isInstallCurrent(root, manager.name, lockfile))) return;
     const frozen = flags.has('--frozen') && lockfile !== undefined;
-    if (flags.has('--frozen') && !frozen) {
+    if (flags.has('--frozen') && !frozen && !flags.has('--silent')) {
       console.log(`No ${manager.name} lockfile in ${root} yet — installing to generate one.`);
     }
     const mismatch = dryRun
@@ -302,7 +498,7 @@ export const run = async (...argv: string[]) => {
       );
     }
     const argv = installCommand(manager.name, { frozen, version: manager.version, dir: root });
-    await runCommand(root, argv, dryRun);
+    await runCommand(root, argv, dryRun, flags.has('--silent'));
     const written = findLockfile(root, manager.name);
     if (!dryRun && !process.exitCode && written)
       await writeInstallStamp(root, manager.name, written);
@@ -311,9 +507,9 @@ export const run = async (...argv: string[]) => {
 
   if (first === 'add' || first === 'install') {
     if (!rest.length) {
-      console.error('usage: pkgi add <pkg>[@version]... [--dev]');
-      process.exitCode = 1;
-      return;
+      const { default: renderDashboard } = await import('./ui/renderDashboard');
+      await renderDashboard(dir, 'add');
+      process.exit(0);
     }
     const manager = await detectPackageManager(dir, settings.packageManager);
     const dev = flags.has('--dev') || (settings.installAs === 'dev' && !flags.has('--prod'));
@@ -329,13 +525,54 @@ export const run = async (...argv: string[]) => {
   }
 
   if (first === 'remove' || first === 'rm' || first === 'uninstall') {
-    if (!rest.length) {
-      console.error('usage: pkgi remove <pkg>...');
-      process.exitCode = 1;
-      return;
+    let names = rest;
+    if (!names.length) {
+      const manifest = await readManifest(dir);
+      const declared = [...new Set(manifest.dependencies.map((dep) => dep.name))].sort();
+      if (!declared.length) {
+        console.error(`No dependencies in ${dir}`);
+        process.exitCode = 1;
+        return;
+      }
+      const { default: pickPackages } = await import('./ui/pickPackages');
+      names = await pickPackages('Remove which packages?', declared);
+      if (!names.length) return;
     }
     const manager = await detectPackageManager(dir, settings.packageManager);
-    await runCommand(dir, removeCommand(manager.name, rest), dryRun);
+    await runCommand(dir, removeCommand(manager.name, names), dryRun);
+    return;
+  }
+
+  if (first === 'audit' || first === 'clear-cache') {
+    const manager = await detectPackageManager(dir, settings.packageManager);
+    const audit = auditCommand(manager.name, { version: manager.version, dir: manager.root });
+    if (first === 'clear-cache') await runCommand(dir, clearCacheCommand(manager.name), dryRun);
+    else if (dryRun) console.log(`$ ${shellQuote(audit)}`);
+    //? Its exit code is non-zero when anything is found — passed on, for CI
+    else await runInteractive(dir, audit);
+    return;
+  }
+
+  if (first === 'clear-modules') {
+    const target = join(dir, 'node_modules');
+    if (!existsSync(target)) {
+      console.log(`No node_modules in ${dir}`);
+      return;
+    }
+    console.log(`$ rm -rf ${shellQuote([target])}`);
+    if (!dryRun) await rm(target, { recursive: true, force: true });
+    return;
+  }
+
+  if (first === 'report') {
+    await report(dir, rest.length ? rest : (context.project.config.reportPaths ?? ['.']), {
+      notes: state.notes,
+      settings,
+      reportDir: context.project.config.reportDir,
+      offline: flags.has('--offline'),
+      json: flags.has('--json'),
+      write: !flags.has('--no-write'),
+    });
     return;
   }
 

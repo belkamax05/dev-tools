@@ -50,6 +50,8 @@ export interface FolderSettings {
  * export default {
  *   stateFile: '.pkgi/state.json',     // keep notes in the repo, to share them
  *   comparePaths: ['../web', '../api'],
+ *   reportPaths: ['../web', '../api'],
+ *   reportDir: 'reports',
  *   showUnstable: false,
  *   dependencyTypes: ['dependencies', 'devDependencies'],
  * };
@@ -63,6 +65,13 @@ export interface PkgiProjectConfig extends Partial<FolderSettings> {
   stateFile?: string;
   /** Folders offered for comparison, relative to this one or absolute. */
   comparePaths?: string[];
+  /** Folders `pkgi report` covers when none are given, relative to this one or absolute. */
+  reportPaths?: string[];
+  /**
+   * Where `pkgi report` writes `dependencies-report.json` and `.md`, relative to this folder.
+   * Left out, the report is only printed.
+   */
+  reportDir?: string;
 }
 
 export const DEFAULT_SETTINGS: FolderSettings = {
@@ -101,6 +110,9 @@ const coerceSettings = (raw: Record<string, unknown>): Partial<FolderSettings> =
   return out;
 };
 
+const pathList = (value: unknown[]): string[] =>
+  value.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim()));
+
 export interface ProjectConfigResult {
   config: PkgiProjectConfig;
   /** The file it came from, when there is one. */
@@ -128,11 +140,9 @@ export const loadProjectConfig = async (dir: string): Promise<ProjectConfigResul
     if (!raw || typeof raw !== 'object') return { config: {}, path, error: 'exports no object' };
     const config: PkgiProjectConfig = coerceSettings(raw);
     if (typeof raw.stateFile === 'string' && raw.stateFile.trim()) config.stateFile = raw.stateFile;
-    if (Array.isArray(raw.comparePaths)) {
-      config.comparePaths = raw.comparePaths.filter(
-        (entry): entry is string => typeof entry === 'string' && Boolean(entry.trim()),
-      );
-    }
+    if (Array.isArray(raw.comparePaths)) config.comparePaths = pathList(raw.comparePaths);
+    if (Array.isArray(raw.reportPaths)) config.reportPaths = pathList(raw.reportPaths);
+    if (typeof raw.reportDir === 'string' && raw.reportDir.trim()) config.reportDir = raw.reportDir;
     return { config, path };
   } catch (error) {
     return { config: {}, path, error: (error as Error).message };
@@ -155,6 +165,12 @@ export default {
 
   /** Folders offered on the Compare tab, relative to this one. */
   comparePaths: [],
+
+  /** Folders \`pkgi report\` covers when none are given, relative to this one. */
+  // reportPaths: ['.'],
+
+  /** Where \`pkgi report\` writes dependencies-report.json and .md. Left out, it only prints. */
+  // reportDir: 'reports',
 
   /** Offer prereleases (next / beta / canary) as updates. */
   showUnstable: ${DEFAULT_SETTINGS.showUnstable},
@@ -261,7 +277,13 @@ export const writeFolderState = async (path: string, state: FolderState): Promis
 
 /** The settings in force: defaults, then the config file, then the folder's own toggles. */
 export const resolveSettings = (config: PkgiProjectConfig, state: FolderState): FolderSettings => {
-  const { stateFile: _stateFile, comparePaths: _comparePaths, ...fromConfig } = config;
+  const {
+    stateFile: _stateFile,
+    comparePaths: _comparePaths,
+    reportPaths: _reportPaths,
+    reportDir: _reportDir,
+    ...fromConfig
+  } = config;
   return { ...DEFAULT_SETTINGS, ...fromConfig, ...state.settings };
 };
 

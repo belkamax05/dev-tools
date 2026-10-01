@@ -5,12 +5,15 @@ import { join } from 'node:path';
 
 import {
   addCommand,
+  auditCommand,
+  clearCacheCommand,
   detectPackageManager,
   findLockfile,
   installCommand,
   parsePackageManagerField,
   readManifest,
   removeCommand,
+  runScriptCommand,
   setVersionCommand,
   shellQuote,
 } from './index';
@@ -168,5 +171,31 @@ describe('commands', () => {
   test('shellQuote leaves plain words alone and quotes the rest', () => {
     expect(shellQuote(['bun', 'add', 'react@^19.3.0'])).toBe('bun add react@^19.3.0');
     expect(shellQuote(['cd', "/tmp/it's here"])).toBe(`cd '/tmp/it'\\''s here'`);
+  });
+});
+
+describe('script, audit and cache commands', () => {
+  test('runScriptCommand passes arguments through, behind -- for npm alone', () => {
+    expect(runScriptCommand('bun', 'test', ['--coverage'])).toEqual(['bun', 'run', 'test', '--coverage']);
+    expect(runScriptCommand('npm', 'test', ['--coverage'])).toEqual([
+      'npm',
+      'run',
+      'test',
+      '--',
+      '--coverage',
+    ]);
+    expect(runScriptCommand('npm', 'build')).toEqual(['npm', 'run', 'build']);
+  });
+
+  test('auditCommand moves under `yarn npm` for Yarn Berry', () => {
+    expect(auditCommand('pnpm')).toEqual(['pnpm', 'audit']);
+    expect(auditCommand('yarn', { version: '1.22.22' })).toEqual(['yarn', 'audit']);
+    expect(auditCommand('yarn', { version: '4.5.0' })).toEqual(['yarn', 'npm', 'audit']);
+  });
+
+  test('clearCacheCommand per manager', () => {
+    expect(clearCacheCommand('bun')).toEqual(['bun', 'pm', 'cache', 'rm']);
+    expect(clearCacheCommand('npm')).toEqual(['npm', 'cache', 'clean', '--force']);
+    expect(clearCacheCommand('pnpm')).toEqual(['pnpm', 'store', 'prune']);
   });
 });

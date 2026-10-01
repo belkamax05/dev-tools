@@ -11,9 +11,15 @@ pkgi packages|compare|add|settings
 pkgi list [--outdated] [--offline] [--json]
 pkgi outdated                     # exits 1 when anything is behind — for CI
 pkgi update react zod@4.2.0       # keeps each package's section and range style (^, ~, exact)
-pkgi install [--frozen | --nix] [--if-changed]   # everything, from the lockfile — see Installing
+pkgi update                       # every minor/patch update at once; majors are listed, not taken
+pkgi install [--frozen | --nix] [--if-changed] [--silent]   # everything, from the lockfile — see Installing
 pkgi add hono [--dev]    pkgi remove left-pad
+pkgi add                          # no names: the Add tab, to search the registry
+pkgi remove                       # no names: tick packages from a list
+pkgi run build [args...]    pkgi start [args...]   # package.json scripts, with the folder's manager
+pkgi audit    pkgi clear-cache    pkgi clear-modules
 pkgi compare ../web ../api [--different]
+pkgi report [../web ../api] [--offline] [--json] [--no-write]   # see Reports
 pkgi note react "pinned until the SSR fix lands"   pkgi note react --clear   pkgi notes
 pkgi config [--init]              # where everything lives; --init writes pkgi.config.ts
 ```
@@ -74,6 +80,19 @@ modules list under `install`, and under direnv watch the `--print-watched` files
 `node_modules` or a lockfile that changes installs again at the next prompt — see
 `nix/lib/mk-env.nix`. Nothing installs on its own outside a Nix shell.
 
+## Reports
+
+`pkgi report` puts every package of several folders in one table: the range (and installed
+version) in each folder, the latest on the registry, and a status — deprecated, end of life or
+ending soon (endoflife.date, judged on the oldest version in use), how far behind. Without paths
+it covers `pkgi.config.ts`'s `reportPaths`, else the current folder; a note on a package in this
+folder goes in too.
+
+With `reportDir` set, it also writes `dependencies-report.json` and `dependencies-report.md` there
+(`--no-write` skips that). The JSON already there is read back first, so each package keeps when
+it was first seen, and one no folder declares any more stays in the report with when it was
+dropped.
+
 ## Tabs
 
 | Tab | Keys |
@@ -94,6 +113,8 @@ all of them commented.
 export default {
   stateFile: '.pkgi/state.json',    // keep notes in the repo, to share them via git
   comparePaths: ['../web', '../api'],
+  reportPaths: ['../web', '../api'], // what `pkgi report` covers without paths
+  reportDir: 'reports',             // where it writes dependencies-report.json / .md
   showUnstable: false,              // offer next/beta/canary as updates
   dependencyTypes: ['dependencies', 'devDependencies'],
   installAs: 'prod',

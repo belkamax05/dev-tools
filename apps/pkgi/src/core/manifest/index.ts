@@ -254,6 +254,46 @@ export const removeCommand = (manager: PackageManagerName, names: string[]): str
 ];
 
 /**
+ * Run a `package.json` script. npm alone needs `--` before the script's own arguments, or it
+ * takes flags like `--coverage` for itself.
+ */
+export const runScriptCommand = (
+  manager: PackageManagerName,
+  script: string,
+  args: string[] = [],
+): string[] =>
+  manager === 'npm' && args.length
+    ? ['npm', 'run', script, '--', ...args]
+    : [manager, 'run', script, ...args];
+
+/** Yarn Berry (2+) — by the pinned version, else by its `.yarnrc.yml`. */
+const isYarnBerry = (version?: string, dir?: string) => {
+  const major = version ? Number.parseInt(version, 10) : undefined;
+  return major !== undefined ? major >= 2 : dir !== undefined && existsSync(join(dir, '.yarnrc.yml'));
+};
+
+/** The manager's security audit. Yarn Berry moved it under `yarn npm`. */
+export const auditCommand = (
+  manager: PackageManagerName,
+  { version, dir }: { version?: string; dir?: string } = {},
+): string[] =>
+  manager === 'yarn' && isYarnBerry(version, dir) ? ['yarn', 'npm', 'audit'] : [manager, 'audit'];
+
+/** Empty the manager's global download cache (pnpm's is a content store, pruned instead). */
+export const clearCacheCommand = (manager: PackageManagerName): string[] => {
+  switch (manager) {
+    case 'bun':
+      return ['bun', 'pm', 'cache', 'rm'];
+    case 'npm':
+      return ['npm', 'cache', 'clean', '--force'];
+    case 'yarn':
+      return ['yarn', 'cache', 'clean'];
+    case 'pnpm':
+      return ['pnpm', 'store', 'prune'];
+  }
+};
+
+/**
  * Write the lockfile without installing, for a folder that has none yet. Classic Yarn has no
  * lockfile-only mode, so it installs.
  */
@@ -282,14 +322,8 @@ export const installCommand = (
   switch (manager) {
     case 'npm':
       return ['npm', 'ci'];
-    case 'yarn': {
-      const major = version ? Number.parseInt(version, 10) : undefined;
-      const berry =
-        major !== undefined
-          ? major >= 2
-          : dir !== undefined && existsSync(join(dir, '.yarnrc.yml'));
-      return ['yarn', 'install', berry ? '--immutable' : '--frozen-lockfile'];
-    }
+    case 'yarn':
+      return ['yarn', 'install', isYarnBerry(version, dir) ? '--immutable' : '--frozen-lockfile'];
     default:
       return [manager, 'install', '--frozen-lockfile'];
   }
