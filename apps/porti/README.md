@@ -8,12 +8,17 @@ repository.
 porti                            # dashboard
 porti watched|listening|settings # open it on a tab
 porti list [--all] [--json]      # the watched ports (--all: every listening port)
-porti status 3000 5173           # who holds them; exits 1 when any is taken
-porti kill 3000 [--force] [--tree]
+porti status [3000 5173]         # who holds them and what they are for; exits 1 when any is taken
+porti kill [3000] [--force] [--tree]   # no port: pick a busy watched one
+porti docker-kill [8080] [--yes] # force-remove the Docker containers publishing a port
 porti watch 5173 vite            # add (or rename) a watched port
 porti unwatch 5173
 porti config                     # where the watched ports are kept
 ```
+
+`docker-kill` lists the containers that publish the port (stopped ones too — they take it back
+when started) and asks before `docker rm -f`; without a terminal it needs `--yes`. When the
+daemon refuses your user it retries once through `sudo docker`.
 
 `kill` sends SIGTERM, waits 2s, then SIGKILL; `--force` sends SIGKILL at once and `--tree` stops
 the owner's child processes as well (children first). Only the process that holds the socket is
@@ -38,6 +43,24 @@ newcomer. The refresh timer stops while a question is on screen.
 `~/.config/porti/config.json` — the theme, the refresh rate and `ports`, a list of
 `{ "port": 5173, "name": "vite" }` (or bare numbers). A first run watches 3000, 4200 and 8080;
 an emptied list stays empty. The last tab is state, in `~/.local/state/porti/state.json`.
+
+## Project ports
+
+A repository can declare the ports it uses in a `porti.config.ts` — porti finds the nearest one at
+or above the current folder, or the one in `$PORTI_PROJECT_DIR` when a tool runs porti on a
+project's behalf:
+
+```ts
+export default {
+  ports: [
+    { port: 5173, name: 'web', description: 'Vite dev server' },
+    { port: 6006, name: 'storybook' },
+  ],
+};
+```
+
+They are watched alongside your own list but never written into it, so `unwatch` cannot remove
+them. On a port both lists name, the project's label wins — it knows what runs there.
 
 ## How it reads the ports
 

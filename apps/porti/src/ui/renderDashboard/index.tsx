@@ -3,7 +3,13 @@ import { render } from 'ink';
 import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
 import { describeClearResults } from '@/dev-tools/ui/components/ClearDataDialog';
 
-import { configStore, type PortiConfig, stateStore, type TabId } from '../../config/settings';
+import {
+  configStore,
+  type PortiConfig,
+  stateStore,
+  type TabId,
+  type WatchedPort,
+} from '../../config/settings';
 import App from '../App';
 import type { Session } from '../types';
 
@@ -13,7 +19,10 @@ import type { Session } from '../types';
  * The only handoff is `e` in Settings — the config file in `$EDITOR` — which is why the config is
  * re-read after one: reopening with the copy from before the edit would undo it on the next save.
  */
-export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
+export const renderDashboard = async (
+  initialTab?: TabId,
+  projectPorts: WatchedPort[] = [],
+): Promise<void> => {
   let [config, state] = await Promise.all([configStore.load(), stateStore.load()]);
   const session: Session = { tab: initialTab ?? state.tab, selected: {}, filter: '' };
   let cleared: string | undefined;
@@ -22,6 +31,7 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
     (frame) => (
       <App
         config={config}
+        projectPorts={projectPorts}
         configPath={configStore.path}
         session={session}
         notice={frame.notice}

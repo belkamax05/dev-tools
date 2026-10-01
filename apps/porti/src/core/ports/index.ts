@@ -21,6 +21,8 @@ export interface PortStatus {
   port: number;
   /** The name it is watched under, when it is one of the watched ports. */
   name?: string;
+  /** What the watched entry says it is for. */
+  description?: string;
   watched: boolean;
   /** Every address it is bound on — `*`, `127.0.0.1`, `::1`, … */
   addresses: string[];
@@ -74,6 +76,7 @@ export const getPortStatuses = async (
       return {
         port,
         name: entry?.name,
+        description: entry?.description,
         watched: Boolean(entry),
         addresses: [...new Set(sockets.map((socket) => socket.address))],
         owners: [...owners.values()],

@@ -15,7 +15,9 @@ import {
   stateStore,
   TAB_IDS,
   type TabId,
+  type WatchedPort,
 } from '../../config/settings';
+import { mergeWatched } from '../../config/project';
 import { getPortStatuses, isBusy } from '../../core/ports';
 import portiTheme from '../theme';
 import type { Handoff, Session, Tone } from '../types';
@@ -34,6 +36,8 @@ export const TABS: readonly TabDefinition<TabId>[] = [
 
 export interface AppProps {
   config: PortiConfig;
+  /** Ports the project's `porti.config.ts` lists — watched too, but never saved into `config`. */
+  projectPorts?: WatchedPort[];
   configPath: string;
   session: Session;
   notice?: string;
@@ -72,6 +76,7 @@ const StatusNote = ({ text, tone }: { text: string; tone: Tone }) => {
  */
 export const App = ({
   config: initialConfig,
+  projectPorts = [],
   configPath,
   session,
   notice,
@@ -92,9 +97,10 @@ export const App = ({
   const [footerHint, setFooterHint] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
 
+  const watched = mergeWatched(config.ports, projectPorts);
   const snapshot = useLoader(
-    () => getPortStatuses(config.ports, { all: true }),
-    [config.ports.map((entry) => `${entry.port}:${entry.name ?? ''}`).join(',')],
+    () => getPortStatuses(watched, { all: true }),
+    [watched.map((entry) => `${entry.port}:${entry.name ?? ''}`).join(',')],
   );
   const { reload } = snapshot;
 
@@ -180,7 +186,7 @@ export const App = ({
   return (
     <AppShell
       title="porti"
-      detail={`${config.ports.length} watched · ${busyWatched} busy · ${refreshNote}`}
+      detail={`${watched.length} watched · ${busyWatched} busy · ${refreshNote}`}
       note={status ? <StatusNote text={status.text} tone={status.tone} /> : undefined}
       tabs={TABS}
       activeTab={tab}

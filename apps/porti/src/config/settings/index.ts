@@ -12,6 +12,8 @@ export interface WatchedPort {
   port: number;
   /** What usually runs there — shown next to the number, never required. */
   name?: string;
+  /** A longer note on what it is for — shown by `porti status`, never required. */
+  description?: string;
 }
 
 /** What a first run watches: the three ports local dev servers fight over most. */
@@ -48,7 +50,7 @@ export const parsePort = (value: string | undefined): number | undefined => {
  * the next run would make the list impossible to empty. Only a missing (or non-array) key means
  * "never configured" and gets the defaults.
  */
-const coercePorts = (raw: unknown): WatchedPort[] => {
+export const coercePorts = (raw: unknown): WatchedPort[] => {
   if (!Array.isArray(raw)) return DEFAULT_PORTS.map((entry) => ({ ...entry }));
   const seen = new Set<number>();
   const out: WatchedPort[] = [];
@@ -57,8 +59,13 @@ const coercePorts = (raw: unknown): WatchedPort[] => {
     const port = typeof entry === 'number' ? entry : (entry as WatchedPort | null)?.port;
     if (!isPort(port) || seen.has(port)) continue;
     seen.add(port);
-    const name = (entry as WatchedPort | null)?.name;
-    out.push(typeof name === 'string' && name.trim() ? { port, name: name.trim() } : { port });
+    const { name, description } = (entry ?? {}) as Partial<WatchedPort>;
+    out.push({
+      port,
+      ...(typeof name === 'string' && name.trim() && { name: name.trim() }),
+      ...(typeof description === 'string' &&
+        description.trim() && { description: description.trim() }),
+    });
   }
   return out;
 };
