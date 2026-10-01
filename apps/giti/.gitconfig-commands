@@ -7,6 +7,9 @@ amend = "!git giti amend"
 
 branch = "!git giti branch"
 
+# Compare the current branch with another: commits ahead/behind and files changed since they split (--stat, --diff for more)
+branch-compare = "!git giti branch/compare"
+
 # Apply the diff of another branch into the working tree as unstaged changes
 branch-copy = "!git giti branch/copy"
 
@@ -21,6 +24,9 @@ branch-list = "!git giti branch/list"
 
 # Rename a local branch and its remote counterpart (push new name, delete old remote branch, retarget tracking). Pass one name to rename the current branch, or 'old new' to rename any branch
 branch-move = "!git giti branch/move"
+
+# Every local and remote branch against base branches (--base, default the trunk): ahead/behind, merged, last-commit age
+branch-overview = "!git giti branch/overview"
 
 # Delete a local branch by name or pick one interactively; prompts to force-delete if not fully merged
 branch-remove = "!git giti branch/remove"
@@ -37,7 +43,7 @@ branches = "!git giti branches"
 # Revert all tracked changes to HEAD — newly-added staged files are deleted, untracked files are left as-is, *.patch files are preserved.
 cancel-all = "!git giti cancel-all"
 
-# Discard only working-tree (unstaged) changes; staged files and *.patch files are left untouched
+# Discard working-tree (unstaged) changes — all of them, or only the paths given; staged files and *.patch files are left untouched
 cancel-unstaged = "!git giti cancel-unstaged"
 
 # Delete local branches already merged into the current one, after showing them and asking (--dry-run to preview, --yes to skip the prompt)
@@ -84,6 +90,9 @@ mega-push = "!git giti mega/push"
 # Show this repository and every subrepo, submodule and subtree against their real upstreams (--no-fetch, --no-self)
 mega-status = "!git giti mega/status"
 
+# Open the repository in the browser — home, actions, pulls, issues, pages, settings, a new PR for the current branch — or its folder (--print to only print it)
+open = "!git giti open"
+
 # Apply a .patch file — changes land as unstaged working-tree edits. Pick interactively if no name is given.
 patch-apply = "!git giti patch-apply"
 
@@ -101,6 +110,29 @@ pull = "!git giti pull"
 
 # Push with interactive TUI for flags and upstream info; TUI is skipped when any flag is provided
 push = "!git giti push"
+
+remote = "!git giti remote"
+
+# Add a remote: giti remote add <name> <url>
+remote-add = "!git giti remote/add"
+
+# Show the default push remote (remote.pushDefault), or set it: giti remote default <name>
+remote-default = "!git giti remote/default"
+
+# List remotes with their fetch, push and web URLs, marking the default push remote
+remote-list = "!git giti remote/list"
+
+# Remove a remote after showing its URL and asking (--yes to skip the prompt)
+remote-remove = "!git giti remote/remove"
+
+# Rename a remote, keeping its tracking branches: giti remote rename <old> <new>
+remote-rename = "!git giti remote/rename"
+
+# Change a remote URL: giti remote set-url <name> <url>; --push sets a separate push URL
+remote-set-url = "!git giti remote/set-url"
+
+# Stage paths, or every change of a kind: --modified, --deleted, --renamed, --untracked, --all. Bare: count what is unstaged
+stage = "!git giti stage"
 
 # Pretty-print repository status: branch, staged/modified/untracked files, stash, and recent commits
 status = "!git giti status"
@@ -176,6 +208,9 @@ sync = "!git giti sync"
 
 # Soft-reset HEAD by one commit, leaving all changes staged
 undo = "!git giti undo"
+
+# Unstage paths, or every staged change of a kind: --modified, --added, --deleted, --renamed, --all. Bare: count what is staged
+unstage = "!git giti unstage"
 
 # Stage all changes and create a "wip" commit, bypassing hooks
 wip = "!git giti wip"

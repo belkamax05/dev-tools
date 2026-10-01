@@ -19,7 +19,7 @@ Only `lint` / `format` are defined as scripts; everything else is run directly:
 
 ```sh
 bun install                              # per-submodule; node_modules is not shared
-bun test                                 # bun:test, 70 tests across 12 files
+bun test                                 # bun:test, `index.test.ts` beside each unit
 bunx tsc --noEmit                        # typecheck (no `typecheck` script here)
 bun run lint                             # biome check .
 bun run format                           # biome check --write --unsafe .
@@ -200,6 +200,15 @@ The TUI is **skipped whenever a message or any flag is present** — the interac
 zero-argument path. `--yes`/`-y` is a giti-only flag that bypasses the TUI and is never
 forwarded to git.
 
+### Paths the user types
+
+`git status --porcelain` prints paths relative to the repository root, but a user types them
+relative to the folder they are in — and under a `!` alias git has already chdir'd to the root,
+leaving that folder in `GIT_PREFIX`. Commands that take paths (`stage`, `unstage`,
+`cancel-unstaged`) run them through `resolveRepoPaths`, which returns root-relative paths plus the
+root to run git from. Comparing a typed path against status output without it silently matches
+nothing from a subfolder.
+
 ## The vendored families (`subrepo`, `submodule`, `subtree`, `mega`)
 
 Four command folders, one implementation each. `list`, `status`, `diff`, `pull`, `push` and
@@ -273,10 +282,10 @@ against" — it returns valid for every email unless a config is passed in expli
 
 ## Testing
 
-`bun:test`, tests as `index.test.ts` siblings of the code they cover. Twelve units are covered
-today (`gitSpawnCwd`, `gitSpawnEnv`, `getWorkingDir`, `getCurrentUser`, `getCommandEntries`,
-`getCommandPickerItems`, `getMegaTree`, `getMegaSelfState`, `cleanVendored`, `getVendoredState`,
-`vendoredArgs`, `vendoredCommands`'s `describeVendored`); commands and Ink UIs have no tests.
+`bun:test`, tests as `index.test.ts` siblings of the code they cover: the `src/core` areas and
+most `src/utils` units (`find src -name index.test.ts` lists them). Command files and Ink UIs
+have no tests, which is why a command's logic belongs in a util — `runStageCommand` is the body of
+`stage`/`unstage` for exactly that reason.
 
 The git-touching ones build a throwaway repository under `os.tmpdir()` in `beforeAll` — a bare
 "remote" and a clone of it when an upstream is needed — and remove it in `afterAll`, so nothing
