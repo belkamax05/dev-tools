@@ -157,6 +157,16 @@ describe.each(shells)('activate.sh (%s)', (shell) => {
     expect(buildCount()).toBe(0);
   });
 
+  test('a repo without nix/env.nix silently skips Nix even when it is installed', () => {
+    rmSync(join(fixture.root, 'nix/env.nix'));
+    const result = run(shell, activate());
+
+    expect(result.rc).not.toBe(0);
+    expect(result.path.join(':')).toBe(`${fixture.fakeBin}:${systemPath}`);
+    expect(result.stderr).toBe('');
+    expect(buildCount()).toBe(0);
+  });
+
   test('first run builds the profile, then puts its bin/ first and loads its env.sh', () => {
     const result = run(shell, activate());
 

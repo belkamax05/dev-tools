@@ -7,8 +7,9 @@
 #   dev_tools_nix_env <repo-root> <name> [extra-dir-to-watch...]
 #
 # Returns non-zero, having changed nothing, when Nix isn't installed, when
-# DEV_TOOLS_NIX=0, or when the first build fails - the caller falls back to
-# its non-Nix setup then.
+# DEV_TOOLS_NIX=0, when <repo-root>/nix/env.nix doesn't exist (silently - Nix
+# is opt-in), or when the first build fails - the caller falls back to its
+# non-Nix setup then.
 #
 # Shell startup stays fast: the build is an out-link under
 # <repo-root>/.cache/nix/ (also a GC root, so nix-collect-garbage keeps it),
@@ -25,6 +26,8 @@ dev_tools_nix_env() {
     0 | false | no | off) return 1 ;;
     esac
     command -v nix-build >/dev/null 2>&1 || return 1
+    # A repo without nix/env.nix doesn't use Nix (it's opt-in per machine) - not an error.
+    [ -f "$_dtne_root/nix/env.nix" ] || return 1
 
     _dtne_link="$_dtne_root/.cache/nix/$_dtne_name"
     _dtne_stamp="$_dtne_link.stamp"
