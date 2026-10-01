@@ -41,4 +41,22 @@ export const stateHome = (): string => {
 /** The state directory an app owns. */
 export const appStateDir = (appName: string): string => join(stateHome(), appName);
 
+/**
+ * Where this platform keeps per-user *cache*: what an app fetched or computed and can always get
+ * again — downloaded icons, page previews. Deleting it costs time, never anything a person chose
+ * or the app remembered, which is why it is apart from both config and state. `XDG_CACHE_HOME`
+ * on Linux; each platform's own caches directory elsewhere.
+ */
+export const cacheHome = (): string => {
+  const home = homedir();
+
+  if (process.platform === 'win32')
+    return join(process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local'), 'Cache');
+  if (process.platform === 'darwin') return join(home, 'Library', 'Caches');
+  return process.env.XDG_CACHE_HOME || join(home, '.cache');
+};
+
+/** The cache directory an app owns. */
+export const appCacheDir = (appName: string): string => join(cacheHome(), appName);
+
 export default configHome;

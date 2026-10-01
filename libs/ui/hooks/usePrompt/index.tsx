@@ -1,6 +1,8 @@
 import { Text, useInput } from 'ink';
 import { type ReactNode, useEffect, useState } from 'react';
 
+import ActionButton from '../../components/ActionButton';
+import Box from '../../components/Box';
 import { useColors } from '../../providers/TuiThemeProvider';
 
 type Prompt =
@@ -11,16 +13,27 @@ type Prompt =
       value: string;
       secret: boolean;
       onSubmit: (value: string) => void;
+      onChange?: (value: string) => void;
+      onCancel?: () => void;
     };
 
 export interface PromptApi {
   /** Ask a yes/no question; `onYes` runs on `y`, anything else cancels. */
   confirm: (message: string, onYes: () => void) => void;
-  /** Ask for a line of text. `secret` draws it as dots — for tokens. */
+  /**
+   * Ask for a line of text. `secret` draws it as dots — for tokens. `onChange` hears every edit
+   * as it is typed — a search that narrows a list live — and `onCancel` hears Esc, for a caller
+   * that has to undo what `onChange` already applied.
+   */
   ask: (
     message: string,
     onSubmit: (value: string) => void,
-    options?: { initial?: string; secret?: boolean },
+    options?: {
+      initial?: string;
+      secret?: boolean;
+      onChange?: (value: string) => void;
+      onCancel?: () => void;
+    },
   ) => void;
   isOpen: boolean;
   /** The prompt line to draw, or undefined when nothing is being asked. */
@@ -55,6 +68,7 @@ export const usePrompt = (onCaptureInput: (captured: boolean) => void): PromptAp
       if (!prompt) return;
       if (key.escape) {
         setPrompt(undefined);
+        if (prompt.kind === 'text') prompt.onCancel?.();
         return;
       }
       if (prompt.kind === 'confirm') {
@@ -67,33 +81,62 @@ export const usePrompt = (onCaptureInput: (captured: boolean) => void): PromptAp
         prompt.onSubmit(prompt.value);
         return;
       }
+      const edit = (value: string) => {
+        setPrompt({ ...prompt, value });
+        prompt.onChange?.(value);
+      };
       if (key.backspace || key.delete) {
-        setPrompt({ ...prompt, value: prompt.value.slice(0, -1) });
+        edit(prompt.value.slice(0, -1));
         return;
       }
       if (!key.ctrl && !key.meta) {
         const typed = printable(input);
-        if (typed) setPrompt({ ...prompt, value: prompt.value + typed });
+        if (typed) edit(prompt.value + typed);
       }
     },
     { isActive: Boolean(prompt) },
   );
 
+  //? The same answers the keys give, as buttons: a question the pointer cannot answer strands
+  //? anyone driving the app with the mouse
+  const answer = (yes: boolean) => {
+    if (!prompt) return;
+    setPrompt(undefined);
+    if (prompt.kind === 'confirm') {
+      if (yes) prompt.onYes();
+    } else if (yes) prompt.onSubmit(prompt.value);
+    else prompt.onCancel?.();
+  };
+
   const line =
     prompt?.kind === 'confirm' ? (
-      <Text wrap="truncate">
-        <Text color={colors.warn}>{prompt.message}</Text>
-        <Text color={colors.muted}> [y/N]</Text>
-      </Text>
+      <Box flexDirection="row">
+        <Box flexShrink={1} marginRight={1}>
+          <Text color={colors.warn} wrap="truncate">
+            {prompt.message}
+          </Text>
+        </Box>
+        <Box flexShrink={0}>
+          <ActionButton hotkey="y" label="Yes" color={colors.warn} onPress={() => answer(true)} />
+          <ActionButton hotkey="N" label="No" onPress={() => answer(false)} />
+        </Box>
+      </Box>
     ) : prompt?.kind === 'text' ? (
-      <Text wrap="truncate">
-        <Text color={colors.accent}>{prompt.message} </Text>
-        <Text color={colors.text}>
-          {prompt.secret ? '•'.repeat(prompt.value.length) : prompt.value}
-        </Text>
-        <Text color={colors.highlight}>▌</Text>
-        <Text color={colors.muted}> Enter save · Esc cancel</Text>
-      </Text>
+      <Box flexDirection="row">
+        <Box flexShrink={1} marginRight={1}>
+          <Text wrap="truncate">
+            <Text color={colors.accent}>{prompt.message} </Text>
+            <Text color={colors.text}>
+              {prompt.secret ? '•'.repeat(prompt.value.length) : prompt.value}
+            </Text>
+            <Text color={colors.highlight}>▌</Text>
+          </Text>
+        </Box>
+        <Box flexShrink={0}>
+          <ActionButton hotkey="Enter" label="Save" onPress={() => answer(true)} />
+          <ActionButton hotkey="Esc" label="Cancel" onPress={() => answer(false)} />
+        </Box>
+      </Box>
     ) : undefined;
 
   return {
@@ -105,6 +148,8 @@ export const usePrompt = (onCaptureInput: (captured: boolean) => void): PromptAp
         value: options.initial ?? '',
         secret: Boolean(options.secret),
         onSubmit,
+        onChange: options.onChange,
+        onCancel: options.onCancel,
       }),
     isOpen: Boolean(prompt),
     line,
