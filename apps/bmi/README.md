@@ -150,7 +150,7 @@ opens it, so a stray click never launches the browser.
 | --- | --- |
 | 🔖 Bookmarks | every page, under each category it's in. Enter/`o` open · `y` copy the URL · `a` add (tagged with the tag in view) · `n` title · `d` description · `T` tags · `m` move to other categories (a new name declares one) · `x` remove · `f` fetch the preview now · `i` open the preview image · `u` hide/show yours · `g` layout · `p` grid images on/off · `/` search · `c` clears the search · Esc leaves the tag in view |
 | 📂 Tags | categories as a tree, then the other tags, each with how many pages it has. Enter shows a tag's pages on the Bookmarks tab · `O` opens every page in it (asks first above 5) · `a` new category · `c` makes a plain tag a category · `d` description · `x` stops using your category (its pages stay) |
-| 🔧 Settings | theme, whether previews are fetched automatically, `e` edit your list, `E` edit the workspace list, `X` clear |
+| 🔧 Settings | theme, how images are drawn, whether previews are fetched automatically, `e` edit your list, `E` edit the workspace list, `X` clear |
 
 Outside the search: `1-3`/`Tab` switch tab, `r` re-read both lists, `t` theme, `q` quit.
 
@@ -187,6 +187,14 @@ Everything fetched goes to `~/.cache/bmi`:
 In the dashboard, a page with no title of its own shows the one its preview found. If a page redirects to a
 different host, which usually means a login page for a private Jira or wiki, the preview says so.
 Its favicon is usually still right.
+
+Images (favicons and preview cards) are drawn with the best method the terminal supports: the
+kitty protocol, then sixel, then iTerm2's, and coloured half-blocks where none is available. You
+can pick another under Settings → Images. Methods the terminal didn't report are greyed out, and
+`bmi config` prints what's in use. `DEV_TOOLS_GRAPHICS=kitty|sixel|iterm2|halfblock` overrides the
+setting for one run. In VS Code-based editors (xterm.js), images are cleared by briefly leaving and
+re-entering the alternate screen whenever one moves or goes away. That causes a short flicker, but
+it's the only cleanup that doesn't leave grey placeholder blocks behind there.
 
 To fetch nothing until asked, turn previews to "Only on [f]" in Settings. `bmi fetch` fills the
 cache for every page in one go, six at a time.

@@ -5,7 +5,13 @@ export {
   default as setTerminalBackground,
   terminalBackground,
 } from './background';
-export { emitFrame, onFrame } from './frames';
+export {
+  emitFrame,
+  noteScreenErased,
+  onFrame,
+  screenErasures,
+  watchForErasures,
+} from './frames';
 export type { InputFilter, InputFilterOptions, TerminalMouseEvent } from './mouse';
 export {
   createInputFilter,

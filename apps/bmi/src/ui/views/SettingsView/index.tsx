@@ -1,6 +1,12 @@
 import { Text, useInput } from 'ink';
 import { type ReactNode, useEffect, useState } from 'react';
 
+import {
+  autoTechnique,
+  findTechnique,
+  graphicsSupport,
+  isTechniqueUsable,
+} from '@/dev-tools/terminal-canvas';
 import Box from '@/dev-tools/ui/components/Box';
 import ClearDataDialog, {
   ClearButton,
@@ -13,7 +19,12 @@ import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
-import { type BmiConfig, WORKSPACE_FILES } from '../../../config/settings';
+import {
+  type BmiConfig,
+  GRAPHICS_CHOICES,
+  type GraphicsChoice,
+  WORKSPACE_FILES,
+} from '../../../config/settings';
 import bmiTheme from '../../theme';
 import type { Session } from '../../types';
 
@@ -55,12 +66,14 @@ const readContents = async (path: string): Promise<FileContents> => {
 type Setting =
   | { kind: 'theme'; id: string }
   | { kind: 'auto'; on: boolean }
+  | { kind: 'graphics'; choice: GraphicsChoice }
   | { kind: 'file'; which: 'user' | 'workspace' }
   | { kind: 'cache' }
   | { kind: 'clear' };
 
 /**
- * The theme and whether previews are fetched as the cursor moves, saved as they are picked — plus
+ * The theme, how images are drawn, and whether previews are fetched as the cursor moves, saved as
+ * they are picked — plus
  * the two lists, each a key away from `$EDITOR`.
  */
 export const SettingsView = ({
@@ -78,6 +91,13 @@ export const SettingsView = ({
   onCleared,
 }: SettingsViewProps) => {
   const colors = useColors();
+  const support = graphicsSupport();
+  //? A raster protocol only where the terminal said it speaks it; auto and half-blocks always
+  const choiceUsable = (choice: GraphicsChoice) => {
+    if (choice === 'auto') return true;
+    const technique = findTechnique(choice);
+    return technique !== undefined && isTechniqueUsable(technique, support);
+  };
   const [current, setCurrent] = useState<Setting | undefined>(undefined);
   const [clearing, setClearing] = useState(false);
   const [contents, setContents] = useState<FileContents | undefined>(undefined);
@@ -103,6 +123,9 @@ export const SettingsView = ({
     if (!setting) return;
     if (setting.kind === 'theme') onConfigChange({ ...config, theme: setting.id });
     else if (setting.kind === 'auto') onConfigChange({ ...config, autoPreview: setting.on });
+    else if (setting.kind === 'graphics') {
+      if (choiceUsable(setting.choice)) onConfigChange({ ...config, graphics: setting.choice });
+    }
     else if (setting.kind === 'file')
       onEditFile(setting.which === 'user' ? configPath : workspacePath);
     else setClearing(true);
@@ -128,6 +151,23 @@ export const SettingsView = ({
       isCurrent: theme.id === config.theme,
       value: { kind: 'theme' as const, id: theme.id },
     })),
+    { id: 'header-graphics', label: 'Images', isHeader: true },
+    ...GRAPHICS_CHOICES.map((choice) => {
+      const usable = choiceUsable(choice);
+      const inUse = choice === config.graphics;
+      return {
+        id: `graphics:${choice}`,
+        label:
+          choice === 'auto'
+            ? `Auto — ${autoTechnique(support).label} here`
+            : (findTechnique(choice)?.label ?? choice),
+        hint: inUse ? 'in use' : usable ? undefined : 'not supported here',
+        hintColor: inUse ? colors.accent : colors.muted,
+        isCurrent: inUse,
+        disabled: !usable,
+        value: { kind: 'graphics' as const, choice },
+      };
+    }),
     { id: 'header-auto', label: 'Previews', isHeader: true },
     ...[true, false].map((on) => ({
       id: `auto:${on}`,
@@ -185,6 +225,43 @@ export const SettingsView = ({
             {theme?.label}
           </Text>
           <Text color={colors.muted}>{theme?.blurb}</Text>
+        </Box>
+      );
+    }
+    if (setting.kind === 'graphics') {
+      const technique =
+        setting.choice === 'auto' ? autoTechnique(support) : findTechnique(setting.choice);
+      return (
+        <Box flexDirection="column">
+          <Text bold color={colors.heading}>
+            {setting.choice === 'auto' ? `Auto: ${technique?.label}` : technique?.label}
+          </Text>
+          <Text color={colors.muted} wrap="wrap">
+            {technique?.note}
+          </Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text color={colors.muted} wrap="wrap">
+              {setting.choice === 'auto'
+                ? 'The best this terminal supports — real pixels where it offers them, half-blocks otherwise.'
+                : choiceUsable(setting.choice)
+                  ? 'Used for favicons and preview images instead of the best this terminal supports.'
+                  : 'This terminal did not say it supports this, so it cannot be picked.'}
+            </Text>
+            <Text color={colors.muted} wrap="wrap">
+              {`This terminal: ${support.terminal} · ${[
+                support.kitty && 'kitty',
+                support.sixel && 'sixel',
+                support.iterm2 && 'iTerm2',
+              ]
+                .filter(Boolean)
+                .join(', ') || 'no image protocol'} · cells ${support.cellWidth}×${support.cellHeight} px (${support.cellSizeSource})`}
+            </Text>
+            {process.env.DEV_TOOLS_GRAPHICS && (
+              <Text color={colors.warn} wrap="wrap">
+                {`DEV_TOOLS_GRAPHICS=${process.env.DEV_TOOLS_GRAPHICS} is set, and wins over this setting.`}
+              </Text>
+            )}
+          </Box>
         </Box>
       );
     }

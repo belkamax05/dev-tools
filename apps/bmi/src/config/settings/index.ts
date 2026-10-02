@@ -24,6 +24,13 @@ export type TabId = (typeof TAB_IDS)[number];
 export const BOOKMARK_LAYOUTS = ['list', 'grid', 'tiles'] as const;
 export type BookmarkLayout = (typeof BOOKMARK_LAYOUTS)[number];
 
+/**
+ * What favicons and previews can be drawn with, as the Settings picker offers them: `auto` is the
+ * best this terminal supports, the rest are terminal-canvas techniques by id.
+ */
+export const GRAPHICS_CHOICES = ['auto', 'kitty', 'sixel', 'iterm2', 'halfblock'] as const;
+export type GraphicsChoice = (typeof GRAPHICS_CHOICES)[number];
+
 /** `~/.config/bmi/config.json`: the theme, and the user's own bookmarks in the workspace list's shape. */
 export interface BmiConfig extends BookmarkList {
   theme: string;
@@ -32,6 +39,8 @@ export interface BmiConfig extends BookmarkList {
   bookmarkLayout: BookmarkLayout;
   /** Off: grid cards drop their preview image, keeping the favicon, title and URL. */
   showThumbnails: boolean;
+  /** How images are drawn; `auto` for the best the terminal supports. */
+  graphics: GraphicsChoice;
   /** Off: only the workspace list is shown — the user's own pages are kept, just hidden. */
   showUserBookmarks: boolean;
 }
@@ -70,6 +79,7 @@ export const configStore = createConfigStore<BmiConfig>({
     autoPreview: true,
     bookmarkLayout: 'list',
     showThumbnails: true,
+    graphics: 'auto',
     showUserBookmarks: true,
     ...emptyList(),
   },
@@ -81,6 +91,9 @@ export const configStore = createConfigStore<BmiConfig>({
       : defaults.bookmarkLayout,
     showThumbnails:
       typeof raw.showThumbnails === 'boolean' ? raw.showThumbnails : defaults.showThumbnails,
+    graphics: GRAPHICS_CHOICES.includes(raw.graphics as GraphicsChoice)
+      ? (raw.graphics as GraphicsChoice)
+      : defaults.graphics,
     showUserBookmarks:
       typeof raw.showUserBookmarks === 'boolean'
         ? raw.showUserBookmarks
@@ -116,6 +129,10 @@ export const buildLibrary = (workspaceList: BookmarkList, user: BookmarkList): L
     { source: 'workspace', list: workspaceList },
     { source: 'user', list: user },
   ]);
+
+/** The technique id the setting asks terminal-canvas for — none for `auto`. */
+export const preferredTechniqueOf = (config: Pick<BmiConfig, 'graphics'>) =>
+  config.graphics === 'auto' ? undefined : config.graphics;
 
 /** Just the bookmark part of the config — what the editing helpers take and give back. */
 export const userList = (config: BmiConfig): BookmarkList => ({

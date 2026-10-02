@@ -7,12 +7,17 @@ import {
   type RasterTechnique,
   type Subject,
 } from '../../../terminal-canvas/index.ts';
-import { emitFrame, onFrame } from '../../terminal/frames';
+import { emitFrame, noteScreenErased, onFrame, screenErasures } from '../../terminal/frames';
 
 const ESC = '\u001B';
 
-/** Erase the whole display — see `requestWipe`. */
-const ERASE_DISPLAY = `${ESC}[2J`;
+/**
+ * Forget every picture on screen — see `requestWipe`. Out of the alternate screen and straight back
+ * in, which is the one thing xterm.js does that both deletes every image drawn there and clears its
+ * image layer outright; then the erase and the cursor home the app's own entry to it starts with,
+ * so Ink's redraw lands where its frame was.
+ */
+const FORGET_PICTURES = `${ESC}[?1049l${ESC}[?1049h${ESC}[2J${ESC}[H`;
 
 let wipePending = false;
 
@@ -24,10 +29,14 @@ let wipePending = false;
  * image in the cells it covered rather than in a layer above them. xterm.js —
  * the terminal in VS Code and every editor built on it — does exactly that:
  * each cell holds a tile of the image, writing text over the cell keeps the
- * tile, and once the image is replaced or deleted the orphaned tiles are drawn
- * as grey placeholder blocks, until the cell is erased. Only a full-line erase
- * drops them (`ED 2` resets each line); erasing a range, as Ink does when it
- * rewrites a line, does not. kitty removes an old placement itself, so this
+ * tile, and a tile whose image xterm.js has deleted is drawn as a grey
+ * checkerboard placeholder. In VS Code those leftovers outlive the erases that
+ * should take them — Ink's `EL 2` when it clears its frame, and an `ED 2` here
+ * — though a browser build of the same xterm.js clears them; grey blocks
+ * stayed wherever a picture had been, with sixel and kitty alike. So rather
+ * than erase, the wipe leaves the alternate screen and comes back: xterm.js
+ * deletes every image drawn on it and clears its whole image layer, which
+ * leaves nothing to go grey. kitty removes an old placement itself, so this
  * runs only where `imagesInCells` says it is needed.
  *
  * Through Ink's `write`, not the raw stream: Ink erases its frame, lets the
@@ -39,7 +48,8 @@ const requestWipe = (write: (data: string) => void) => {
   wipePending = true;
   setTimeout(() => {
     wipePending = false;
-    write(ERASE_DISPLAY);
+    noteScreenErased();
+    write(FORGET_PICTURES);
     emitFrame();
   }, 0);
 };
@@ -266,6 +276,9 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
   const pendingRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Where the picture was last painted, so a move can wipe what it left behind.
   const placedRef = useRef<string | undefined>(undefined);
+  // What was last sent, where, and since which erase — so a terminal that keeps images in its cells
+  // is not sent the same picture again (see the paint).
+  const paintedRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!technique) {
@@ -293,6 +306,7 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
           stdout.write(clearRasterArtifacts(imageId));
           if (imagesInCells) requestWipe(write);
           placedRef.current = undefined;
+          paintedRef.current = undefined;
         }
         return;
       }
@@ -325,6 +339,13 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
         frameRef.current = { key, image: technique.encode(raster, cols, rows, imageId) };
       }
 
+      //? On xterm.js a picture stays in its cells until they are erased — Ink writes changed lines
+      //? over rather than erasing them — so it is sent again only after an erase, a move or a
+      //? change. Sent again regardless, every re-render (a hover anywhere) replaced it, and VS
+      //? Code flickers grey through every replacement. kitty proper replaces by id, harmlessly
+      const painted = `${key}|${placed}|${screenErasures()}`;
+      if (imagesInCells && paintedRef.current === painted) return;
+      paintedRef.current = painted;
       stdout.write(
         `${ESC}7${ESC}[${y + VIEWPORT_ORIGIN};${x + VIEWPORT_ORIGIN}H${frameRef.current.image}${ESC}8`,
       );
@@ -359,6 +380,7 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
     if (!technique) return;
     return () => {
       frameRef.current = undefined;
+      paintedRef.current = undefined;
       stdout.write(clearRasterArtifacts(imageId));
       if (imagesInCells && placedRef.current !== undefined) requestWipe(write);
       placedRef.current = undefined;

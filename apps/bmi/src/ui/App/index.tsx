@@ -7,6 +7,7 @@ import type { ClearResult } from '@/dev-tools/ui/components/ClearDataDialog';
 import type { FooterAction } from '@/dev-tools/ui/components/Footer';
 import type { TabDefinition } from '@/dev-tools/ui/components/TabStrip';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import { setPreferredTechnique } from '@/dev-tools/terminal-canvas';
 import { nextThemeId } from '@/dev-tools/ui/theme';
 import { inspectFile } from '@/dev-tools/utils/config/createConfigStore';
 
@@ -14,6 +15,7 @@ import {
   type BmiConfig,
   buildLibrary,
   configStore,
+  preferredTechniqueOf,
   TAB_IDS,
   type TabId,
   userList,
@@ -99,6 +101,10 @@ export const App = ({
         : undefined,
   );
   const [footerHint, setFooterHint] = useState<string | null>(null);
+
+  //? Set during render, before the cards below it ask which technique to draw with: an effect
+  //? would run after them, and the first frame after a change would still use the old one
+  setPreferredTechnique(preferredTechniqueOf(config));
 
   const library = useMemo(() => {
     const merged = buildLibrary(workspaceList.list, userList(config));

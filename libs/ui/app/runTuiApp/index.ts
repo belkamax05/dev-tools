@@ -2,9 +2,10 @@ import type { ReactNode } from 'react';
 
 import type { InkRender } from '../../../types/InkRender';
 import { setTerminalBackground } from '../../terminal/background';
-import { emitFrame } from '../../terminal/frames';
+import { emitFrame, watchForErasures } from '../../terminal/frames';
 import { setMouseReporting } from '../../terminal/mouse';
 import { enterAltScreen, leaveAltScreen } from '../../terminal/screen';
+import startRecording from '../../terminal/recorder';
 import { createFilteredStdin } from '../../terminal/stdinFilter';
 
 export interface RunTuiAppOptions {
@@ -67,6 +68,10 @@ export const runTuiApp = async (
 ): Promise<void> => {
   const interactive = Boolean(process.stdout.isTTY);
 
+  //? Before the alternate screen, so a replay starts where the app did; off unless asked for
+  const stopRecording = startRecording();
+  //? So an image overlay knows when its picture was erased and has to be sent again
+  const stopWatching = watchForErasures(process.stdout);
   enterAltScreen();
   setMouseReporting(interactive && mouse);
 
@@ -85,6 +90,8 @@ export const runTuiApp = async (
     setTerminalBackground(null);
     input.dispose();
     leaveAltScreen();
+    stopWatching();
+    stopRecording();
 
     try {
       await onCleanup?.();
@@ -106,6 +113,11 @@ export const runTuiApp = async (
       exitOnCtrlC: true,
       //? For raster overlays, which a frame drawn by any component can erase
       onRender: emitFrame,
+      //? Only the lines that changed are rewritten. Redrawing the whole frame erases every line
+      //? first, and with them every image on screen — so a hover anywhere made each picture
+      //? vanish until it was sent again, which in VS Code flickers grey. Written over instead of
+      //? erased, a picture's cells keep it
+      incrementalRendering: true,
     });
     await instance.waitUntilExit();
   } finally {

@@ -10,6 +10,8 @@ export interface InkRenderOptions {
   patchConsole?: boolean;
   /** Called after every frame Ink renders. */
   onRender?: (metrics: { renderTime: number }) => void;
+  /** Rewrite only the lines that changed, instead of erasing and redrawing the whole frame. */
+  incrementalRendering?: boolean;
 }
 
 /** The subset of ink's `Instance` this lib drives. */

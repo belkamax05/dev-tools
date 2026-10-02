@@ -66,10 +66,12 @@ export type {
 } from './techniques.ts';
 export {
   ALL_TECHNIQUES,
+  autoTechnique,
   bestTechnique,
   clearRasterArtifacts,
   findTechnique,
   isTechniqueUsable,
   RASTER_TECHNIQUES,
+  setPreferredTechnique,
   TEXT_TECHNIQUES,
 } from './techniques.ts';

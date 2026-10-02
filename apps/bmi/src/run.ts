@@ -1,9 +1,15 @@
+import {
+  bestTechnique,
+  probeGraphicsSupport,
+  setPreferredTechnique,
+} from '@/dev-tools/terminal-canvas';
 import openUrl from '@/dev-tools/utils/system/openUrl';
 
 import {
   buildLibrary,
   configStore,
   loadWorkspaceList,
+  preferredTechniqueOf,
   TAB_IDS,
   type TabId,
   userList,
@@ -242,11 +248,21 @@ export const run = async (...argv: string[]) => {
   }
 
   if (first === 'config' || first === 'where') {
-    const { workspace } = await loadEverything();
+    const { workspace, config } = await loadEverything();
     const cache = await openPreviewCache();
     console.log(`your list  ${configStore.path}`);
     console.log(`workspace  ${workspace.path}${workspace.exists ? '' : '  (none)'}`);
     console.log(`cache      ${cache.directory}`);
+    //? What favicons and previews are drawn with — the first thing to check when they look wrong
+    const support = await probeGraphicsSupport();
+    setPreferredTechnique(preferredTechniqueOf(config));
+    const facts = [
+      `${bestTechnique(support).id}${config.graphics === 'auto' ? ' (auto)' : ''}`,
+      `cells ${support.cellWidth}×${support.cellHeight} px (${support.cellSizeSource})`,
+      ...(support.imagesInCells ? ['images kept in cells'] : []),
+      support.terminal,
+    ];
+    console.log(`graphics   ${facts.join(' · ')}`);
     return;
   }
 

@@ -176,17 +176,43 @@ export function isTechniqueUsable(
   return technique.kind === 'text' || force || technique.supported(support);
 }
 
+let preferred: string | undefined;
+
 /**
- * The best thing this terminal can actually do.
+ * The technique an app's own setting asks for — a settings screen's picker, say — or undefined for
+ * the best the terminal can do. `DEV_TOOLS_GRAPHICS` still wins, so a one-off run can try another.
+ */
+export const setPreferredTechnique = (id: string | undefined) => {
+  preferred = id;
+};
+
+/**
+ * The technique asked for — `DEV_TOOLS_GRAPHICS`, else the app's setting: `kitty`, `sixel`,
+ * `iterm2`, `halfblock`… A raster protocol the terminal does not support is ignored rather than
+ * forced, so neither can make images vanish.
+ */
+const requestedTechnique = (support: GraphicsSupport): Technique | undefined => {
+  const id = (process.env.DEV_TOOLS_GRAPHICS || preferred)?.trim().toLowerCase();
+  const technique = id ? findTechnique(id) : undefined;
+  return technique && isTechniqueUsable(technique, support) ? technique : undefined;
+};
+
+/**
+ * The best thing this terminal can actually do, whatever anyone asked for.
  *
  * Real pixels where they are on offer, and half-block otherwise — the rung of
  * the ladder that needs no protocol, no font coverage, and no luck.
  */
-export function bestTechnique(support: GraphicsSupport, force = false): Technique {
+export function autoTechnique(support: GraphicsSupport, force = false): Technique {
   const raster = ALL_TECHNIQUES.find(
     (technique) => technique.kind === 'raster' && isTechniqueUsable(technique, support, force),
   );
   return raster ?? (findTechnique('halfblock') as Technique);
+}
+
+/** What to draw with: the technique asked for when this terminal can do it, else `autoTechnique`. */
+export function bestTechnique(support: GraphicsSupport, force = false): Technique {
+  return requestedTechnique(support) ?? autoTechnique(support, force);
 }
 
 /** Wipe a placement this app left behind, so quitting does not strand an image. */
