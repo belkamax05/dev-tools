@@ -145,8 +145,10 @@ one app:
 - `hooks/useLoader(load, deps)`: `{ data, isLoading, error, reload }` for async reads.
 - `app/runTuiSession`: `runTuiApp` in a loop, for apps that hand the terminal to another
   program (`$EDITOR`, `git commit`) and come back afterwards, with mouse reporting restored.
-- `utils/system/{editFile,revealPath,openUrl}`: open in `$EDITOR`, the file manager, or the
-  browser (`remoteWebUrl` turns a git remote into its web URL).
+- `utils/system/editFile`: use `getEditor` to open in the detected IDE (Antigravity or Devin),
+  falling back to `$EDITOR` then `vi`.
+- `utils/system/{revealPath,openUrl}`: open in the file manager or browser
+  (`remoteWebUrl` turns a git remote into its web URL).
 
 ### Theme
 

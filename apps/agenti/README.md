@@ -56,7 +56,8 @@ the terminal has them, braille otherwise): click one to keep it in step or stop,
 on it to make it primary. `Shift+1-5` toggles by position. `I` gives the strip the keyboard —
 `←/→` move, `Space` toggles, `Enter` makes primary, `Esc` hands the keyboard back to the tab.
 
-Deletes, overwrites and mode switches ask first. `e` hands the terminal to `$VISUAL`/`$EDITOR`,
+Deletes, overwrites and mode switches ask first. `e` opens the detected IDE (Antigravity or Devin),
+falling back to `$EDITOR` then `vi`,
 and launching Claude Code hands it the terminal; the dashboard comes back where it was.
 
 ## MCP
