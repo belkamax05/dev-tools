@@ -23,6 +23,7 @@ import {
   type Entry,
   findBookmark,
   hostOf,
+  isFromWorkspace,
   type Library,
   urlKey,
   withBookmark,
@@ -30,7 +31,12 @@ import {
 } from '../../../core/bookmarks';
 import type { PreviewCache } from '../../../core/preview';
 import search from '../../../core/search';
-import BookmarkCard, { CARD_HEIGHT, CARD_IMAGE_COLS } from '../../BookmarkCard';
+import BookmarkCard, {
+  CARD_CHROME_ROWS,
+  CARD_HEIGHT,
+  CARD_IMAGE_COLS,
+  WORKSPACE_BADGE,
+} from '../../BookmarkCard';
 import PreviewPane from '../../PreviewPane';
 import type { Session, Tone } from '../../types';
 import usePreview from '../../usePreview';
@@ -112,7 +118,7 @@ const compact = (page: Bookmark): Bookmark => {
  * Every page in both lists, grouped under their group's name — or, while a search is typed, the
  * pages that match it, best first. Raindrop's main screen, in a terminal.
  *
- * Every edit lands in the user's own list. A static page can still be retitled, described or
+ * Every edit lands in the user's own list. A workspace page can still be retitled, described or
  * tagged — that writes the page into the user's list with the new words, which win the merge —
  * but only a page the user wrote down can be moved or removed.
  */
@@ -175,12 +181,17 @@ export const BookmarksView = ({
   const titleOf = (entry: Entry) =>
     entry.title ?? cache.get(entry.url)?.title ?? displayTitle(entry);
 
-  const itemFor = (entry: Entry, showGroup: boolean): PickItem<Entry> => ({
-    id: entry.id,
-    label: titleOf(entry),
-    hint: showGroup && entry.group ? entry.group : hostOf(entry.url),
-    value: entry,
-  });
+  const itemFor = (entry: Entry, showGroup: boolean): PickItem<Entry> => {
+    const hint = showGroup && entry.group ? entry.group : hostOf(entry.url);
+    const fromWorkspace = isFromWorkspace(entry);
+    return {
+      id: entry.id,
+      label: titleOf(entry),
+      hint: fromWorkspace ? `${hint} ${WORKSPACE_BADGE}` : hint,
+      hintColor: fromWorkspace ? colors.highlight : undefined,
+      value: entry,
+    };
+  };
 
   const items: PickItem<Entry>[] =
     query.trim() || group
@@ -204,7 +215,9 @@ export const BookmarksView = ({
           ]),
         ];
 
-  const save = (next: ReturnType<typeof userList>) => onConfigChange({ ...config, ...next });
+  //? `reveal` for an addition: with the user's bookmarks hidden, a new one would vanish as it lands
+  const save = (next: ReturnType<typeof userList>, { reveal = false } = {}) =>
+    onConfigChange({ ...config, ...next, ...(reveal && { showUserBookmarks: true }) });
 
   const open = (entry: Entry | undefined) => {
     if (!entry) return;
@@ -251,7 +264,7 @@ export const BookmarksView = ({
     const mine = own(entry)?.tags ?? [];
     const fixed = entry.tags.filter((tag) => !mine.includes(tag));
     prompt.ask(
-      fixed.length ? `Tags (static: ${fixed.join(', ')}) + yours:` : 'Tags (comma separated):',
+      fixed.length ? `Tags (workspace: ${fixed.join(', ')}) + yours:` : 'Tags (comma separated):',
       (value) => editField(entry, 'tags', value),
       { initial: mine.join(', ') },
     );
@@ -271,7 +284,7 @@ export const BookmarksView = ({
             title: title.trim(),
             tags: coerceTags(tags),
           });
-          save(withBookmark(list, next, group?.name));
+          save(withBookmark(list, next, group?.name), { reveal: true });
           setCurrentId(`${group?.key ?? ''}\u0000${urlKey(next.url)}`);
           notify(`Added ${next.url}${group ? ` to ${group.name}` : ''}`, 'ok');
         });
@@ -282,7 +295,7 @@ export const BookmarksView = ({
     if (!entry) return;
     const mine = own(entry);
     if (!mine) {
-      notify('This page comes from the static list — only your own pages can be moved', 'warn');
+      notify('This page comes from the workspace list — only your own pages can be moved', 'warn');
       return;
     }
     prompt.ask(
@@ -303,14 +316,13 @@ export const BookmarksView = ({
     if (!entry) return;
     if (!own(entry)) {
       notify(
-        'This page comes from the static list — bmi never edits that file ([e] in Settings opens it)',
+        'This page comes from the workspace list — bmi never edits that file ([E] in Settings opens it)',
         'warn',
       );
       return;
     }
-    const alsoStatic = entry.sources.includes('static');
     prompt.confirm(
-      `Remove ${titleOf(entry)} from your list${alsoStatic ? ' (the static list keeps it)' : ''}?`,
+      `Remove ${titleOf(entry)} from your list${isFromWorkspace(entry) ? ' (the workspace list keeps it)' : ''}?`,
       () => {
         save(withoutBookmark(list, entry.url, entry.group));
         notify(`Removed ${entry.url}`, 'ok');
@@ -323,6 +335,12 @@ export const BookmarksView = ({
       ...config,
       bookmarkLayout: config.bookmarkLayout === 'grid' ? 'list' : 'grid',
     });
+
+  const toggleUserBookmarks = () => {
+    const show = !config.showUserBookmarks;
+    onConfigChange({ ...config, showUserBookmarks: show });
+    notify(show ? 'Showing your bookmarks too' : 'Workspace bookmarks only — [u] shows yours', 'ok');
+  };
 
   const focusSearch = () => setSearching(true);
 
@@ -373,6 +391,7 @@ export const BookmarksView = ({
     (input, key) => {
       if (input === '/') focusSearch();
       else if (input === 'g') toggleLayout();
+      else if (input === 'u') toggleUserBookmarks();
       else if (input === 'o') open(current);
       else if (input === 'y') copy(current);
       else if (input === 'a') add();
@@ -462,6 +481,15 @@ export const BookmarksView = ({
         {!prompt.isOpen && (
           <Box marginLeft={1} flexShrink={0}>
             <ActionButton
+              hotkey="u"
+              label={config.showUserBookmarks ? 'Hide yours' : 'Show yours'}
+              onPress={toggleUserBookmarks}
+            />
+          </Box>
+        )}
+        {!prompt.isOpen && (
+          <Box marginLeft={1} flexShrink={0}>
+            <ActionButton
               hotkey="g"
               label={config.bookmarkLayout === 'grid' ? 'List view' : 'Grid view'}
               onPress={toggleLayout}
@@ -485,7 +513,7 @@ export const BookmarksView = ({
               auto={config.autoPreview}
               width={width}
               selected={selected}
-              imageRows={Math.max(1, height - 5)}
+              imageRows={Math.max(1, height - CARD_CHROME_ROWS)}
             />
           ) : null
         }
@@ -513,9 +541,9 @@ export const BookmarksView = ({
           if (!entry) return null;
           const source =
             entry.sources.length > 1
-              ? 'static list, with your edits'
-              : entry.sources[0] === 'static'
-                ? 'static list'
+              ? `${WORKSPACE_BADGE} workspace list, with your edits`
+              : entry.sources[0] === 'workspace'
+                ? `${WORKSPACE_BADGE} workspace list`
                 : 'your list';
           return (
             <Box flexDirection="column">

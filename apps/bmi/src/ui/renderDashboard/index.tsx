@@ -4,7 +4,7 @@ import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
 import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
 import { describeClearResults } from '@/dev-tools/ui/components/ClearDataDialog';
 
-import { type BmiConfig, configStore, loadStaticList, type TabId } from '../../config/settings';
+import { type BmiConfig, configStore, loadWorkspaceList, type TabId } from '../../config/settings';
 import { openPreviewCache } from '../../core/preview';
 import App from '../App';
 import type { Session } from '../types';
@@ -20,9 +20,9 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
   //? The probe reads replies from stdin, before Ink turns them into keypresses.
   //? Favicon rendering then chooses kitty, sixel, iTerm2, or half-blocks.
   await probeGraphicsSupport();
-  let [config, staticList, cache] = await Promise.all([
+  let [config, workspaceList, cache] = await Promise.all([
     configStore.load(),
-    loadStaticList(),
+    loadWorkspaceList(),
     openPreviewCache(),
   ]);
   const session: Session = {
@@ -33,15 +33,15 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
   let cleared: string | undefined;
 
   const reload = async () => {
-    [config, staticList] = await Promise.all([configStore.load(), loadStaticList()]);
-    return { config, staticList };
+    [config, workspaceList] = await Promise.all([configStore.load(), loadWorkspaceList()]);
+    return { config, workspaceList };
   };
 
   await runTuiSession(
     (frame) => (
       <App
         config={config}
-        staticList={staticList}
+        workspaceList={workspaceList}
         cache={cache}
         session={session}
         notice={frame.notice}

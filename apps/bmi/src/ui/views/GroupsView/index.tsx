@@ -17,10 +17,12 @@ import {
   coerceTags,
   displayTitle,
   type Group,
+  isFromWorkspace,
   type Library,
   withGroup,
   withoutGroup,
 } from '../../../core/bookmarks';
+import { WORKSPACE_BADGE } from '../../BookmarkCard';
 import type { Session, Tone } from '../../types';
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
@@ -60,7 +62,9 @@ export const GroupsView = ({
   const isOwn = (group: Group) =>
     list.groups.some((written) => written.name.toLowerCase() === group.key);
 
-  const save = (next: ReturnType<typeof userList>) => onConfigChange({ ...config, ...next });
+  //? `reveal` for an addition: with the user's bookmarks hidden, a new group would vanish as it lands
+  const save = (next: ReturnType<typeof userList>, { reveal = false } = {}) =>
+    onConfigChange({ ...config, ...next, ...(reveal && { showUserBookmarks: true }) });
 
   const openAll = (group: Group | undefined) => {
     if (!group?.entries.length) return;
@@ -86,13 +90,14 @@ export const GroupsView = ({
             name,
             ...(description.trim() && { description: description.trim() }),
           }),
+          { reveal: true },
         );
         setCurrentId(name.toLowerCase());
         notify(`Added group ${name} — [Enter] shows it, [a] there adds pages`, 'ok');
       });
     });
 
-  /** Write one of the group's fields into the user's list — a static group gets an override. */
+  /** Write one of the group's fields into the user's list — a workspace group gets an override. */
   const editField = (group: Group, field: 'description' | 'tags', raw: string) => {
     const own = list.groups.find((written) => written.name.toLowerCase() === group.key);
     const { bookmarks: _pages, ...base } = own ?? {
@@ -142,7 +147,7 @@ export const GroupsView = ({
   const remove = (group: Group | undefined) => {
     if (!group) return;
     if (!isOwn(group)) {
-      notify('This group comes from the static list — bmi never edits that file', 'warn');
+      notify('This group comes from the workspace list — bmi never edits that file', 'warn');
       return;
     }
     const mine = list.groups.find((written) => written.name.toLowerCase() === group.key);
@@ -152,8 +157,8 @@ export const GroupsView = ({
       () => {
         save(withoutGroup(list, group.name));
         notify(
-          group.sources.includes('static')
-            ? `Removed your additions to ${group.name}; the static list keeps its own`
+          isFromWorkspace(group)
+            ? `Removed your additions to ${group.name}; the workspace list keeps its own`
             : `Removed ${group.name}`,
           'ok',
         );
@@ -175,7 +180,10 @@ export const GroupsView = ({
   const items: PickItem<Group>[] = library.groups.map((group) => ({
     id: group.key,
     label: group.name,
-    hint: `${group.entries.length}`,
+    hint: isFromWorkspace(group)
+      ? `${group.entries.length} ${WORKSPACE_BADGE}`
+      : `${group.entries.length}`,
+    hintColor: isFromWorkspace(group) ? colors.highlight : undefined,
     value: group,
   }));
 
@@ -241,9 +249,9 @@ export const GroupsView = ({
           if (!group) return null;
           const from =
             group.sources.length > 1
-              ? 'static list, with your additions'
-              : group.sources[0] === 'static'
-                ? 'static list'
+              ? `${WORKSPACE_BADGE} workspace list, with your additions`
+              : group.sources[0] === 'workspace'
+                ? `${WORKSPACE_BADGE} workspace list`
                 : 'your list';
           return (
             <Box flexDirection="column">

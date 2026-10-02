@@ -17,56 +17,89 @@ import {
 export const TAB_IDS = ['bookmarks', 'groups', 'settings'] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
-/** `~/.config/bmi/config.json`: the theme, and the user's own bookmarks in the static list's shape. */
+/** `~/.config/bmi/config.json`: the theme, and the user's own bookmarks in the workspace list's shape. */
 export interface BmiConfig extends BookmarkList {
   theme: string;
   /** Fetch a page's preview and favicon when the cursor lands on it. Off: only on `f` / `bmi fetch`. */
   autoPreview: boolean;
   bookmarkLayout: 'list' | 'grid';
+  /** Off: only the workspace list is shown — the user's own pages are kept, just hidden. */
+  showUserBookmarks: boolean;
 }
 
+/** Where a project keeps its list, in the order they are tried: the first one present is the only one read. */
+export const WORKSPACE_FILES = ['bookmarks.config.json', 'config/bookmarks.config.json'] as const;
+
 /**
- * The list shipped with bmi, beside its `package.json` — the team's shared links, kept in git.
- * `BMI_STATIC_FILE` points at another one, for a list that lives in some other repository.
+ * The project bmi was opened for: `$BMI_WORKSPACE_ROOT` — what a launcher that knows its project
+ * root (`dfs bookmarks`) sets — or else the directory bmi was started in.
  */
-export const staticListPath = (env: Record<string, string | undefined> = process.env): string =>
-  env.BMI_STATIC_FILE
-    ? resolve(env.BMI_STATIC_FILE)
-    : resolve(import.meta.dir, '..', '..', '..', 'bookmarks.json');
+export const workspaceRoot = (env: Record<string, string | undefined> = process.env): string =>
+  resolve(env.BMI_WORKSPACE_ROOT || process.cwd());
+
+/**
+ * The project's list: `$BMI_WORKSPACE_FILE` when set, else the first of `WORKSPACE_FILES` under the
+ * workspace root that exists. When none does, the place one would go (`config/…`), so Settings
+ * can still offer to create it.
+ */
+export const workspaceListPath = async (
+  env: Record<string, string | undefined> = process.env,
+): Promise<string> => {
+  if (env.BMI_WORKSPACE_FILE) return resolve(env.BMI_WORKSPACE_FILE);
+  const root = workspaceRoot(env);
+  const candidates = WORKSPACE_FILES.map((file) => resolve(root, file));
+  for (const candidate of candidates) {
+    if (await Bun.file(candidate).exists()) return candidate;
+  }
+  return candidates[candidates.length - 1] as string;
+};
 
 export const configStore = createConfigStore<BmiConfig>({
   appName: 'bmi',
-  defaults: { theme: 'classic', autoPreview: true, bookmarkLayout: 'list', ...emptyList() },
+  defaults: {
+    theme: 'classic',
+    autoPreview: true,
+    bookmarkLayout: 'list',
+    showUserBookmarks: true,
+    ...emptyList(),
+  },
   coerce: (raw, defaults) => ({
     theme: typeof raw.theme === 'string' ? raw.theme : defaults.theme,
     autoPreview: typeof raw.autoPreview === 'boolean' ? raw.autoPreview : defaults.autoPreview,
     bookmarkLayout: raw.bookmarkLayout === 'grid' ? 'grid' : 'list',
+    showUserBookmarks:
+      typeof raw.showUserBookmarks === 'boolean'
+        ? raw.showUserBookmarks
+        : defaults.showUserBookmarks,
     ...coerceList(raw),
   }),
 });
 
-export interface StaticListResult {
+export interface WorkspaceListResult {
   list: BookmarkList;
   path: string;
+  /** Whether the project has a list at all — without one bmi shows only the user's. */
+  exists: boolean;
   /** Why the file could not be read — reported, never thrown. A missing file is no error. */
   error?: string;
 }
 
-/** The static list. Read-only: bmi never writes it, edits always land in the user's config. */
-export const loadStaticList = async (path = staticListPath()): Promise<StaticListResult> => {
-  const file = Bun.file(path);
-  if (!(await file.exists())) return { list: emptyList(), path };
+/** The project's list. Read-only: bmi never writes it, edits always land in the user's config. */
+export const loadWorkspaceList = async (path?: string): Promise<WorkspaceListResult> => {
+  const at = path ?? (await workspaceListPath());
+  const file = Bun.file(at);
+  if (!(await file.exists())) return { list: emptyList(), path: at, exists: false };
   try {
-    return { list: coerceList(await file.json()), path };
+    return { list: coerceList(await file.json()), path: at, exists: true };
   } catch (error) {
-    return { list: emptyList(), path, error: (error as Error).message };
+    return { list: emptyList(), path: at, exists: true, error: (error as Error).message };
   }
 };
 
-/** The static list under the user's: on anything both describe, the user's words win. */
-export const buildLibrary = (staticList: BookmarkList, user: BookmarkList): Library =>
+/** The project's list under the user's: on anything both describe, the user's words win. */
+export const buildLibrary = (workspaceList: BookmarkList, user: BookmarkList): Library =>
   mergeLists([
-    { source: 'static', list: staticList },
+    { source: 'workspace', list: workspaceList },
     { source: 'user', list: user },
   ]);
 

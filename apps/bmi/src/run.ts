@@ -3,7 +3,7 @@ import openUrl from '@/dev-tools/utils/system/openUrl';
 import {
   buildLibrary,
   configStore,
-  loadStaticList,
+  loadWorkspaceList,
   TAB_IDS,
   type TabId,
   userList,
@@ -36,8 +36,9 @@ usage:
   bmi fetch [query] [--force]     fetch page previews and favicons into the cache
   bmi config                      print where the lists and the cache are
 
-Two lists, merged: the static one shipped with bmi (bookmarks.json, or $BMI_STATIC_FILE) and
-your own in the config file. Both are { bookmarks: [...], groups: [{ name, bookmarks }] }, and
+Two lists, merged: the project's (bookmarks.config.json, or config/bookmarks.config.json, in
+$BMI_WORKSPACE_ROOT or the current directory; $BMI_WORKSPACE_FILE names one outright) and your
+own in the config file. Both are { bookmarks: [...], groups: [{ name, bookmarks }] }, and
 a bookmark is a URL or { url, title?, description?, tags? }.
 `;
 
@@ -45,14 +46,14 @@ const flagValue = (flags: string[], name: string) =>
   flags.find((flag) => flag.startsWith(`--${name}=`))?.slice(name.length + 3);
 
 const loadEverything = async () => {
-  const [config, staticResult] = await Promise.all([configStore.load(), loadStaticList()]);
-  if (staticResult.error) {
-    console.error(`bmi: ignoring ${staticResult.path}: ${staticResult.error}`);
+  const [config, workspace] = await Promise.all([configStore.load(), loadWorkspaceList()]);
+  if (workspace.error) {
+    console.error(`bmi: ignoring ${workspace.path}: ${workspace.error}`);
   }
   return {
     config,
-    library: buildLibrary(staticResult.list, userList(config)),
-    staticResult,
+    library: buildLibrary(workspace.list, userList(config)),
+    workspace,
   };
 };
 
@@ -163,7 +164,7 @@ export const run = async (...argv: string[]) => {
     if (!url || !hasBookmark(userList(config), url, group)) {
       console.error(
         url
-          ? `${url} is not in your list${group ? ` under ${group}` : ' outside a group (--group=name?)'} — pages in the static list cannot be removed`
+          ? `${url} is not in your list${group ? ` under ${group}` : ' outside a group (--group=name?)'} — pages in the workspace list cannot be removed`
           : 'usage: bmi remove <url> [--group=name]',
       );
       process.exitCode = 1;
@@ -209,10 +210,10 @@ export const run = async (...argv: string[]) => {
   }
 
   if (first === 'config' || first === 'where') {
-    const { staticResult } = await loadEverything();
+    const { workspace } = await loadEverything();
     const cache = await openPreviewCache();
     console.log(`your list  ${configStore.path}`);
-    console.log(`static     ${staticResult.path}`);
+    console.log(`workspace  ${workspace.path}${workspace.exists ? '' : '  (none)'}`);
     console.log(`cache      ${cache.directory}`);
     return;
   }

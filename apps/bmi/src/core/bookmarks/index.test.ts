@@ -11,6 +11,7 @@ import {
   withGroup,
   withoutBookmark,
   withoutGroup,
+  workspaceOnly,
 } from '.';
 
 describe('normalizeUrl', () => {
@@ -76,7 +77,7 @@ describe('coerceList', () => {
 });
 
 describe('mergeLists', () => {
-  const staticList = coerceList({
+  const workspaceList = coerceList({
     bookmarks: ['https://bun.sh'],
     groups: [
       {
@@ -106,13 +107,13 @@ describe('mergeLists', () => {
     ],
   });
   const library = mergeLists([
-    { source: 'static', list: staticList },
+    { source: 'workspace', list: workspaceList },
     { source: 'user', list: user },
   ]);
 
   test('matches groups by name regardless of case, keeping the first spelling', () => {
     expect(library.groups.map((group) => group.name)).toEqual(['jira', 'reading']);
-    expect(library.groups[0]?.sources).toEqual(['static', 'user']);
+    expect(library.groups[0]?.sources).toEqual(['workspace', 'user']);
     expect(library.groups[0]?.description).toBe('tracker');
   });
 
@@ -121,7 +122,7 @@ describe('mergeLists', () => {
     expect(library.groups[0]?.entries).toHaveLength(2);
     expect(board?.title).toBe('My board');
     expect(board?.tags).toEqual(['scrum', 'mine']);
-    expect(board?.sources).toEqual(['static', 'user']);
+    expect(board?.sources).toEqual(['workspace', 'user']);
   });
 
   test('a page in two groups is two entries', () => {
@@ -175,5 +176,37 @@ describe('editing the user list', () => {
     });
     expect(list.groups).toEqual([{ name: 'Jira', description: 'd', bookmarks: [] }]);
     expect(withoutGroup(list, 'JIRA').groups).toEqual([]);
+  });
+});
+
+describe('workspaceOnly', () => {
+  const library = mergeLists([
+    {
+      source: 'workspace',
+      list: coerceList({ bookmarks: ['team.example'], groups: [{ name: 'jira', bookmarks: ['jira.example'] }] }),
+    },
+    {
+      source: 'user',
+      list: coerceList({
+        bookmarks: ['mine.example', { url: 'team.example', title: 'Renamed' }],
+        groups: [
+          { name: 'jira', bookmarks: ['my-board.example'] },
+          { name: 'private', bookmarks: ['secret.example'] },
+        ],
+      }),
+    },
+  ]);
+  const shown = workspaceOnly(library);
+
+  test("drops the user's own pages and groups", () => {
+    expect(shown.groups.map((group) => group.name)).toEqual(['jira']);
+    expect(shown.entries.map((entry) => entry.url)).toEqual([
+      'https://team.example/',
+      'https://jira.example/',
+    ]);
+  });
+
+  test('keeps a workspace page the user retitled, with their title', () => {
+    expect(shown.entries[0]?.title).toBe('Renamed');
   });
 });

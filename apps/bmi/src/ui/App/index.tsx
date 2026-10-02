@@ -14,11 +14,12 @@ import {
   type BmiConfig,
   buildLibrary,
   configStore,
-  type StaticListResult,
   TAB_IDS,
   type TabId,
   userList,
+  type WorkspaceListResult,
 } from '../../config/settings';
+import { workspaceOnly } from '../../core/bookmarks';
 import type { PreviewCache } from '../../core/preview';
 import bmiTheme from '../theme';
 import type { Handoff, Session, Tone } from '../types';
@@ -38,14 +39,14 @@ export const TABS: readonly TabDefinition<TabId>[] = [
 
 export interface AppProps {
   config: BmiConfig;
-  staticList: StaticListResult;
+  workspaceList: WorkspaceListResult;
   cache: PreviewCache;
   session: Session;
   notice?: string;
   onConfigChange: (config: BmiConfig) => void;
   onHandoff: (intent: Handoff) => void;
   /** Re-read both lists from disk — after editing one by hand outside bmi. */
-  onReload: () => Promise<{ config: BmiConfig; staticList: StaticListResult }>;
+  onReload: () => Promise<{ config: BmiConfig; workspaceList: WorkspaceListResult }>;
   /** The Clear dialog ran: report it once the terminal is back. */
   onCleared: (results: ClearResult[]) => void;
 }
@@ -69,12 +70,12 @@ const StatusNote = ({ text, tone }: { text: string; tone: Tone }) => {
 };
 
 /**
- * bmi's dashboard: every bookmark in the static list and the user's own, merged, searchable and
+ * bmi's dashboard: every bookmark in the project's list and the user's own, merged, searchable and
  * grouped; the groups; and the settings, which are a key away from either list in `$EDITOR`.
  */
 export const App = ({
   config: initialConfig,
-  staticList: initialStatic,
+  workspaceList: initialWorkspace,
   cache,
   session,
   notice,
@@ -85,7 +86,7 @@ export const App = ({
 }: AppProps) => {
   const { exit } = useApp();
   const [config, setConfig] = useState(initialConfig);
-  const [staticList, setStaticList] = useState(initialStatic);
+  const [workspaceList, setWorkspaceList] = useState(initialWorkspace);
   const [tab, setTab] = useState<TabId>(
     TAB_IDS.includes(session.tab as TabId) ? (session.tab as TabId) : 'bookmarks',
   );
@@ -93,16 +94,16 @@ export const App = ({
   const [status, setStatus] = useState<{ text: string; tone: Tone } | undefined>(
     notice
       ? { text: notice, tone: 'info' }
-      : initialStatic.error
-        ? { text: `Static list ignored: ${initialStatic.error}`, tone: 'error' }
+      : initialWorkspace.error
+        ? { text: `Workspace list ignored: ${initialWorkspace.error}`, tone: 'error' }
         : undefined,
   );
   const [footerHint, setFooterHint] = useState<string | null>(null);
 
-  const library = useMemo(
-    () => buildLibrary(staticList.list, userList(config)),
-    [staticList.list, config],
-  );
+  const library = useMemo(() => {
+    const merged = buildLibrary(workspaceList.list, userList(config));
+    return config.showUserBookmarks ? merged : workspaceOnly(merged);
+  }, [workspaceList.list, config]);
 
   const notify = useCallback((text: string, tone: Tone = 'info') => setStatus({ text, tone }), []);
 
@@ -131,8 +132,10 @@ export const App = ({
   const reload = () => {
     void onReload().then((next) => {
       setConfig(next.config);
-      setStaticList(next.staticList);
-      if (next.staticList.error) notify(`Static list ignored: ${next.staticList.error}`, 'error');
+      setWorkspaceList(next.workspaceList);
+      if (next.workspaceList.error) {
+        notify(`Workspace list ignored: ${next.workspaceList.error}`, 'error');
+      }
       else notify('Re-read both lists', 'ok');
     });
   };
@@ -157,7 +160,7 @@ export const App = ({
       label: 'Reload',
       hotkey: 'r',
       onPress: reload,
-      tooltip: 'Re-read the static list and your own from disk',
+      tooltip: 'Re-read the workspace list and your own from disk',
     },
     {
       id: 'theme',
@@ -187,7 +190,7 @@ export const App = ({
   return (
     <AppShell
       title="bmi"
-      detail={`${library.entries.length} bookmarks · ${library.groups.length} groups`}
+      detail={`${library.entries.length} bookmarks · ${library.groups.length} groups${config.showUserBookmarks ? '' : ' · workspace only'}`}
       note={status ? <StatusNote text={status.text} tone={status.tone} /> : undefined}
       tabs={TABS}
       activeTab={tab}
@@ -220,8 +223,9 @@ export const App = ({
         <SettingsView
           config={config}
           configPath={configStore.path}
-          staticPath={staticList.path}
-          staticError={staticList.error}
+          workspacePath={workspaceList.path}
+          workspaceExists={workspaceList.exists}
+          workspaceError={workspaceList.error}
           cacheDirectory={cache.directory}
           session={session}
           onConfigChange={updateConfig}

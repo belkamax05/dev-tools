@@ -5,7 +5,7 @@ import search, { scoreText } from '.';
 
 const library = mergeLists([
   {
-    source: 'static',
+    source: 'workspace',
     list: coerceList({
       bookmarks: [{ url: 'https://bun.sh/docs', title: 'Bun docs', tags: ['runtime'] }],
       groups: [

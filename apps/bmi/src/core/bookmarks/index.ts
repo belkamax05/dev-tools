@@ -1,6 +1,6 @@
 /**
- * The bookmark model, shared by both lists bmi reads: the static list shipped with it
- * (`apps/bmi/bookmarks.json`) and the user's own (`~/.config/bmi/config.json`). Both are written
+ * The bookmark model, shared by both lists bmi reads: the project's own (`bookmarks.config.json`
+ * at its root, or under `config/`) and the user's own (`~/.config/bmi/config.json`). Both are written
  * the same way —
  *
  * ```jsonc
@@ -43,7 +43,7 @@ export interface BookmarkList {
   groups: BookmarkGroup[];
 }
 
-export type Source = 'static' | 'user';
+export type Source = 'workspace' | 'user';
 
 /** A page as the dashboard shows it: both lists merged, its group's tags folded in. */
 export interface Entry {
@@ -56,7 +56,7 @@ export interface Entry {
   tags: string[];
   /** The group's name as written, or undefined for an ungrouped page. */
   group?: string;
-  /** Which lists mention this page — a static page the user also wrote down is both. */
+  /** Which lists mention this page — a workspace page the user also wrote down is both. */
   sources: Source[];
 }
 
@@ -136,6 +136,21 @@ export const hostOf = (url: string): string => {
   }
 };
 
+/** Whether the project's list ships this page or group — even when the user's list retitles it. */
+export const isFromWorkspace = (item: Pick<Entry, 'sources'>): boolean =>
+  item.sources.includes('workspace');
+
+/**
+ * Only what the project's list ships: the user's own pages and groups left out, while a workspace
+ * page the user retitled stays, with their words.
+ */
+export const workspaceOnly = (library: Library): Library => ({
+  groups: library.groups
+    .filter(isFromWorkspace)
+    .map((group) => ({ ...group, entries: group.entries.filter(isFromWorkspace) })),
+  entries: library.entries.filter(isFromWorkspace),
+});
+
 /** A bookmark's title, or the URL without its scheme when it has none. */
 export const displayTitle = (entry: Pick<Entry, 'title' | 'url'>): string =>
   entry.title ?? entry.url.replace(/^[a-z]+:\/\/(www\.)?/i, '').replace(/\/$/, '');
@@ -202,12 +217,12 @@ const mergeEntry = (into: Entry, page: Bookmark, source: Source) => {
 };
 
 /**
- * The static list and the user's as one library.
+ * The workspace list and the user's as one library.
  *
  * Groups are matched by name, regardless of case, and a page by its `urlKey` within its group —
  * the same page in two groups is two entries, on purpose: a page can belong to jira *and* to a
  * release checklist. Where both lists describe the same thing the user's words win, so writing a
- * static page down again with a better title is how it is renamed.
+ * workspace page down again with a better title is how it is renamed.
  */
 export const mergeLists = (lists: { source: Source; list: BookmarkList }[]): Library => {
   const ungrouped = new Map<string, Entry>();
@@ -269,7 +284,7 @@ export const mergeLists = (lists: { source: Source; list: BookmarkList }[]): Lib
   };
 };
 
-/* Edits — always to the user's list; the static one is never written by bmi. */
+/* Edits — always to the user's list; the workspace one is never written by bmi. */
 
 const sameGroup = (a: string | undefined, b: string | undefined) =>
   (a ?? '').toLowerCase() === (b ?? '').toLowerCase();

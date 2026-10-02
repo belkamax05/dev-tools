@@ -13,16 +13,18 @@ import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
-import type { BmiConfig } from '../../../config/settings';
+import { type BmiConfig, WORKSPACE_FILES } from '../../../config/settings';
 import bmiTheme from '../../theme';
 import type { Session } from '../../types';
 
 export interface SettingsViewProps {
   config: BmiConfig;
   configPath: string;
-  staticPath: string;
-  /** Why the static list could not be read, when it could not. */
-  staticError?: string;
+  /** The project's list — where it is, or where one would go when the project has none. */
+  workspacePath: string;
+  workspaceExists: boolean;
+  /** Why the workspace list could not be read, when it could not. */
+  workspaceError?: string;
   cacheDirectory: string;
   session: Session;
   onConfigChange: (config: BmiConfig) => void;
@@ -53,7 +55,7 @@ const readContents = async (path: string): Promise<FileContents> => {
 type Setting =
   | { kind: 'theme'; id: string }
   | { kind: 'auto'; on: boolean }
-  | { kind: 'file'; which: 'user' | 'static' }
+  | { kind: 'file'; which: 'user' | 'workspace' }
   | { kind: 'cache' }
   | { kind: 'clear' };
 
@@ -64,8 +66,9 @@ type Setting =
 export const SettingsView = ({
   config,
   configPath,
-  staticPath,
-  staticError,
+  workspacePath,
+  workspaceExists,
+  workspaceError,
   cacheDirectory,
   session,
   onConfigChange,
@@ -81,7 +84,7 @@ export const SettingsView = ({
   const viewport = useViewport();
 
   const filePath =
-    current?.kind === 'file' ? (current.which === 'user' ? configPath : staticPath) : undefined;
+    current?.kind === 'file' ? (current.which === 'user' ? configPath : workspacePath) : undefined;
 
   //? Re-read on a config change too: picking a theme rewrites the user's list on disk
   // biome-ignore lint/correctness/useExhaustiveDependencies: config is the trigger, not an input
@@ -101,7 +104,7 @@ export const SettingsView = ({
     if (setting.kind === 'theme') onConfigChange({ ...config, theme: setting.id });
     else if (setting.kind === 'auto') onConfigChange({ ...config, autoPreview: setting.on });
     else if (setting.kind === 'file')
-      onEditFile(setting.which === 'user' ? configPath : staticPath);
+      onEditFile(setting.which === 'user' ? configPath : workspacePath);
     else setClearing(true);
   };
 
@@ -109,7 +112,7 @@ export const SettingsView = ({
     (input) => {
       if (input === ' ') apply(current);
       else if (input === 'e') onEditFile(configPath);
-      else if (input === 'E') onEditFile(staticPath);
+      else if (input === 'E') onEditFile(workspacePath);
       else if (input === 'X') setClearing(true);
     },
     { isActive: !clearing },
@@ -142,11 +145,11 @@ export const SettingsView = ({
       value: { kind: 'file', which: 'user' },
     },
     {
-      id: 'file:static',
-      label: 'Static list',
-      hint: staticError ? 'unreadable' : 'E',
-      hintColor: staticError ? colors.error : undefined,
-      value: { kind: 'file', which: 'static' },
+      id: 'file:workspace',
+      label: 'Workspace list',
+      hint: workspaceError ? 'unreadable' : workspaceExists ? 'E' : 'none · E',
+      hintColor: workspaceError ? colors.error : workspaceExists ? undefined : colors.muted,
+      value: { kind: 'file', which: 'workspace' },
     },
     { id: 'cache', label: 'Preview cache', value: { kind: 'cache' } },
     { id: 'header-reset', label: 'Reset', isHeader: true },
@@ -196,7 +199,7 @@ export const SettingsView = ({
     }
     if (setting.kind === 'file') {
       const isUser = setting.which === 'user';
-      const path = isUser ? configPath : staticPath;
+      const path = isUser ? configPath : workspacePath;
       const shown = contents?.path === path ? contents : undefined;
       //? What is left of the pane once the buttons, path and blurb have theirs
       const budget = Math.max(
@@ -226,15 +229,15 @@ export const SettingsView = ({
           <Text color={colors.text} wrap="truncate">
             {path}
           </Text>
-          {!isUser && staticError && (
+          {!isUser && workspaceError && (
             <Text color={colors.error} wrap="wrap">
-              {staticError}
+              {workspaceError}
             </Text>
           )}
           <Text color={colors.muted} wrap="wrap">
             {isUser
               ? 'Your bookmarks and groups, plus the theme — everything you add, retitle or tag in bmi.'
-              : 'The shared list, kept in git ($BMI_STATIC_FILE names another). Read-only to bmi; your list wins.'}
+              : `The project's shared list, kept in its git: ${WORKSPACE_FILES.join(' or ')} at its root ($BMI_WORKSPACE_ROOT, or where bmi was started). Read-only to bmi; your list wins.`}
           </Text>
           <Box flexDirection="column" marginTop={1}>
             {!shown ? (
@@ -282,7 +285,7 @@ export const SettingsView = ({
     return (
       <Text color={colors.muted} wrap="wrap">
         Remove bmi's config (theme and your own bookmarks!) and preview cache from disk, after a
-        confirmation that lists each one. The static list is never touched.
+        confirmation that lists each one. The workspace list is never touched.
       </Text>
     );
   };
@@ -302,8 +305,8 @@ export const SettingsView = ({
         },
         {
           key: 'E',
-          label: 'edit static',
-          onPress: () => onEditFile(staticPath),
+          label: 'edit workspace',
+          onPress: () => onEditFile(workspacePath),
         },
         { key: 'X', label: 'clear', onPress: () => setClearing(true) },
       ]}

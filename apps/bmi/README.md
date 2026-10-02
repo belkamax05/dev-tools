@@ -18,11 +18,28 @@ bmi config                       # where the two lists and the cache are
 
 ## Two lists, merged
 
-- **The static list**: `apps/bmi/bookmarks.json`, kept in git with bmi. It holds the links a team
-  shares. `$BMI_STATIC_FILE` points at a different file, for example one that lives in another
-  repository. bmi only ever reads it.
-- **Your list**: `~/.config/bmi/config.json`, next to the theme. Everything you add, retitle or
-  tag, whether in the dashboard or with `bmi add`, is written here.
+- **The workspace list**: the links a project's team shares, kept in that project's git. bmi
+  looks in the workspace root — `$BMI_WORKSPACE_ROOT`, or else the directory it was started in —
+  for `bookmarks.config.json`, then `config/bookmarks.config.json`. The first one found is the
+  only one read. `$BMI_WORKSPACE_FILE` names a file outright. With none, bmi shows only your
+  list. bmi only ever reads it. bmi itself ships no bookmarks.
+- **Your list**: `~/.config/bmi/config.json`, next to the theme (a good file to keep in your
+  dotfiles). Everything you add, retitle or tag, whether in the dashboard or with `bmi add`, is
+  written here.
+
+A launcher that knows its project's root sets `$BMI_WORKSPACE_ROOT` itself, so the workspace
+list is found from any subdirectory. dfs-fe-internal's `dfs bookmarks` (also `dfs bm` and
+`dfs links`) does this.
+
+Pages and groups from the workspace list are marked with `⌂` and drawn in the theme's highlight
+colour. In the grid, the card gets a highlight outline and a `⌂ workspace` chip over its top-right
+corner, which stays when the card is selected. In the lists, the row's hint carries the `⌂`.
+Your own pages keep the muted outline.
+
+`u` (or the [u] Hide yours / Show yours button) hides your own pages and groups, so only the
+workspace list is shown. The choice is remembered. A workspace page you retitled stays, with your
+title, since workspace bookmarks are always shown. Adding a page or a group shows yours again,
+so it doesn't vanish as it's added.
 
 Both files have the same shape, and only `url` (plus a group's `name`) is required:
 
@@ -50,8 +67,8 @@ Both files have the same shape, and only `url` (plus a group's `name`) is requir
 are matched by name without regard to case. A page is matched by its URL within its group,
 ignoring the scheme, `www.`, a trailing slash and the fragment. When both lists describe the
 same page or group, your title and description win and the tags are combined. So to rename a
-static page you write it into your own list with a new title, which is what `n` does on it.
-You can retitle, describe and tag a static page this way, but you can only move or remove
+workspace page you write it into your own list with a new title, which is what `n` does on it.
+You can retitle, describe and tag a workspace page this way, but you can only move or remove
 pages you added yourself.
 
 ## Search first, like rofi
@@ -65,7 +82,7 @@ focus back to the search.
 Every action has a hotkey and a clickable control: the buttons above the detail pane, the hints
 under the list, the footer, the tabs, and the Yes/No and Save/Cancel buttons on every question.
 Use the [g] Grid view / List view button to switch the Bookmarks layout (or press `g` in
-hotkey mode). The choice is remembered. Grid mode shows bordered cards with a 32 × 8-cell preview image area, a favicon, title and URL.
+hotkey mode). The choice is remembered. Grid mode shows bordered cards with a 32 × 8-cell preview image area. Under it, the favicon is on the left, with the title and the URL stacked beside it.
 Images retain their aspect ratio; missing images show a placeholder. Visible cards fetch previews
 when automatic previews are enabled. Grid columns adapt to the terminal, keep group headings,
 and use all four arrow keys to move. Search, selection and
@@ -76,9 +93,9 @@ opens it, so a stray click never launches the browser.
 
 | Tab | Keys (in hotkey mode) |
 | --- | --- |
-| 🔖 Bookmarks | every page, under its group's name. Enter/`o` open · `y` copy the URL · `a` add (to the group in view) · `n` title · `d` description · `T` tags · `m` move to a group · `x` remove · `f` fetch the preview now · `i` open the preview image · `/` search · Esc clears the group |
+| 🔖 Bookmarks | every page, under its group's name. Enter/`o` open · `y` copy the URL · `a` add (to the group in view) · `n` title · `d` description · `T` tags · `m` move to a group · `x` remove · `f` fetch the preview now · `i` open the preview image · `u` hide/show yours · `/` search · Esc clears the group |
 | 📂 Groups | Enter shows the group's pages on the Bookmarks tab, search focused · `O` opens every page in it (asks first above 5) · `a` new group · `d` description · `T` tags · `x` remove your group |
-| 🔧 Settings | theme, whether previews are fetched automatically, `e` edit your list, `E` edit the static list, `X` clear |
+| 🔧 Settings | theme, whether previews are fetched automatically, `e` edit your list, `E` edit the workspace list, `X` clear |
 
 Outside the search: `1-3`/`Tab` switch tab, `r` re-read both lists, `t` theme, `q` quit.
 
