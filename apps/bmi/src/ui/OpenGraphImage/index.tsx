@@ -48,7 +48,19 @@ const readImage = async (response: Response): Promise<Uint8Array> => {
   return bytes;
 };
 
-/** PNG is the raster format BMI already decodes and the kitty protocol draws without loss. */
+/**
+ * Normalise any image Bun can decode to PNG, then use terminal-canvas's RGBA
+ * decoder. PNG skips conversion; JPEG, WebP, and AVIF use Bun's codecs.
+ */
+const decodeImage = async (bytes: Uint8Array): Promise<DecodedImage> => {
+  try {
+    return decodePng(bytes);
+  } catch {
+    const png = await new Bun.Image(bytes).png();
+    return decodePng(new Uint8Array(await png.bytes()));
+  }
+};
+
 const loadImage = async (url: string): Promise<DecodedImage | undefined> => {
   const response = await fetch(url, {
     redirect: 'follow',
@@ -56,14 +68,13 @@ const loadImage = async (url: string): Promise<DecodedImage | undefined> => {
     headers: { accept: 'image/png,image/*;q=0.8' },
   });
   if (!response.ok) return undefined;
-  const image = decodePng(await readImage(response));
+  const image = await decodeImage(await readImage(response));
   return image.width * image.height <= MAX_IMAGE_PIXELS ? image : undefined;
 };
 
 /**
- * A page's PNG social card, below its URL. It is requested only when a real
- * raster protocol is available; JPEG/WebP and unsuitable images leave the URL
- * usable without adding a broken text approximation.
+ * A page's social card, below its URL. It is requested only when a real raster
+ * protocol is available; unsuitable images leave the URL usable.
  */
 export const OpenGraphImage = ({ url }: { url: string }) => {
   const ref = useRef<DOMElement>(null);
