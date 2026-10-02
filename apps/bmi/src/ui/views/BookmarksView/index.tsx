@@ -74,7 +74,9 @@ const printable = (input: string) => input.replace(/[\u0000-\u001F\u007F]/g, '')
 
 /**
  * The search line: focused, it is a text field with a cursor; unfocused, a button that focuses it.
- * Either way a click on it puts the keyboard back in the search.
+ * Either way a click on it puts the keyboard back in the search. A query outlives the focus — Esc
+ * hands the keys to the hotkeys and keeps it — so clearing it is a button of its own: Ctrl+U while
+ * typing, `c` from the hotkeys.
  */
 const SearchLine = ({
   query,
@@ -82,12 +84,14 @@ const SearchLine = ({
   summary,
   onFocus,
   onEscape,
+  onClear,
 }: {
   query: string;
   isFocused: boolean;
   summary: string;
   onFocus: () => void;
   onEscape: () => void;
+  onClear: () => void;
 }) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
@@ -110,8 +114,11 @@ const SearchLine = ({
         </Text>
       </Box>
       <Box flexShrink={0}>
+        {query && (
+          <ActionButton hotkey={isFocused ? '^U' : 'c'} label="Clear" onPress={onClear} />
+        )}
         {isFocused ? (
-          <ActionButton hotkey="Esc" label={query ? 'Clear' : 'Hotkeys'} onPress={onEscape} />
+          <ActionButton hotkey="Esc" label="Hotkeys" onPress={onEscape} />
         ) : (
           <ActionButton hotkey="/" label="Search" onPress={onFocus} />
         )}
@@ -403,16 +410,18 @@ export const BookmarksView = ({
 
   const focusSearch = () => setSearching(true);
 
+  const clearSearch = () => setQuery('');
+
+  /** Esc from the hotkeys: back out of the tag in view. The query stays — `c` clears it. */
   const clearScope = () => {
-    if (query) setQuery('');
-    else if (scope) setTagKey(undefined);
+    if (scope) setTagKey(undefined);
   };
 
-  /** Esc in the search: the query first, then the keyboard goes to the hotkeys. */
-  const escapeSearch = () => {
-    if (query) setQuery('');
-    else setSearching(false);
-  };
+  /**
+   * Esc in the search: the keyboard goes to the hotkeys and the query stays, so the hotkeys — a
+   * repository's `P`, say — work on what was found.
+   */
+  const escapeSearch = () => setSearching(false);
 
   const repoOf = (entry: Entry | undefined) =>
     entry ? repoLinksOf(entry.url, entry.github) : undefined;
@@ -471,6 +480,7 @@ export const BookmarksView = ({
       else if (input === 'x') remove(current);
       else if (input === 'f' && current) setForceKey((at) => at + 1);
       else if (input === 'i') openImage();
+      else if (input === 'c') clearSearch();
       else if (key.escape) clearScope();
       else {
         //? A repository's own keys are all uppercase, clear of every key above
@@ -517,21 +527,14 @@ export const BookmarksView = ({
   const hints: Hint[] = searching
     ? [
         { key: 'Tab', label: 'next tab', onPress: () => onTabStep(1) },
-        { key: 'Esc', label: query ? 'clear' : 'hotkeys', onPress: escapeSearch },
-        { key: 'a', label: 'add', onPress: add },
+        { key: 'Esc', label: 'hotkeys', onPress: escapeSearch },
+        ...(query ? [{ key: '^U', label: 'clear', onPress: clearSearch }] : []),
       ]
     : [
         { key: '/', label: 'search', onPress: focusSearch },
         { key: 'a', label: 'add', onPress: add },
-        ...(query || scope
-          ? [
-              {
-                key: 'Esc',
-                label: query ? 'clear search' : 'all pages',
-                onPress: clearScope,
-              },
-            ]
-          : []),
+        ...(query ? [{ key: 'c', label: 'clear search', onPress: clearSearch }] : []),
+        ...(scope ? [{ key: 'Esc', label: 'all pages', onPress: clearScope }] : []),
       ];
 
   const noun = query ? 'match' : 'bookmark';
@@ -543,6 +546,7 @@ export const BookmarksView = ({
       summary={summary}
       onFocus={focusSearch}
       onEscape={escapeSearch}
+      onClear={clearSearch}
     />
   );
 
@@ -637,7 +641,8 @@ export const BookmarksView = ({
                 ? `${WORKSPACE_BADGE} workspace list`
                 : 'your list';
           return (
-            <Box flexDirection="column">
+            //? Fills the pane, so the preview at the bottom can size its picture to what is left
+            <Box flexDirection="column" flexGrow={1} overflow="hidden">
               {/* Held at full height: on a short pane the preview below gives way, not these */}
               <Box flexDirection="column" flexShrink={0}>
               <Toolbar actions={actionsFor(entry)} />

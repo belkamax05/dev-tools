@@ -44,6 +44,64 @@ const requestWipe = (write: (data: string) => void) => {
   }, 0);
 };
 
+export interface CellRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const clipsY = (node: DOMElement) => node.style.overflow === 'hidden' || node.style.overflowY === 'hidden';
+const clipsX = (node: DOMElement) => node.style.overflow === 'hidden' || node.style.overflowX === 'hidden';
+
+/** The cells inside a box's border — what an `overflow: hidden` box lets its children show in. */
+const innerRect = (node: DOMElement): CellRect => {
+  const box = measureElement(node);
+  const { style } = node;
+  const framed = style.borderStyle !== undefined;
+  const top = framed && style.borderTop !== false ? 1 : 0;
+  const bottom = framed && style.borderBottom !== false ? 1 : 0;
+  const left = framed && style.borderLeft !== false ? 1 : 0;
+  const right = framed && style.borderRight !== false ? 1 : 0;
+  return {
+    x: box.x + left,
+    y: box.y + top,
+    width: Math.max(0, box.width - left - right),
+    height: Math.max(0, box.height - top - bottom),
+  };
+};
+
+/**
+ * Whether all of `box` is on screen: inside the terminal and inside every ancestor that clips its
+ * children.
+ *
+ * Ink clips text to an `overflow: hidden` box, but an image is written over the frame after it,
+ * at the cells Yoga laid its placeholder out in — and Yoga lays a child out at the size it asked
+ * for, clipped or not. So a placeholder pushed below a short panel still measures as its full
+ * height, past the panel's edge and, on a short terminal, past the last row — where writing it
+ * scrolls the whole screen up under the picture. An image that would not fit entirely is not
+ * drawn at all: a cropped one cannot be had from any of the protocols without re-encoding.
+ */
+export const isFullyVisible = (
+  node: DOMElement,
+  box: CellRect,
+  screen: { columns: number; rows: number },
+): boolean => {
+  if (box.x < 0 || box.y < 0) return false;
+  if (box.x + box.width > screen.columns || box.y + box.height > screen.rows) return false;
+  for (let current = node.parentNode; current; current = current.parentNode) {
+    if (!clipsX(current) && !clipsY(current)) continue;
+    const clip = innerRect(current);
+    if (clipsY(current) && (box.y < clip.y || box.y + box.height > clip.y + clip.height)) {
+      return false;
+    }
+    if (clipsX(current) && (box.x < clip.x || box.x + box.width > clip.x + clip.width)) {
+      return false;
+    }
+  }
+  return true;
+};
+
 /**
  * The terminal addresses cells from 1; Ink lays out from 0. The app owns the
  * top of the alternate screen, so that single offset is the whole conversion —
@@ -226,6 +284,18 @@ export function useRasterOverlay(options: RasterOverlayOptions): void {
       // from the wrong one spills over whatever is next to it.
       const { x, y, width: cols, height: rows } = measureElement(node);
       if (cols <= 0 || rows <= 0) return;
+
+      //? Off screen or cut off by a clipping box: take down whatever was painted rather than
+      //? write past the edge, which on the last row scrolls the screen
+      const screen = { columns: stdout.columns ?? Infinity, rows: stdout.rows ?? Infinity };
+      if (!isFullyVisible(node, { x, y, width: cols, height: rows }, screen)) {
+        if (placedRef.current !== undefined) {
+          stdout.write(clearRasterArtifacts(imageId));
+          if (imagesInCells) requestWipe(write);
+          placedRef.current = undefined;
+        }
+        return;
+      }
 
       //? Moved or resized: the old cells may still hold the old picture. Wipe
       //? rather than paint — the frame after the wipe paints it here

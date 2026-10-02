@@ -19,8 +19,8 @@ import useRasterOverlay from '@/dev-tools/ui/hooks/useRasterOverlay';
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 4_000_000;
-const MAX_COLS = 48;
-const MAX_ROWS = 16;
+export const MAX_COLS = 48;
+export const MAX_ROWS = 16;
 
 /** Read a response without letting a large social card consume the TUI's memory. */
 const readImage = async (response: Response): Promise<Uint8Array> => {

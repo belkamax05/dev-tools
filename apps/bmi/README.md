@@ -120,9 +120,10 @@ you want changed. Retitling or tagging the page keeps them.
 
 bmi always opens on 🔖 Bookmarks with the search focused, whatever tab you used last time (it
 doesn't remember one). Typing filters straight away. ↑/↓ move, Enter opens, Tab goes to the next
-tab, Ctrl+U clears the query and Ctrl+W deletes the last word. Esc clears the query; on an empty
-query it hands the keyboard to the hotkeys below. `/` or a click on the search line brings
-focus back to the search.
+tab, Ctrl+U clears the query and Ctrl+W deletes the last word. Esc hands the keyboard to the
+hotkeys below and **keeps the query**, so the hotkeys work on what you found. For example, type
+`dfs-fe`, press Esc, then `P` for its pull requests. From the hotkeys, `c` (or the [c] Clear
+button) clears the query, and `/` or a click on the search line brings focus back to the search.
 
 Every action has a hotkey and a clickable control: the buttons above the detail pane, the hints
 under the list, the footer, the tabs, and the Yes/No and Save/Cancel buttons on every question.
@@ -147,7 +148,7 @@ opens it, so a stray click never launches the browser.
 
 | Tab | Keys (in hotkey mode) |
 | --- | --- |
-| 🔖 Bookmarks | every page, under each category it's in. Enter/`o` open · `y` copy the URL · `a` add (tagged with the tag in view) · `n` title · `d` description · `T` tags · `m` move to other categories (a new name declares one) · `x` remove · `f` fetch the preview now · `i` open the preview image · `u` hide/show yours · `g` layout · `p` grid images on/off · `/` search · Esc clears the tag in view |
+| 🔖 Bookmarks | every page, under each category it's in. Enter/`o` open · `y` copy the URL · `a` add (tagged with the tag in view) · `n` title · `d` description · `T` tags · `m` move to other categories (a new name declares one) · `x` remove · `f` fetch the preview now · `i` open the preview image · `u` hide/show yours · `g` layout · `p` grid images on/off · `/` search · `c` clears the search · Esc leaves the tag in view |
 | 📂 Tags | categories as a tree, then the other tags, each with how many pages it has. Enter shows a tag's pages on the Bookmarks tab · `O` opens every page in it (asks first above 5) · `a` new category · `c` makes a plain tag a category · `d` description · `x` stops using your category (its pages stay) |
 | 🔧 Settings | theme, whether previews are fetched automatically, `e` edit your list, `E` edit the workspace list, `X` clear |
 
