@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test';
 import { renderToString } from 'ink';
 
 import type { PreviewCache } from '../../core/preview';
-import BookmarkCard, { WORKSPACE_BADGE } from './index';
+import { WORKSPACE_BADGE } from '../WorkspaceChip';
+import BookmarkCard from './index';
 
 const cache: PreviewCache = {
   directory: '',
@@ -104,4 +105,24 @@ test('the workspace chip is laid over the top border, at its right corner', () =
   expect(top?.startsWith('╭')).toBe(true);
   expect(top?.trimEnd().endsWith(`${WORKSPACE_BADGE} workspace`)).toBe(true);
   expect(top?.length).toBeLessThanOrEqual(34);
+});
+
+test('without its image a card keeps only the favicon, title and URL', () => {
+  const output = Bun.stripANSI(
+    renderToString(
+      <BookmarkCard
+        entry={entry}
+        cache={cache}
+        auto={false}
+        width={34}
+        selected={false}
+        showImage={false}
+      />,
+      { columns: 34 },
+    ),
+  );
+  expect(output).not.toContain('No preview image');
+  expect(output).toContain(entry.title);
+  expect(output).toContain(entry.url);
+  expect(output.split('\n')).toHaveLength(4);
 });

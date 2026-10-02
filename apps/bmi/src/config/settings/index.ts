@@ -14,15 +14,24 @@ import {
  * The dashboard's tabs, in order. bmi always opens on the first, search focused, the way a
  * launcher does — so unlike the other apps it does not remember the last tab.
  */
-export const TAB_IDS = ['bookmarks', 'groups', 'settings'] as const;
+export const TAB_IDS = ['bookmarks', 'tags', 'settings'] as const;
 export type TabId = (typeof TAB_IDS)[number];
+
+/**
+ * How the Bookmarks tab draws its pages, in the order `g` steps through them: rows, cards with a
+ * preview image, and tiles — a favicon and a title, several to a card's width.
+ */
+export const BOOKMARK_LAYOUTS = ['list', 'grid', 'tiles'] as const;
+export type BookmarkLayout = (typeof BOOKMARK_LAYOUTS)[number];
 
 /** `~/.config/bmi/config.json`: the theme, and the user's own bookmarks in the workspace list's shape. */
 export interface BmiConfig extends BookmarkList {
   theme: string;
   /** Fetch a page's preview and favicon when the cursor lands on it. Off: only on `f` / `bmi fetch`. */
   autoPreview: boolean;
-  bookmarkLayout: 'list' | 'grid';
+  bookmarkLayout: BookmarkLayout;
+  /** Off: grid cards drop their preview image, keeping the favicon, title and URL. */
+  showThumbnails: boolean;
   /** Off: only the workspace list is shown — the user's own pages are kept, just hidden. */
   showUserBookmarks: boolean;
 }
@@ -60,13 +69,18 @@ export const configStore = createConfigStore<BmiConfig>({
     theme: 'classic',
     autoPreview: true,
     bookmarkLayout: 'list',
+    showThumbnails: true,
     showUserBookmarks: true,
     ...emptyList(),
   },
   coerce: (raw, defaults) => ({
     theme: typeof raw.theme === 'string' ? raw.theme : defaults.theme,
     autoPreview: typeof raw.autoPreview === 'boolean' ? raw.autoPreview : defaults.autoPreview,
-    bookmarkLayout: raw.bookmarkLayout === 'grid' ? 'grid' : 'list',
+    bookmarkLayout: BOOKMARK_LAYOUTS.includes(raw.bookmarkLayout as BookmarkLayout)
+      ? (raw.bookmarkLayout as BookmarkLayout)
+      : defaults.bookmarkLayout,
+    showThumbnails:
+      typeof raw.showThumbnails === 'boolean' ? raw.showThumbnails : defaults.showThumbnails,
     showUserBookmarks:
       typeof raw.showUserBookmarks === 'boolean'
         ? raw.showUserBookmarks
@@ -105,6 +119,6 @@ export const buildLibrary = (workspaceList: BookmarkList, user: BookmarkList): L
 
 /** Just the bookmark part of the config — what the editing helpers take and give back. */
 export const userList = (config: BmiConfig): BookmarkList => ({
+  tags: config.tags,
   bookmarks: config.bookmarks,
-  groups: config.groups,
 });

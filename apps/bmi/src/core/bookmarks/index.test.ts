@@ -1,16 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  categoriesOf,
   coerceList,
   coerceTags,
+  expandTag,
+  findBookmark,
   hasBookmark,
   mergeLists,
   normalizeUrl,
+  placementOf,
   urlKey,
   withBookmark,
-  withGroup,
   withoutBookmark,
-  withoutGroup,
+  withoutTag,
+  withTag,
   workspaceOnly,
 } from '.';
 
@@ -41,141 +45,185 @@ describe('coerceTags', () => {
   test('accepts arrays, comma strings and several fields at once', () => {
     expect(coerceTags(['A', '#b'], 'b, c ,', undefined)).toEqual(['a', 'b', 'c']);
   });
+  test('normalises nested paths', () => {
+    expect(coerceTags(' Repositories / GitLab ', 'a//b/')).toEqual(['repositories/gitlab', 'a/b']);
+  });
+});
+
+describe('expandTag', () => {
+  test('a tag implies each of its parents', () => {
+    expect(expandTag('a/b/c')).toEqual(['a', 'a/b', 'a/b/c']);
+  });
 });
 
 describe('coerceList', () => {
-  test('keeps what is usable and drops the rest', () => {
+  test('keeps what is usable, and one page written twice is one page', () => {
     const list = coerceList({
-      bookmarks: ['bun.sh', { url: '' }, 42, { url: 'https://x.org', keywords: 'one, two' }],
-      groups: [
-        {
-          name: 'Jira',
-          bookmarks: [{ url: 'https://acme.atlassian.net', title: ' Board ' }],
-        },
-        { bookmarks: ['https://nameless.org'] },
-        { name: 'jira', pages: ['https://acme.atlassian.net/2'] },
+      tags: { Jira: { description: ' The tracker ', order: 2 }, 'a / b': 'Nested' },
+      bookmarks: [
+        'bun.sh',
+        { url: '' },
+        42,
+        { url: 'https://x.org', keywords: 'one, two' },
+        { url: 'https://www.x.org/', title: 'X', tags: ['three'] },
       ],
+    });
+    expect(list.tags).toEqual({
+      jira: { description: 'The tracker', order: 2 },
+      'a/b': { description: 'Nested' },
     });
     expect(list.bookmarks).toEqual([
       { url: 'https://bun.sh/' },
-      { url: 'https://x.org/', tags: ['one', 'two'] },
-    ]);
-    expect(list.groups).toHaveLength(1);
-    expect(list.groups[0]?.name).toBe('Jira');
-    expect(list.groups[0]?.bookmarks.map((page) => page.title ?? page.url)).toEqual([
-      'Board',
-      'https://acme.atlassian.net/2',
+      { url: 'https://x.org/', title: 'X', tags: ['one', 'two', 'three'] },
     ]);
   });
+
+  test('tags may be a list of names or of records', () => {
+    expect(coerceList({ tags: ['jira', { name: 'docs', description: 'd' }, 7] }).tags).toEqual({
+      jira: {},
+      docs: { description: 'd' },
+    });
+  });
+
+  test('reads the old groups: each a declared tag, on its pages with its own tags', () => {
+    const list = coerceList({
+      bookmarks: ['https://bun.sh'],
+      groups: [
+        {
+          name: 'Jira',
+          description: 'tracker',
+          tags: ['work'],
+          bookmarks: [{ url: 'https://acme.atlassian.net', title: 'Board', tags: ['scrum'] }],
+        },
+        { bookmarks: ['https://nameless.org'] },
+        { name: 'reading', pages: ['https://bun.sh'] },
+      ],
+    });
+    expect(list.tags).toEqual({ jira: { description: 'tracker' }, reading: {} });
+    expect(list.bookmarks).toEqual([
+      { url: 'https://bun.sh/', tags: ['reading'] },
+      { url: 'https://acme.atlassian.net/', title: 'Board', tags: ['jira', 'work', 'scrum'] },
+    ]);
+  });
+
   test('survives garbage', () => {
-    expect(coerceList(null)).toEqual({ bookmarks: [], groups: [] });
-    expect(coerceList({ groups: 'x', bookmarks: {} })).toEqual({
+    expect(coerceList(null)).toEqual({ tags: {}, bookmarks: [] });
+    expect(coerceList({ tags: 'x', bookmarks: {}, groups: 3 })).toEqual({
+      tags: {},
       bookmarks: [],
-      groups: [],
     });
   });
 });
 
 describe('mergeLists', () => {
   const workspaceList = coerceList({
-    bookmarks: ['https://bun.sh'],
-    groups: [
-      {
-        name: 'jira',
-        description: 'tracker',
-        tags: ['work'],
-        bookmarks: [
-          {
-            url: 'https://jira.example.com/board',
-            title: 'Board',
-            tags: ['scrum'],
-          },
-        ],
-      },
+    tags: { jira: { description: 'tracker' }, repositories: {}, 'repositories/gitlab': {} },
+    bookmarks: [
+      'https://bun.sh',
+      { url: 'https://jira.example.com/board', title: 'Board', tags: ['jira', 'scrum'] },
+      { url: 'https://gitlab.example/wc', title: 'wc', tags: ['repositories/gitlab', 'backend'] },
     ],
   });
   const user = coerceList({
-    groups: [
-      {
-        name: 'JIRA',
-        bookmarks: [
-          { url: 'jira.example.com/board/', title: 'My board', tags: ['mine'] },
-          'https://jira.example.com/backlog',
-        ],
-      },
-      { name: 'reading', bookmarks: ['https://bun.sh'] },
+    tags: { JIRA: { description: 'mine' }, reading: { order: 0 } },
+    bookmarks: [
+      { url: 'jira.example.com/board/', title: 'My board', tags: ['mine'] },
+      { url: 'https://bun.sh', tags: ['reading', 'jira'] },
     ],
   });
   const library = mergeLists([
     { source: 'workspace', list: workspaceList },
     { source: 'user', list: user },
   ]);
+  const entry = (title: string) => library.entries.find((each) => each.title === title);
 
-  test('matches groups by name regardless of case, keeping the first spelling', () => {
-    expect(library.groups.map((group) => group.name)).toEqual(['jira', 'reading']);
-    expect(library.groups[0]?.sources).toEqual(['workspace', 'user']);
-    expect(library.groups[0]?.description).toBe('tracker');
+  test('one entry per page, the user’s words winning and tags joined', () => {
+    expect(library.entries).toHaveLength(3);
+    expect(entry('My board')?.tags).toEqual(['jira', 'scrum', 'mine']);
+    expect(entry('My board')?.sources).toEqual(['workspace', 'user']);
   });
 
-  test('merges one page from both lists, the user’s words winning and tags joined', () => {
-    const board = library.groups[0]?.entries[0];
-    expect(library.groups[0]?.entries).toHaveLength(2);
-    expect(board?.title).toBe('My board');
-    expect(board?.tags).toEqual(['scrum', 'mine']);
-    expect(board?.sources).toEqual(['workspace', 'user']);
+  test('declared tags are a tree, ordered, then the plain ones A–Z', () => {
+    expect(library.tags.map((tag) => [tag.key, tag.depth, tag.declared])).toEqual([
+      ['reading', 0, true],
+      ['jira', 0, true],
+      ['repositories', 0, true],
+      ['repositories/gitlab', 1, true],
+      ['backend', 0, false],
+      ['mine', 0, false],
+      ['scrum', 0, false],
+    ]);
+    expect(categoriesOf(library).find((tag) => tag.key === 'jira')).toMatchObject({
+      description: 'mine',
+      sources: ['workspace', 'user'],
+    });
   });
 
-  test('a page in two groups is two entries', () => {
-    expect(library.entries.filter((entry) => urlKey(entry.url) === 'bun.sh')).toHaveLength(2);
-    expect(new Set(library.entries.map((entry) => entry.id)).size).toBe(library.entries.length);
+  test('a tag counts the pages under it', () => {
+    const counts = Object.fromEntries(library.tags.map((tag) => [tag.key, tag.entries.length]));
+    expect(counts.jira).toBe(2);
+    expect(counts.repositories).toBe(1);
   });
 
-  test('lists ungrouped pages first', () => {
-    expect(library.entries[0]?.group).toBeUndefined();
+  test('a page is placed under its most specific categories only', () => {
+    const bun = library.entries.find((each) => each.url === 'https://bun.sh/');
+    expect(placementOf(entry('wc')!, library)).toEqual(['repositories/gitlab']);
+    expect(placementOf(bun!, library).sort()).toEqual(['jira', 'reading']);
+    expect(placementOf(entry('My board')!, library)).toEqual(['jira']);
+  });
+
+  test('a page under an undeclared nested tag is placed under its declared parent', () => {
+    const nested = mergeLists([
+      {
+        source: 'user',
+        list: coerceList({ tags: ['docs'], bookmarks: [{ url: 'a.org', tags: ['docs/api'] }] }),
+      },
+    ]);
+    expect(placementOf(nested.entries[0]!, nested)).toEqual(['docs']);
   });
 });
 
 describe('editing the user list', () => {
   const empty = coerceList({});
 
-  test('adds into a new group, then updates in place', () => {
-    const once = withBookmark(empty, { url: 'https://a.org/' }, 'Docs');
-    const twice = withBookmark(once, { url: 'https://a.org', title: 'A' }, 'docs');
-    expect(twice.groups).toEqual([
-      { name: 'Docs', bookmarks: [{ url: 'https://a.org', title: 'A' }] },
-    ]);
+  test('adds a page, then updates it in place', () => {
+    const once = withBookmark(empty, { url: 'https://a.org/' });
+    const twice = withBookmark(once, { url: 'https://a.org', title: 'A' });
+    expect(twice.bookmarks).toEqual([{ url: 'https://a.org', title: 'A' }]);
   });
 
   test('replace clears fields the update leaves out', () => {
-    const titled = withBookmark(empty, {
-      url: 'https://a.org/',
-      title: 'A',
-      tags: ['x'],
-    });
-    const cleared = withBookmark(titled, { url: 'https://a.org/', tags: ['x'] }, undefined, {
-      replace: true,
-    });
+    const titled = withBookmark(empty, { url: 'https://a.org/', title: 'A', tags: ['x'] });
+    const cleared = withBookmark(titled, { url: 'https://a.org/', tags: ['x'] }, { replace: true });
     expect(cleared.bookmarks).toEqual([{ url: 'https://a.org/', tags: ['x'] }]);
   });
 
-  test('removes only from the named group', () => {
-    const list = withBookmark(
-      withBookmark(empty, { url: 'https://a.org/' }),
-      { url: 'https://a.org/' },
-      'g',
-    );
-    const removed = withoutBookmark(list, 'https://a.org', 'g');
-    expect(hasBookmark(removed, 'https://a.org', 'g')).toBe(false);
-    expect(hasBookmark(removed, 'https://a.org')).toBe(true);
+  test('finds and removes a page by any spelling of its URL', () => {
+    const list = withBookmark(empty, { url: 'https://a.org/' });
+    expect(findBookmark(list, 'http://www.a.org')?.url).toBe('https://a.org/');
+    expect(hasBookmark(withoutBookmark(list, 'a.org'), 'https://a.org')).toBe(false);
   });
 
-  test('groups are added, updated and removed by name', () => {
-    const list = withGroup(withGroup(empty, { name: 'Jira' }), {
-      name: 'jira',
-      description: 'd',
+  test('declares a tag, updating what it says', () => {
+    const list = withTag(withTag(empty, 'Jira'), 'jira', { description: 'd' });
+    expect(list.tags).toEqual({ jira: { description: 'd' } });
+  });
+
+  test('taking a category away keeps its pages, without the tag', () => {
+    const list = withoutTag(
+      {
+        tags: { jira: {}, docs: {} },
+        bookmarks: [
+          { url: 'https://a.org/', tags: ['jira'] },
+          { url: 'https://b.org/', tags: ['jira', 'docs'] },
+        ],
+      },
+      'jira',
+    );
+    expect(list).toEqual({
+      tags: { docs: {} },
+      bookmarks: [{ url: 'https://a.org/' }, { url: 'https://b.org/', tags: ['docs'] }],
     });
-    expect(list.groups).toEqual([{ name: 'Jira', description: 'd', bookmarks: [] }]);
-    expect(withoutGroup(list, 'JIRA').groups).toEqual([]);
   });
 });
 
@@ -183,24 +231,25 @@ describe('workspaceOnly', () => {
   const library = mergeLists([
     {
       source: 'workspace',
-      list: coerceList({ bookmarks: ['team.example'], groups: [{ name: 'jira', bookmarks: ['jira.example'] }] }),
+      list: coerceList({ tags: ['jira'], bookmarks: ['team.example', 'jira.example'] }),
     },
     {
       source: 'user',
       list: coerceList({
-        bookmarks: ['mine.example', { url: 'team.example', title: 'Renamed' }],
-        groups: [
-          { name: 'jira', bookmarks: ['my-board.example'] },
-          { name: 'private', bookmarks: ['secret.example'] },
+        tags: ['private'],
+        bookmarks: [
+          'mine.example',
+          { url: 'team.example', title: 'Renamed' },
+          { url: 'secret.example', tags: ['private'] },
         ],
       }),
     },
   ]);
   const shown = workspaceOnly(library);
 
-  test("drops the user's own pages and groups", () => {
-    expect(shown.groups.map((group) => group.name)).toEqual(['jira']);
-    expect(shown.entries.map((entry) => entry.url)).toEqual([
+  test("drops the user's own pages and categories", () => {
+    expect(categoriesOf(shown).map((tag) => tag.key)).toEqual(['jira']);
+    expect(shown.entries.map((each) => each.url)).toEqual([
       'https://team.example/',
       'https://jira.example/',
     ]);

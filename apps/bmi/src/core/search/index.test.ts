@@ -41,7 +41,7 @@ const library = mergeLists([
 ]);
 
 const titles = (query: string) =>
-  search(library.entries, library.groups, query).map((hit) => hit.entry.title);
+  search(library.entries, library.tags, query).map((hit) => hit.entry.title);
 
 describe('scoreText', () => {
   test('ranks a word start over a substring over a scattered match', () => {
@@ -70,7 +70,7 @@ describe('search', () => {
     expect(titles('')).toEqual(['Bun docs', 'Sprint board', 'Backlog', 'Pull requests']);
   });
 
-  test('a group name finds all of its pages', () => {
+  test('a category name finds all of its pages', () => {
     expect(titles('jira').slice(0, 2).sort()).toEqual(['Backlog', 'Sprint board']);
   });
 
@@ -90,7 +90,7 @@ describe('search', () => {
     expect(titles('rev')).toEqual([]);
   });
 
-  test('#tag filters, counting the group’s tags', () => {
+  test('#tag filters, counting the tags an old group gave its pages', () => {
     expect(titles('#work').sort()).toEqual(['Backlog', 'Sprint board']);
     expect(titles('#pr')).toEqual(['Pull requests']);
     expect(titles('#work backlog')).toEqual(['Backlog']);
@@ -117,5 +117,32 @@ describe('search', () => {
       'deploys',
     );
     expect(hits.map((hit) => hit.entry.title)).toEqual(['Deploys', 'Other']);
+  });
+});
+
+describe('nested tags', () => {
+  const nested = mergeLists([
+    {
+      source: 'workspace',
+      list: coerceList({
+        tags: { repositories: { description: 'Where the code lives' }, 'repositories/gitlab': {} },
+        bookmarks: [
+          { url: 'https://gitlab.example/wc', title: 'wc', tags: ['repositories/gitlab'] },
+          { url: 'https://github.com/x', title: 'x', tags: ['repositories'] },
+          { url: 'https://other.example', title: 'other' },
+        ],
+      }),
+    },
+  ]);
+  const find = (query: string) =>
+    search(nested.entries, nested.tags, query).map((hit) => hit.entry.title);
+
+  test('a parent finds what is under it, and a segment finds its own', () => {
+    expect(find('#repositories').sort()).toEqual(['wc', 'x']);
+    expect(find('#gitlab')).toEqual(['wc']);
+  });
+
+  test("a category's description finds its pages", () => {
+    expect(find('code lives').sort()).toEqual(['wc', 'x']);
   });
 });

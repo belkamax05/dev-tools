@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { loadWorkspaceList, workspaceListPath } from '.';
 
-const list = (url: string) => JSON.stringify({ bookmarks: [url], groups: [] });
+const list = (url: string) => JSON.stringify({ bookmarks: [url] });
 
 describe('the workspace list', () => {
   let root: string;
@@ -19,7 +19,7 @@ describe('the workspace list', () => {
     expect(path).toBe(join(root, 'config', 'bookmarks.config.json'));
     const result = await loadWorkspaceList(path);
     expect(result.exists).toBe(false);
-    expect(result.list).toEqual({ bookmarks: [], groups: [] });
+    expect(result.list).toEqual({ tags: {}, bookmarks: [] });
   });
 
   test('reads config/bookmarks.config.json when the root has none', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "bmi",
-  "description": "Bookmarks, raindrop-style — groups, tags, fuzzy search, page previews",
+  "description": "Bookmarks, raindrop-style — categories, tags, fuzzy search, page previews",
   "module": "src/run.ts",
   "type": "module",
   "private": true,

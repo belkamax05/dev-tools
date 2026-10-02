@@ -14,30 +14,36 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
 import openUrl from '@/dev-tools/utils/system/openUrl';
 
-import { type BmiConfig, userList } from '../../../config/settings';
+import {
+  BOOKMARK_LAYOUTS,
+  type BmiConfig,
+  type BookmarkLayout,
+  userList,
+} from '../../../config/settings';
 import {
   type Bookmark,
   coerceBookmark,
+  categoriesOf,
   coerceTags,
   displayTitle,
   type Entry,
+  entriesTagged,
   findBookmark,
+  findTag,
   hostOf,
   isFromWorkspace,
   type Library,
+  placementOf,
   urlKey,
   withBookmark,
   withoutBookmark,
 } from '../../../core/bookmarks';
 import type { PreviewCache } from '../../../core/preview';
 import search from '../../../core/search';
-import BookmarkCard, {
-  CARD_CHROME_ROWS,
-  CARD_HEIGHT,
-  CARD_IMAGE_COLS,
-  WORKSPACE_BADGE,
-} from '../../BookmarkCard';
+import BookmarkCard, { CARD_CHROME_ROWS, CARD_HEIGHT, CARD_IMAGE_COLS } from '../../BookmarkCard';
+import BookmarkTile, { TILE_HEIGHT, TILE_MIN_COLS } from '../../BookmarkTile';
 import PreviewPane from '../../PreviewPane';
+import { WORKSPACE_BADGE } from '../../WorkspaceChip';
 import type { Session, Tone } from '../../types';
 import usePreview from '../../usePreview';
 
@@ -55,6 +61,13 @@ export interface BookmarksViewProps {
 
 //? Ink hands over whatever arrived in one read; only printable characters belong in a query
 // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+/** What the `g` button offers — the layout it switches to. */
+const LAYOUT_LABELS: Record<BookmarkLayout, string> = {
+  list: 'List view',
+  grid: 'Grid view',
+  tiles: 'Tiles view',
+};
+
 const printable = (input: string) => input.replace(/[\u0000-\u001F\u007F]/g, '');
 
 /**
@@ -87,7 +100,7 @@ const SearchLine = ({
           {!query && (
             <Text color={colors.muted}>
               {isFocused
-                ? ' type to search title, tags, group, URL, description · #tag filters'
+                ? ' type to search title, tags, category, URL, description · #tag filters'
                 : ' [/] search'}
             </Text>
           )}
@@ -115,12 +128,12 @@ const compact = (page: Bookmark): Bookmark => {
 };
 
 /**
- * Every page in both lists, grouped under their group's name — or, while a search is typed, the
- * pages that match it, best first. Raindrop's main screen, in a terminal.
+ * Every page in both lists, under each category it is filed in — or, while a search is typed or a
+ * tag is in view, the pages that match, best first. Raindrop's main screen, in a terminal.
  *
  * Every edit lands in the user's own list. A workspace page can still be retitled, described or
  * tagged — that writes the page into the user's list with the new words, which win the merge —
- * but only a page the user wrote down can be moved or removed.
+ * but only a page of the user's own can be moved (its categories swapped) or removed.
  */
 export const BookmarksView = ({
   library,
@@ -144,7 +157,7 @@ export const BookmarksView = ({
   }, [searching, isPromptOpen, onCaptureInput]);
   useEffect(() => () => onCaptureInput(false), [onCaptureInput]);
   const [query, setQueryState] = useState(session.query);
-  const [groupKey, setGroupKeyState] = useState(session.group);
+  const [tagKey, setTagKeyState] = useState(session.tag);
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.bookmarks);
   const [forceKey, setForceKey] = useState(0);
   //? Bumped when a preview lands, so a row with no title of its own picks up the page's
@@ -156,36 +169,38 @@ export const BookmarksView = ({
     //? A new search starts at its best hit, not wherever the cursor was in the last one
     setCurrentId(undefined);
   };
-  const setGroupKey = (next: string | undefined) => {
-    setGroupKeyState(next);
-    session.group = next;
+  const setTagKey = (next: string | undefined) => {
+    setTagKeyState(next);
+    session.tag = next;
   };
 
-  const group = library.groups.find((candidate) => candidate.key === groupKey);
-  const scoped = group ? group.entries : library.entries;
+  //? The tag in view, as a key: one the library no longer has still scopes (to nothing), so a
+  //? category emptied by an edit does not silently widen to every page
+  const scope = tagKey !== undefined ? (findTag(library, tagKey) ?? { key: tagKey }) : undefined;
+  const scoped = useMemo(
+    () => (scope ? entriesTagged(library, scope.key) : library.entries),
+    [library, scope?.key],
+  );
   const hits = useMemo(
-    () => search(scoped, library.groups, query),
-    [scoped, library.groups, query],
+    () => search(scoped, library.tags, query),
+    [scoped, library.tags, query],
   );
   const rows = hits.map((hit) => hit.entry);
-  const current = rows.find((entry) => entry.id === currentId) ?? rows[0];
   const list = userList(config);
-  const own = (entry: Entry) => findBookmark(list, entry.url, entry.group);
-
-  const preview = usePreview(cache, current?.url, {
-    auto: config.autoPreview,
-    forceKey,
-    onFetched: () => setPreviewsSeen((seen) => seen + 1),
-  });
+  const own = (entry: Entry) => findBookmark(list, entry.url);
+  const categories = categoriesOf(library);
 
   const titleOf = (entry: Entry) =>
     entry.title ?? cache.get(entry.url)?.title ?? displayTitle(entry);
 
-  const itemFor = (entry: Entry, showGroup: boolean): PickItem<Entry> => {
-    const hint = showGroup && entry.group ? entry.group : hostOf(entry.url);
+  const itemFor = (entry: Entry, section?: string): PickItem<Entry> => {
+    //? Under a section header the category goes without saying; in a flat list it is the hint
+    const placed = section === undefined ? placementOf(entry, library) : [];
+    const hint = placed.length ? placed.join(', ') : hostOf(entry.url);
     const fromWorkspace = isFromWorkspace(entry);
     return {
-      id: entry.id,
+      //? A page filed in two categories is listed twice, so its rows need ids of their own
+      id: section === undefined ? entry.id : `${section}\u0000${entry.id}`,
       label: titleOf(entry),
       hint: fromWorkspace ? `${hint} ${WORKSPACE_BADGE}` : hint,
       hintColor: fromWorkspace ? colors.highlight : undefined,
@@ -193,27 +208,42 @@ export const BookmarksView = ({
     };
   };
 
-  const items: PickItem<Entry>[] =
-    query.trim() || group
-      ? rows.map((entry) => itemFor(entry, !group))
-      : [
-          ...(library.entries.some((entry) => !entry.group)
-            ? [
-                { id: 'header:', label: 'Unsorted', isHeader: true },
-                ...library.entries
-                  .filter((entry) => !entry.group)
-                  .map((entry) => itemFor(entry, false)),
-              ]
-            : []),
-          ...library.groups.flatMap((each) => [
-            {
-              id: `header:${each.key}`,
-              label: `${each.name} (${each.entries.length})`,
-              isHeader: true,
-            },
-            ...each.entries.map((entry) => itemFor(entry, false)),
-          ]),
-        ];
+  //? Rebuilt every render, not memoised: a row with no title of its own picks up its page's as
+  //? the preview lands
+  const buildItems = (): PickItem<Entry>[] => {
+    if (query.trim() || scope) return rows.map((entry) => itemFor(entry));
+    const placed = new Map(library.entries.map((entry) => [entry.id, placementOf(entry, library)]));
+    const unsorted = library.entries.filter((entry) => !placed.get(entry.id)?.length);
+    return [
+      ...(unsorted.length
+        ? [
+            { id: 'header:', label: `Unsorted (${unsorted.length})`, isHeader: true },
+            ...unsorted.map((entry) => itemFor(entry, '')),
+          ]
+        : []),
+      //? Each category lists the pages filed right in it; one with nothing directly in it (only
+      //? in its subcategories) is left out — its children carry the path
+      ...categories.flatMap((tag) => {
+        const here = library.entries.filter((entry) => placed.get(entry.id)?.includes(tag.key));
+        return here.length
+          ? [
+              { id: `header:${tag.key}`, label: `${tag.key} (${here.length})`, isHeader: true },
+              ...here.map((entry) => itemFor(entry, tag.key)),
+            ]
+          : [];
+      }),
+    ];
+  };
+  const items = buildItems();
+  const current =
+    items.find((item) => item.id === currentId && item.value)?.value ??
+    items.find((item) => item.value)?.value;
+
+  const preview = usePreview(cache, current?.url, {
+    auto: config.autoPreview,
+    forceKey,
+    onFetched: () => setPreviewsSeen((seen) => seen + 1),
+  });
 
   //? `reveal` for an addition: with the user's bookmarks hidden, a new one would vanish as it lands
   const save = (next: ReturnType<typeof userList>, { reveal = false } = {}) =>
@@ -236,7 +266,7 @@ export const BookmarksView = ({
     const base = own(entry) ?? { url: entry.url };
     const value = field === 'tags' ? coerceTags(raw) : raw.trim();
     const next = compact({ ...base, [field]: value });
-    save(withBookmark(list, next, entry.group, { replace: true }));
+    save(withBookmark(list, next, { replace: true }));
     notify(
       own(entry)
         ? `Saved ${field}`
@@ -271,44 +301,63 @@ export const BookmarksView = ({
   };
 
   const add = () =>
-    prompt.ask(`New bookmark${group ? ` in ${group.name}` : ''} — URL:`, (rawUrl) => {
+    prompt.ask(`New bookmark${scope ? ` in ${scope.key}` : ''} — URL:`, (rawUrl) => {
       const page = coerceBookmark(rawUrl);
       if (!page) {
         if (rawUrl.trim()) notify(`"${rawUrl}" is not a URL`, 'error');
         return;
       }
       prompt.ask('Title (optional — the page’s own otherwise):', (title) => {
-        prompt.ask('Tags (optional, comma separated):', (tags) => {
-          const next = compact({
-            ...page,
-            title: title.trim(),
-            tags: coerceTags(tags),
-          });
-          save(withBookmark(list, next, group?.name), { reveal: true });
-          setCurrentId(`${group?.key ?? ''}\u0000${urlKey(next.url)}`);
-          notify(`Added ${next.url}${group ? ` to ${group.name}` : ''}`, 'ok');
-        });
+        prompt.ask(
+          'Tags (comma separated — a category among them files it there):',
+          (tags) => {
+            const next = compact({
+              ...page,
+              title: title.trim(),
+              tags: coerceTags(tags),
+            });
+            save(withBookmark(list, next), { reveal: true });
+            setCurrentId(urlKey(next.url));
+            notify(`Added ${next.url}`, 'ok');
+          },
+          //? Added from inside a tag, the page starts in it
+          { initial: scope?.key ?? '' },
+        );
       });
     });
 
+  /**
+   * Swap the page's categories for others, keeping its plain tags. Only for a page that is the
+   * user's alone: a workspace page's categories are the workspace's, and `T` adds to them instead.
+   */
   const move = (entry: Entry | undefined) => {
     if (!entry) return;
     const mine = own(entry);
-    if (!mine) {
-      notify('This page comes from the workspace list — only your own pages can be moved', 'warn');
+    if (!mine || isFromWorkspace(entry)) {
+      notify(
+        'This page comes from the workspace list — [T] adds categories to it, it cannot be moved',
+        'warn',
+      );
       return;
     }
+    const declared = new Set(categories.map((tag) => tag.key));
+    const isCategory = (tag: string) => declared.has(tag) || tag.includes('/');
+    const placed = placementOf(entry, library);
     prompt.ask(
-      'Move to group (empty: Unsorted):',
+      `Move to categories (comma separated, empty: Unsorted) — ${categories.map((tag) => tag.key).join(', ') || 'none yet'}:`,
       (value) => {
-        const target = library.groups.find(
-          (candidate) => candidate.key === value.trim().toLowerCase(),
-        );
-        const name = target?.name ?? (value.trim() || undefined);
-        save(withBookmark(withoutBookmark(list, entry.url, entry.group), mine, name));
-        notify(`Moved to ${name ?? 'Unsorted'}`, 'ok');
+        const chosen = coerceTags(value);
+        const unknown = chosen.filter((tag) => !declared.has(tag));
+        const kept = (mine.tags ?? []).filter((tag) => !isCategory(tag) && !chosen.includes(tag));
+        let next = withBookmark(list, compact({ ...mine, tags: [...chosen, ...kept] }), {
+          replace: true,
+        });
+        //? A new name is a new category: declared in the user's list, so it gets a section
+        for (const tag of unknown) next = { ...next, tags: { ...next.tags, [tag]: {} } };
+        save(next);
+        notify(`Moved to ${chosen.join(', ') || 'Unsorted'}`, 'ok');
       },
-      { initial: entry.group ?? '' },
+      { initial: placed.join(', ') },
     );
   };
 
@@ -324,17 +373,23 @@ export const BookmarksView = ({
     prompt.confirm(
       `Remove ${titleOf(entry)} from your list${isFromWorkspace(entry) ? ' (the workspace list keeps it)' : ''}?`,
       () => {
-        save(withoutBookmark(list, entry.url, entry.group));
+        save(withoutBookmark(list, entry.url));
         notify(`Removed ${entry.url}`, 'ok');
       },
     );
   };
 
-  const toggleLayout = () =>
-    onConfigChange({
-      ...config,
-      bookmarkLayout: config.bookmarkLayout === 'grid' ? 'list' : 'grid',
-    });
+  const tiles = config.bookmarkLayout === 'tiles';
+  const nextLayout =
+    BOOKMARK_LAYOUTS[
+      (BOOKMARK_LAYOUTS.indexOf(config.bookmarkLayout) + 1) % BOOKMARK_LAYOUTS.length
+    ] ?? 'list';
+  const toggleLayout = () => onConfigChange({ ...config, bookmarkLayout: nextLayout });
+
+  const toggleThumbnails = () => {
+    if (config.bookmarkLayout !== 'grid') return;
+    onConfigChange({ ...config, showThumbnails: !config.showThumbnails });
+  };
 
   const toggleUserBookmarks = () => {
     const show = !config.showUserBookmarks;
@@ -346,7 +401,7 @@ export const BookmarksView = ({
 
   const clearScope = () => {
     if (query) setQuery('');
-    else if (group) setGroupKey(undefined);
+    else if (scope) setTagKey(undefined);
   };
 
   /** Esc in the search: the query first, then the keyboard goes to the hotkeys. */
@@ -392,6 +447,7 @@ export const BookmarksView = ({
       if (input === '/') focusSearch();
       else if (input === 'g') toggleLayout();
       else if (input === 'u') toggleUserBookmarks();
+      else if (input === 'p') toggleThumbnails();
       else if (input === 'o') open(current);
       else if (input === 'y') copy(current);
       else if (input === 'a') add();
@@ -449,11 +505,11 @@ export const BookmarksView = ({
     : [
         { key: '/', label: 'search', onPress: focusSearch },
         { key: 'a', label: 'add', onPress: add },
-        ...(query || group
+        ...(query || scope
           ? [
               {
                 key: 'Esc',
-                label: query ? 'clear search' : 'all groups',
+                label: query ? 'clear search' : 'all pages',
                 onPress: clearScope,
               },
             ]
@@ -461,7 +517,7 @@ export const BookmarksView = ({
       ];
 
   const noun = query ? 'match' : 'bookmark';
-  const summary = `${rows.length} ${noun}${rows.length === 1 ? '' : noun === 'match' ? 'es' : 's'}${group ? ` in ${group.name}` : query ? '' : ` in ${library.groups.length} groups`}`;
+  const summary = `${rows.length} ${noun}${rows.length === 1 ? '' : noun === 'match' ? 'es' : 's'}${scope ? ` in ${scope.key}` : query ? '' : ` in ${categories.length} categories`}`;
   const header = prompt.line ?? (
     <SearchLine
       query={query}
@@ -487,26 +543,41 @@ export const BookmarksView = ({
             />
           </Box>
         )}
-        {!prompt.isOpen && (
+        {!prompt.isOpen && config.bookmarkLayout === 'grid' && (
           <Box marginLeft={1} flexShrink={0}>
             <ActionButton
-              hotkey="g"
-              label={config.bookmarkLayout === 'grid' ? 'List view' : 'Grid view'}
-              onPress={toggleLayout}
+              hotkey="p"
+              label={config.showThumbnails ? 'Hide images' : 'Show images'}
+              onPress={toggleThumbnails}
             />
+          </Box>
+        )}
+        {!prompt.isOpen && (
+          <Box marginLeft={1} flexShrink={0}>
+            <ActionButton hotkey="g" label={LAYOUT_LABELS[nextLayout]} onPress={toggleLayout} />
           </Box>
         )}
       </Box>
       <ListDetail
         //? Remount when the set of rows changes, restoring the cursor by id
         key={items.map((item) => item.id).join(',')}
-        title={group ? group.name : query ? 'Results' : 'Bookmarks'}
+        title={scope ? scope.key : query ? 'Results' : 'Bookmarks'}
         items={items}
-        layout={config.bookmarkLayout}
-        gridCellWidth={CARD_IMAGE_COLS + 2}
-        gridCellHeight={CARD_HEIGHT}
+        //? Tiles are a grid too, just with smaller cells: the width is a minimum the row is shared
+        //? out from, so either kind stretches to fill it
+        layout={config.bookmarkLayout === 'list' ? 'list' : 'grid'}
+        gridCellWidth={tiles ? TILE_MIN_COLS : CARD_IMAGE_COLS + 2}
+        gridCellHeight={tiles ? TILE_HEIGHT : config.showThumbnails ? CARD_HEIGHT : CARD_CHROME_ROWS}
         renderGridCell={(item, width, selected, height) =>
-          item.value ? (
+          !item.value ? null : tiles ? (
+            <BookmarkTile
+              entry={item.value}
+              cache={cache}
+              auto={config.autoPreview}
+              width={width}
+              selected={selected}
+            />
+          ) : (
             <BookmarkCard
               entry={item.value}
               cache={cache}
@@ -514,8 +585,9 @@ export const BookmarksView = ({
               width={width}
               selected={selected}
               imageRows={Math.max(1, height - CARD_CHROME_ROWS)}
+              showImage={config.showThumbnails}
             />
-          ) : null
+          )
         }
         emptyText={
           query
@@ -528,7 +600,7 @@ export const BookmarksView = ({
         //? A click selects, a second click on the selected row opens it — one stray click
         //? never launches a browser
         confirmClick
-        initialSelectedId={current?.id}
+        initialSelectedId={currentId ?? items.find((item) => item.value)?.id}
         isInputActive={!prompt.isOpen}
         hints={hints}
         onActivate={(item) => open(item.value)}
@@ -549,7 +621,10 @@ export const BookmarksView = ({
             <Box flexDirection="column">
               <Toolbar actions={actionsFor(entry)} />
               <LinkRow label="url" value={entry.url} onOpen={() => open(entry)} />
-              <LinkRow label="group" value={entry.group ?? 'Unsorted'} />
+              <LinkRow
+                label="in"
+                value={placementOf(entry, library).join(', ') || 'Unsorted'}
+              />
               {entry.tags.length > 0 && (
                 <LinkRow label="tags" value={entry.tags.map((tag) => `#${tag}`).join(' ')} />
               )}

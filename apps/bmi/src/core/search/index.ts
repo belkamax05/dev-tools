@@ -1,4 +1,4 @@
-import { displayTitle, type Entry, type Group, hostOf } from '../bookmarks';
+import { displayTitle, type Entry, expandTag, hostOf, type Tag } from '../bookmarks';
 
 export interface SearchHit {
   entry: Entry;
@@ -9,7 +9,7 @@ export interface SearchHit {
 const WEIGHTS = {
   title: 3,
   tags: 2.5,
-  group: 2,
+  category: 2,
   url: 1.5,
   description: 1,
 } as const;
@@ -23,7 +23,7 @@ type Field = keyof typeof WEIGHTS;
 const FUZZY: Record<Field, boolean> = {
   title: true,
   tags: true,
-  group: true,
+  category: true,
   url: false,
   description: false,
 };
@@ -73,23 +73,36 @@ export const scoreText = (token: string, text: string, fuzzy = true): number | u
   return Math.min(90, score * (token.length / spread) * 3);
 };
 
-const fieldsOf = (entry: Entry, group: Group | undefined): Record<Field, string[]> => ({
-  title: [displayTitle(entry)],
-  tags: [...entry.tags, ...(group?.tags ?? [])],
-  group: entry.group ? [entry.group] : [],
-  url: [hostOf(entry.url), entry.url.replace(/^[a-z]+:\/\//i, '')],
-  description: [entry.description ?? '', group?.description ?? ''],
-});
+/**
+ * What a page can be found by. Its tags count with every tag they imply, so `repositories/gitlab`
+ * is found by `repositories` and by `gitlab`; the declared ones are its categories, whose
+ * descriptions count as the page's.
+ */
+const fieldsOf = (entry: Entry, declared: Map<string, Tag>): Record<Field, string[]> => {
+  const implied = [...new Set(entry.tags.flatMap(expandTag))];
+  const categories = implied.flatMap((key) => declared.get(key) ?? []);
+  return {
+    title: [displayTitle(entry)],
+    tags: [...implied, ...implied.flatMap((tag) => tag.split('/'))],
+    category: categories.map((tag) => tag.key),
+    url: [hostOf(entry.url), entry.url.replace(/^[a-z]+:\/\//i, '')],
+    description: [entry.description ?? '', ...categories.map((tag) => tag.description ?? '')],
+  };
+};
 
 /**
  * Score an entry against every word of a query; undefined unless every word matches somewhere.
  *
- * `#word` is a tag filter rather than a search word: it keeps the pages tagged with something
- * starting with `word` (their group's tags count) and adds nothing to the ranking.
+ * `#word` is a tag filter rather than a search word: it keeps the pages with a tag — or a segment
+ * of a nested one — starting with `word`, and adds nothing to the ranking.
  */
-export const scoreEntry = (entry: Entry, query: string, group?: Group): number | undefined => {
+export const scoreEntry = (
+  entry: Entry,
+  query: string,
+  declared: Map<string, Tag> = new Map(),
+): number | undefined => {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const fields = fieldsOf(entry, group);
+  const fields = fieldsOf(entry, declared);
   let total = 0;
   for (const word of words) {
     if (word.startsWith('#') && word.length > 1) {
@@ -114,12 +127,12 @@ export const scoreEntry = (entry: Entry, query: string, group?: Group): number |
 };
 
 /** The entries matching `query`, best first; every entry, in list order, for an empty one. */
-export const search = (entries: Entry[], groups: Group[], query: string): SearchHit[] => {
-  const byKey = new Map(groups.map((group) => [group.key, group]));
+export const search = (entries: Entry[], tags: Tag[], query: string): SearchHit[] => {
+  const declared = new Map(tags.filter((tag) => tag.declared).map((tag) => [tag.key, tag]));
   if (!query.trim()) return entries.map((entry) => ({ entry, score: 0 }));
   const hits: SearchHit[] = [];
   for (const entry of entries) {
-    const score = scoreEntry(entry, query, byKey.get(entry.group?.toLowerCase() ?? ''));
+    const score = scoreEntry(entry, query, declared);
     if (score !== undefined) hits.push({ entry, score });
   }
   return hits.sort(

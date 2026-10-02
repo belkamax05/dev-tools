@@ -19,12 +19,12 @@ import {
   userList,
   type WorkspaceListResult,
 } from '../../config/settings';
-import { workspaceOnly } from '../../core/bookmarks';
+import { categoriesOf, workspaceOnly } from '../../core/bookmarks';
 import type { PreviewCache } from '../../core/preview';
 import bmiTheme from '../theme';
 import type { Handoff, Session, Tone } from '../types';
 import BookmarksView from '../views/BookmarksView';
-import GroupsView from '../views/GroupsView';
+import TagsView from '../views/TagsView';
 import SettingsView from '../views/SettingsView';
 
 /**
@@ -33,7 +33,7 @@ import SettingsView from '../views/SettingsView';
  */
 export const TABS: readonly TabDefinition<TabId>[] = [
   { id: 'bookmarks', icon: '🔖', label: '🔖 Bookmarks' },
-  { id: 'groups', icon: '📂', label: '📂 Groups' },
+  { id: 'tags', icon: '📂', label: '📂 Tags' },
   { id: 'settings', icon: '🔧', label: '🔧 Settings' },
 ];
 
@@ -71,7 +71,7 @@ const StatusNote = ({ text, tone }: { text: string; tone: Tone }) => {
 
 /**
  * bmi's dashboard: every bookmark in the project's list and the user's own, merged, searchable and
- * grouped; the groups; and the settings, which are a key away from either list in `$EDITOR`.
+ * filed by category; the categories and tags; and the settings, which are a key away from either list in `$EDITOR`.
  */
 export const App = ({
   config: initialConfig,
@@ -190,7 +190,7 @@ export const App = ({
   return (
     <AppShell
       title="bmi"
-      detail={`${library.entries.length} bookmarks · ${library.groups.length} groups${config.showUserBookmarks ? '' : ' · workspace only'}`}
+      detail={`${library.entries.length} bookmarks · ${categoriesOf(library).length} categories${config.showUserBookmarks ? '' : ' · workspace only'}`}
       note={status ? <StatusNote text={status.text} tone={status.tone} /> : undefined}
       tabs={TABS}
       activeTab={tab}
@@ -207,12 +207,12 @@ export const App = ({
       {tab === 'bookmarks' && (
         <BookmarksView key="bookmarks" cache={cache} onTabStep={stepTab} {...viewProps} />
       )}
-      {tab === 'groups' && (
-        <GroupsView
-          key="groups"
+      {tab === 'tags' && (
+        <TagsView
+          key="tags"
           {...viewProps}
-          onShowGroup={(key) => {
-            session.group = key;
+          onShowTag={(key) => {
+            session.tag = key;
             session.query = '';
             session.selected.bookmarks = undefined;
             changeTab('bookmarks');
