@@ -6,6 +6,8 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import openUrl from '@/dev-tools/utils/system/openUrl';
 
 import { hostOf } from '../../core/bookmarks';
+import Favicon from '../Favicon';
+import OpenGraphImage from '../OpenGraphImage';
 import { ICON_COLS, ICON_ROWS, type PreviewState } from '../usePreview';
 
 const age = (since: number) => {
@@ -24,12 +26,12 @@ export interface PreviewPaneProps {
 
 /**
  * What the page says about itself, the way a chat app unfurls a link: the favicon, the site's
- * name, the Open Graph title and description. The `og:image` is linked rather than drawn — it is
- * a JPEG more often than not, and there is nothing here to decode one.
+ * name, the Open Graph title and description. The `og:image` URL is always
+ * linked; PNG cards are also rendered when a raster terminal protocol is available.
  */
 export const PreviewPane = ({ url, state, auto }: PreviewPaneProps) => {
   const colors = useColors();
-  const { preview, icon, isFetching } = state;
+  const { preview, image, icon, isFetching } = state;
   const redirectedTo =
     preview?.finalUrl && hostOf(preview.finalUrl) !== hostOf(url) ? hostOf(preview.finalUrl) : '';
 
@@ -43,18 +45,13 @@ export const PreviewPane = ({ url, state, auto }: PreviewPaneProps) => {
           flexShrink={0}
           marginRight={2}
         >
-          {icon
-            ? icon.map((line, row) => (
-                // One Text per row, keyed on its row — a line of pixels has no other identity
-                <Text key={`icon-${row}`} wrap="truncate">
-                  {line}
-                </Text>
-              ))
-            : Array.from({ length: ICON_ROWS }, (_, row) => (
-                <Text key={`icon-${row}`} color={colors.muted}>
-                  {row === 1 ? '  ····  ' : ' '}
-                </Text>
-              ))}
+          <Favicon
+            image={image}
+            fallback={icon}
+            cols={ICON_COLS}
+            rows={ICON_ROWS}
+            muted={colors.muted}
+          />
         </Box>
         <Box flexDirection="column" flexGrow={1} overflow="hidden">
           <Text color={colors.muted} wrap="truncate">
@@ -83,11 +80,14 @@ export const PreviewPane = ({ url, state, auto }: PreviewPaneProps) => {
       )}
       {preview?.image && (
         <Box marginTop={1}>
-          <LinkRow
-            label="image"
-            value={preview.image}
-            onOpen={() => openUrl(preview.image ?? '')}
-          />
+          <Box flexDirection="column">
+            <LinkRow
+              label="image"
+              value={preview.image}
+              onOpen={() => openUrl(preview.image ?? '')}
+            />
+            <OpenGraphImage url={preview.image} />
+          </Box>
         </Box>
       )}
     </Box>

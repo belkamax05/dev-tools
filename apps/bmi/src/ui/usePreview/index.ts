@@ -12,6 +12,8 @@ const SETTLE_MS = 300;
 
 export interface PreviewState {
   preview: Preview | undefined;
+  /** The favicon's source pixels, for a graphics-protocol renderer. */
+  image: DecodedImage | undefined;
   /** The favicon as lines of half blocks, once there is one. */
   icon: string[] | undefined;
   isFetching: boolean;
@@ -78,7 +80,7 @@ export const usePreview = (
     () => (image ? renderIcon(image, ICON_COLS, ICON_ROWS) : undefined),
     [image],
   );
-  return { preview, icon, isFetching };
+  return { preview, image, icon, isFetching };
 };
 
 export default usePreview;

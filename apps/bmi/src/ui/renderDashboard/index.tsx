@@ -1,5 +1,6 @@
 import { render } from 'ink';
 
+import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
 import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
 import { describeClearResults } from '@/dev-tools/ui/components/ClearDataDialog';
 
@@ -16,6 +17,9 @@ import type { Session } from '../types';
  * save.
  */
 export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
+  //? The probe reads replies from stdin, before Ink turns them into keypresses.
+  //? Favicon rendering then chooses kitty, sixel, iTerm2, or half-blocks.
+  await probeGraphicsSupport();
   let [config, staticList, cache] = await Promise.all([
     configStore.load(),
     loadStaticList(),
