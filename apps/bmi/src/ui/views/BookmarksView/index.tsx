@@ -39,10 +39,12 @@ import {
   withoutBookmark,
 } from '../../../core/bookmarks';
 import type { PreviewCache } from '../../../core/preview';
+import { type RepoLink, repoLinksOf } from '../../../core/repoLinks';
 import search from '../../../core/search';
 import BookmarkCard, { CARD_CHROME_ROWS, CARD_HEIGHT, CARD_IMAGE_COLS } from '../../BookmarkCard';
 import BookmarkTile, { TILE_HEIGHT, TILE_MIN_COLS } from '../../BookmarkTile';
 import PreviewPane from '../../PreviewPane';
+import RepoPanel from '../../RepoPanel';
 import { WORKSPACE_BADGE } from '../../WorkspaceChip';
 import type { Session, Tone } from '../../types';
 import usePreview from '../../usePreview';
@@ -124,6 +126,8 @@ const compact = (page: Bookmark): Bookmark => {
   if (page.title) out.title = page.title;
   if (page.description) out.description = page.description;
   if (page.tags?.length) out.tags = page.tags;
+  //? Kept as written: an edit to the title must not cost the page its repository toggles
+  if (page.github && Object.keys(page.github).length) out.github = page.github;
   return out;
 };
 
@@ -410,6 +414,15 @@ export const BookmarksView = ({
     else setSearching(false);
   };
 
+  const repoOf = (entry: Entry | undefined) =>
+    entry ? repoLinksOf(entry.url, entry.github) : undefined;
+  const currentRepo = repoOf(current);
+
+  const openRepoLink = (link: RepoLink) => {
+    openUrl(link.url);
+    notify(`Opened ${link.label} — ${link.url}`, 'ok');
+  };
+
   const openImage = () => {
     const image = preview.preview?.image;
     if (image) openUrl(image);
@@ -459,6 +472,11 @@ export const BookmarksView = ({
       else if (input === 'f' && current) setForceKey((at) => at + 1);
       else if (input === 'i') openImage();
       else if (key.escape) clearScope();
+      else {
+        //? A repository's own keys are all uppercase, clear of every key above
+        const link = currentRepo?.links.find((each) => each.hotkey === input);
+        if (link) openRepoLink(link);
+      }
     },
     { isActive: !searching && !prompt.isOpen },
   );
@@ -611,6 +629,7 @@ export const BookmarksView = ({
         renderDetail={(item) => {
           const entry = item?.value;
           if (!entry) return null;
+          const repo = repoOf(entry);
           const source =
             entry.sources.length > 1
               ? `${WORKSPACE_BADGE} workspace list, with your edits`
@@ -619,6 +638,8 @@ export const BookmarksView = ({
                 : 'your list';
           return (
             <Box flexDirection="column">
+              {/* Held at full height: on a short pane the preview below gives way, not these */}
+              <Box flexDirection="column" flexShrink={0}>
               <Toolbar actions={actionsFor(entry)} />
               <LinkRow label="url" value={entry.url} onOpen={() => open(entry)} />
               <LinkRow
@@ -629,6 +650,8 @@ export const BookmarksView = ({
                 <LinkRow label="tags" value={entry.tags.map((tag) => `#${tag}`).join(' ')} />
               )}
               <LinkRow label="from" value={source} color={colors.muted} />
+              {repo && <RepoPanel repo={repo.repo} links={repo.links} onOpen={openRepoLink} />}
+              </Box>
               {entry.description && (
                 <Box marginTop={1}>
                   <Text color={colors.text} wrap="wrap">

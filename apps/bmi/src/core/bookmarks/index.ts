@@ -26,11 +26,15 @@
  * each group is a declared tag, put on each of its pages along with the group's own tags.
  */
 
+import { coerceRepoToggles, type RepoToggles } from '../repoLinks';
+
 export interface Bookmark {
   url: string;
   title?: string;
   description?: string;
   tags?: string[];
+  /** For a GitHub repository: which of its feature links the detail pane offers — see `repoLinks`. */
+  github?: RepoToggles;
 }
 
 /** What a declared tag says about itself. */
@@ -60,6 +64,8 @@ export interface Entry {
   tags: string[];
   /** Which lists mention this page — a workspace page the user also wrote down is both. */
   sources: Source[];
+  /** Both lists' `github` toggles, the user's winning key by key. */
+  github?: RepoToggles;
 }
 
 export interface Tag {
@@ -186,17 +192,20 @@ export const coerceBookmark = (raw: unknown): Bookmark | undefined => {
   const title = text(record.title) ?? text(record.name);
   const description = text(record.description);
   const tags = coerceTags(record.tags, record.keywords);
+  const github = coerceRepoToggles(record.github);
   return {
     url,
     ...(title && { title }),
     ...(description && { description }),
     ...(tags.length && { tags }),
+    ...(github && { github }),
   };
 };
 
 /** Field by field: what comes later wins, the tags are the union of both. */
 const mergeBookmark = (into: Bookmark, page: Bookmark): Bookmark => {
   const tags = coerceTags(into.tags, page.tags);
+  const github = into.github || page.github ? { ...into.github, ...page.github } : undefined;
   return {
     url: into.url,
     ...((page.title ?? into.title) && { title: page.title ?? into.title }),
@@ -204,6 +213,7 @@ const mergeBookmark = (into: Bookmark, page: Bookmark): Bookmark => {
       description: page.description ?? into.description,
     }),
     ...(tags.length && { tags }),
+    ...(github && { github }),
   };
 };
 
@@ -276,6 +286,7 @@ const mergeEntry = (into: Entry, page: Bookmark, source: Source) => {
   if (page.title) into.title = page.title;
   if (page.description) into.description = page.description;
   into.tags = coerceTags(into.tags, page.tags);
+  if (page.github) into.github = { ...into.github, ...page.github };
   if (!into.sources.includes(source)) into.sources.push(source);
 };
 

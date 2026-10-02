@@ -88,6 +88,34 @@ you can't take the workspace's tags away. Only pages that are yours alone can be
 Each group becomes a declared tag, and it's put on each of its pages along with the group's own
 tags. The next time bmi saves your list, it's written in the new shape.
 
+### GitHub repositories
+
+A bookmark of a GitHub repository (any page of `github.com/<owner>/<repo>`) gets a **GitHub**
+panel in the detail pane, under its tags. It has a button for each of the repository's pages you
+use most. Each button is clickable and has an uppercase hotkey, so none of them clashes with the
+Bookmarks tab's own keys:
+
+| Toggle | Opens | Key | On by default |
+| --- | --- | --- | --- |
+| `pulls` | Pull requests | `P` | yes |
+| `actions` | Actions | `A` | yes |
+| `pages` | the GitHub Pages site (`<owner>.github.io/<repo>/`) | `G` | yes |
+| `issues` | Issues | `I` | no |
+| `branches` | Branches | `B` | no |
+| `commits` | Commits | `C` | no |
+| `releases` | Releases | `L` | no |
+| `settings` | Settings | `S` | no |
+
+The toggles go on the bookmark, as `github`:
+
+```jsonc
+{ "url": "https://github.com/acme/web", "github": { "pages": false, "issues": true } }
+```
+
+A toggle you leave out takes its default. Your list wins over the workspace's key by key, so to
+personalise a workspace repository, write the same URL into your own list with just the toggles
+you want changed. Retitling or tagging the page keeps them.
+
 ## Search first, like rofi
 
 bmi always opens on 🔖 Bookmarks with the search focused, whatever tab you used last time (it
