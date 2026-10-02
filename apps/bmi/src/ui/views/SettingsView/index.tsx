@@ -1,5 +1,5 @@
 import { Text, useInput } from 'ink';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import ClearDataDialog, {
@@ -9,6 +9,8 @@ import ClearDataDialog, {
 } from '@/dev-tools/ui/components/ClearDataDialog';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
+import Toolbar from '@/dev-tools/ui/components/Toolbar';
+import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { BmiConfig } from '../../../config/settings';
@@ -32,6 +34,21 @@ export interface SettingsViewProps {
   /** Called once the dialog has cleared files; the app quits so nothing writes them back. */
   onCleared: (results: ClearResult[]) => void;
 }
+
+/** A list file as the detail pane shows it — its text, or why there is none to show. */
+type FileContents = { path: string; text?: string; error?: string };
+
+/** Read for the detail pane: a missing file is the normal state of a fresh install, not an error. */
+const readContents = async (path: string): Promise<FileContents> => {
+  const file = Bun.file(path);
+  try {
+    if (!(await file.exists())) return { path };
+    //? Tabs are drawn by the terminal at its own width, which Ink does not measure
+    return { path, text: (await file.text()).replaceAll('\t', '  ') };
+  } catch (error) {
+    return { path, error: (error as Error).message };
+  }
+};
 
 type Setting =
   | { kind: 'theme'; id: string }
@@ -60,6 +77,24 @@ export const SettingsView = ({
   const colors = useColors();
   const [current, setCurrent] = useState<Setting | undefined>(undefined);
   const [clearing, setClearing] = useState(false);
+  const [contents, setContents] = useState<FileContents | undefined>(undefined);
+  const viewport = useViewport();
+
+  const filePath =
+    current?.kind === 'file' ? (current.which === 'user' ? configPath : staticPath) : undefined;
+
+  //? Re-read on a config change too: picking a theme rewrites the user's list on disk
+  // biome-ignore lint/correctness/useExhaustiveDependencies: config is the trigger, not an input
+  useEffect(() => {
+    if (!filePath) return;
+    let live = true;
+    void readContents(filePath).then((next) => {
+      if (live) setContents(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [filePath, config]);
 
   const apply = (setting: Setting | undefined) => {
     if (!setting) return;
@@ -102,13 +137,13 @@ export const SettingsView = ({
     { id: 'header-file', label: 'Lists', isHeader: true },
     {
       id: 'file:user',
-      label: 'Your list — open in $EDITOR',
+      label: 'Your list',
       hint: 'e',
       value: { kind: 'file', which: 'user' },
     },
     {
       id: 'file:static',
-      label: 'Static list — open in $EDITOR',
+      label: 'Static list',
       hint: staticError ? 'unreadable' : 'E',
       hintColor: staticError ? colors.error : undefined,
       value: { kind: 'file', which: 'static' },
@@ -161,9 +196,36 @@ export const SettingsView = ({
     }
     if (setting.kind === 'file') {
       const isUser = setting.which === 'user';
+      const path = isUser ? configPath : staticPath;
+      const shown = contents?.path === path ? contents : undefined;
+      //? What is left of the pane once the buttons, path and blurb have theirs
+      const budget = Math.max(
+        3,
+        viewport.contentRows(['appShell', 'viewHints', 'panelFrame'], 3) - 8,
+      );
+      const lines = shown?.text?.trimEnd().split('\n') ?? [];
+      const hidden = Math.max(0, lines.length - budget);
       return (
         <Box flexDirection="column">
-          <Text color={colors.text}>{isUser ? configPath : staticPath}</Text>
+          <Toolbar
+            actions={[
+              {
+                hotkey: isUser ? 'e' : 'E',
+                label: 'Open in $EDITOR',
+                tone: 'primary',
+                onPress: () => onEditFile(path),
+              },
+              {
+                hotkey: 'X',
+                label: 'Clear settings & state…',
+                tone: 'danger',
+                onPress: () => setClearing(true),
+              },
+            ]}
+          />
+          <Text color={colors.text} wrap="truncate">
+            {path}
+          </Text>
           {!isUser && staticError && (
             <Text color={colors.error} wrap="wrap">
               {staticError}
@@ -171,14 +233,37 @@ export const SettingsView = ({
           )}
           <Text color={colors.muted} wrap="wrap">
             {isUser
-              ? 'Your bookmarks and groups, plus the theme. Everything you add, retitle or tag in bmi is written here — safe to keep in dotfiles.'
-              : 'The shared list, kept in git with bmi ($BMI_STATIC_FILE names another). bmi only reads it; on a page both lists name, your list wins.'}
+              ? 'Your bookmarks and groups, plus the theme — everything you add, retitle or tag in bmi.'
+              : 'The shared list, kept in git ($BMI_STATIC_FILE names another). Read-only to bmi; your list wins.'}
           </Text>
-          <Text color={colors.muted} wrap="wrap">
-            {
-              '{ "bookmarks": [url | { url, title?, description?, tags? }], "groups": [{ name, description?, tags?, bookmarks }] }'
-            }
-          </Text>
+          <Box flexDirection="column" marginTop={1}>
+            {!shown ? (
+              <Text color={colors.muted}>Reading…</Text>
+            ) : shown.error ? (
+              <Text color={colors.error} wrap="wrap">
+                {shown.error}
+              </Text>
+            ) : lines.length === 0 || !shown.text?.trim() ? (
+              <Text color={colors.muted} wrap="wrap">
+                {
+                  'No file yet. { "bookmarks": [url | { url, title?, description?, tags? }], "groups": [{ name, description?, tags?, bookmarks }] }'
+                }
+              </Text>
+            ) : (
+              <>
+                {lines.slice(0, budget).map((line, index) => (
+                  <Text key={index} color={colors.text} wrap="truncate">
+                    {line || ' '}
+                  </Text>
+                ))}
+                {hidden > 0 && (
+                  <Text
+                    color={colors.muted}
+                  >{`… ${hidden} more lines — [${isUser ? 'e' : 'E'}] to open`}</Text>
+                )}
+              </>
+            )}
+          </Box>
         </Box>
       );
     }
@@ -227,12 +312,17 @@ export const SettingsView = ({
         setCurrent(item?.value);
         session.selected.settings = item?.id;
       }}
-      renderDetail={(item) => (
-        <Box flexDirection="column">
-          <ClearButton onPress={() => setClearing(true)} />
-          {detailFor(item)}
-        </Box>
-      )}
+      renderDetail={(item) =>
+        //? A list row draws its own toolbar, with the editor button leading it
+        item?.value?.kind === 'file' ? (
+          detailFor(item)
+        ) : (
+          <Box flexDirection="column">
+            <ClearButton onPress={() => setClearing(true)} />
+            {detailFor(item)}
+          </Box>
+        )
+      }
     />
   );
 };

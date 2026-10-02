@@ -19,6 +19,7 @@ export interface FaviconProps {
   cols: number;
   rows: number;
   muted: string;
+  overlayId?: number;
 }
 
 /** A compact content signature so the overlay redraws when an equally sized icon replaces it. */
@@ -37,7 +38,7 @@ const imageId = (image: DecodedImage | undefined) => {
  * transparency intact in kitty (and other raster-capable terminals) without
  * leaving a stale placement when the selected bookmark changes.
  */
-export const Favicon = ({ image, fallback, cols, rows, muted }: FaviconProps) => {
+export const Favicon = ({ image, fallback, cols, rows, muted, overlayId }: FaviconProps) => {
   const ref = useRef<DOMElement>(null);
   const support = graphicsSupport();
   const technique = bestTechnique(support);
@@ -57,6 +58,7 @@ export const Favicon = ({ image, fallback, cols, rows, muted }: FaviconProps) =>
 
   useRasterOverlay({
     technique: raster,
+    imageId: overlayId,
     subject,
     time: 0,
     animating: false,
@@ -67,25 +69,32 @@ export const Favicon = ({ image, fallback, cols, rows, muted }: FaviconProps) =>
   });
 
   if (raster) {
-    return <GraphicsCanvas ref={ref} technique={raster} subject={subject} time={0} cols={cols} rows={rows} />;
+    return (
+      <GraphicsCanvas
+        ref={ref}
+        technique={raster}
+        subject={subject}
+        time={0}
+        cols={cols}
+        rows={rows}
+      />
+    );
   }
 
-  return fallback ? (
-    fallback.map((line) => (
-      <Text key={line} wrap="truncate">
-        {line}
-      </Text>
-    ))
-  ) : (
-    Array.from({ length: rows }, (_, row) => ({
-      key: `placeholder:${row}`,
-      line: row === 1 ? '  ····  ' : ' ',
-    })).map(({ key, line }) => (
-      <Text key={key} color={muted}>
-        {line}
-      </Text>
-    ))
-  );
+  return fallback
+    ? fallback.map((line) => (
+        <Text key={line} wrap="truncate">
+          {line}
+        </Text>
+      ))
+    : Array.from({ length: rows }, (_, row) => ({
+        key: `placeholder:${row}`,
+        line: row === 1 ? '  ····  ' : ' ',
+      })).map(({ key, line }) => (
+        <Text key={key} color={muted}>
+          {line}
+        </Text>
+      ));
 };
 
 export default Favicon;

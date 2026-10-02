@@ -30,6 +30,7 @@ import {
 } from '../../../core/bookmarks';
 import type { PreviewCache } from '../../../core/preview';
 import search from '../../../core/search';
+import BookmarkCard, { CARD_HEIGHT, CARD_IMAGE_COLS } from '../../BookmarkCard';
 import PreviewPane from '../../PreviewPane';
 import type { Session, Tone } from '../../types';
 import usePreview from '../../usePreview';
@@ -317,6 +318,12 @@ export const BookmarksView = ({
     );
   };
 
+  const toggleLayout = () =>
+    onConfigChange({
+      ...config,
+      bookmarkLayout: config.bookmarkLayout === 'grid' ? 'list' : 'grid',
+    });
+
   const focusSearch = () => setSearching(true);
 
   const clearScope = () => {
@@ -344,7 +351,16 @@ export const BookmarksView = ({
       else if (key.backspace || key.delete) setQuery(query.slice(0, -1));
       else if (key.ctrl && input === 'u') setQuery('');
       else if (key.ctrl && input === 'w') setQuery(query.replace(/\S*\s*$/, ''));
-      else if (key.upArrow || key.downArrow || key.return || key.ctrl || key.meta) return;
+      else if (
+        key.upArrow ||
+        key.downArrow ||
+        key.leftArrow ||
+        key.rightArrow ||
+        key.return ||
+        key.ctrl ||
+        key.meta
+      )
+        return;
       else {
         const typed = printable(input);
         if (typed) setQuery(query + typed);
@@ -356,6 +372,7 @@ export const BookmarksView = ({
   useInput(
     (input, key) => {
       if (input === '/') focusSearch();
+      else if (input === 'g') toggleLayout();
       else if (input === 'o') open(current);
       else if (input === 'y') copy(current);
       else if (input === 'a') add();
@@ -438,12 +455,40 @@ export const BookmarksView = ({
 
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
-      <Box flexShrink={0}>{header}</Box>
+      <Box flexShrink={0} flexDirection="row">
+        <Box flexGrow={1} flexShrink={1}>
+          {header}
+        </Box>
+        {!prompt.isOpen && (
+          <Box marginLeft={1} flexShrink={0}>
+            <ActionButton
+              hotkey="g"
+              label={config.bookmarkLayout === 'grid' ? 'List view' : 'Grid view'}
+              onPress={toggleLayout}
+            />
+          </Box>
+        )}
+      </Box>
       <ListDetail
         //? Remount when the set of rows changes, restoring the cursor by id
         key={items.map((item) => item.id).join(',')}
         title={group ? group.name : query ? 'Results' : 'Bookmarks'}
         items={items}
+        layout={config.bookmarkLayout}
+        gridCellWidth={CARD_IMAGE_COLS + 2}
+        gridCellHeight={CARD_HEIGHT}
+        renderGridCell={(item, width, selected, height) =>
+          item.value ? (
+            <BookmarkCard
+              entry={item.value}
+              cache={cache}
+              auto={config.autoPreview}
+              width={width}
+              selected={selected}
+              imageRows={Math.max(1, height - 5)}
+            />
+          ) : null
+        }
         emptyText={
           query
             ? `Nothing matches "${query}".`

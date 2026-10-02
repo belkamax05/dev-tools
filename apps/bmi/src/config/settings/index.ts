@@ -22,6 +22,7 @@ export interface BmiConfig extends BookmarkList {
   theme: string;
   /** Fetch a page's preview and favicon when the cursor lands on it. Off: only on `f` / `bmi fetch`. */
   autoPreview: boolean;
+  bookmarkLayout: 'list' | 'grid';
 }
 
 /**
@@ -35,10 +36,11 @@ export const staticListPath = (env: Record<string, string | undefined> = process
 
 export const configStore = createConfigStore<BmiConfig>({
   appName: 'bmi',
-  defaults: { theme: 'classic', autoPreview: true, ...emptyList() },
+  defaults: { theme: 'classic', autoPreview: true, bookmarkLayout: 'list', ...emptyList() },
   coerce: (raw, defaults) => ({
     theme: typeof raw.theme === 'string' ? raw.theme : defaults.theme,
     autoPreview: typeof raw.autoPreview === 'boolean' ? raw.autoPreview : defaults.autoPreview,
+    bookmarkLayout: raw.bookmarkLayout === 'grid' ? 'grid' : 'list',
     ...coerceList(raw),
   }),
 });

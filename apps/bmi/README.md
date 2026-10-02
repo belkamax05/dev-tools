@@ -64,6 +64,13 @@ focus back to the search.
 
 Every action has a hotkey and a clickable control: the buttons above the detail pane, the hints
 under the list, the footer, the tabs, and the Yes/No and Save/Cancel buttons on every question.
+Use the [g] Grid view / List view button to switch the Bookmarks layout (or press `g` in
+hotkey mode). The choice is remembered. Grid mode shows bordered cards with a 32 × 8-cell preview image area, a favicon, title and URL.
+Images retain their aspect ratio; missing images show a placeholder. Visible cards fetch previews
+when automatic previews are enabled. Grid columns adapt to the terminal, keep group headings,
+and use all four arrow keys to move. Search, selection and
+the detail pane work in either layout.
+
 The mouse wheel scrolls lists. A click selects a row, and a second click on the selected row
 opens it, so a stray click never launches the browser.
 

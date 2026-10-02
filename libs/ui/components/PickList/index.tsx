@@ -1,7 +1,7 @@
 import { type DOMElement, measureElement, Text } from 'ink';
-import { useEffect, useMemo, useRef } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef } from 'react';
 import useClickable from '../../hooks/useClickable';
-import useScrollWindow from '../../hooks/useScrollWindow';
+import useScrollWindow, { windowEnd, windowStart } from '../../hooks/useScrollWindow';
 import { useColors } from '../../providers/TuiThemeProvider';
 import type { TerminalMouseEvent } from '../../terminal/mouse';
 import Box from '../Box';
@@ -109,6 +109,7 @@ interface PickCellProps<T> {
   onClick: () => void;
   /** Select without activating — what a click on one of the row's controls also does. */
   onSelectOnly: () => void;
+  renderCell?: (item: PickItem<T>, width: number, selected: boolean) => ReactNode;
 }
 
 const PickCell = <T,>({
@@ -119,6 +120,7 @@ const PickCell = <T,>({
   onHover,
   onClick,
   onSelectOnly,
+  renderCell,
 }: PickCellProps<T>) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
@@ -145,6 +147,14 @@ const PickCell = <T,>({
         <Text bold color={colors.muted} wrap="truncate">
           {item.label.toUpperCase()}
         </Text>
+      </Box>
+    );
+  }
+
+  if (renderCell && width !== undefined) {
+    return (
+      <Box ref={ref} width={width} flexShrink={0} flexDirection="column">
+        {renderCell(item, width, isSelected || isHovered)}
       </Box>
     );
   }
@@ -290,6 +300,9 @@ export interface PickListProps<T> {
    * row is a scroll where it could have been a glance.
    */
   columns?: number;
+  /** Fixed height of a custom cell; windowing counts physical terminal rows. */
+  cellHeight?: number;
+  renderCell?: (item: PickItem<T>, width: number, selected: boolean) => ReactNode;
   borderColor?: string;
   /** Shown in place of the rows when there is nothing to list. */
   emptyText?: string;
@@ -330,6 +343,8 @@ export const PickList = <T,>({
   visibleRows,
   width,
   columns = 1,
+  cellHeight = 1,
+  renderCell,
   borderColor,
   emptyText = 'Nothing here.',
   onSelect,
@@ -349,9 +364,13 @@ export const PickList = <T,>({
     [rows, selected],
   );
 
-  const size = Math.max(1, visibleRows);
-  const [start, setStart] = useScrollWindow(rows.length, selectedRow, size);
-  const shown = rows.slice(start, start + size);
+  const heights = rows.map((row) => (items[row[0] ?? -1]?.isHeader ? 1 : cellHeight));
+  const budget = Math.max(1, visibleRows);
+  const [offset, setStart] = useScrollWindow(rows.length, selectedRow, budget, heights);
+  const last = windowStart(heights, heights.length, budget);
+  const start = Math.max(0, Math.min(offset, last));
+  const end = windowEnd(heights, start, budget);
+  const shown = rows.slice(start, end);
 
   const windowFrom = shown[0]?.[0] ?? 0;
   const windowTo = (shown.at(-1)?.at(-1) ?? -1) + 1;
@@ -365,7 +384,6 @@ export const PickList = <T,>({
   const ref = useRef<DOMElement>(null);
   useClickable(ref, {
     onWheel: (event) => {
-      const last = Math.max(0, rows.length - size);
       setStart((at) => (event.wheel === 'down' ? Math.min(at + 3, last) : Math.max(0, at - 3)));
     },
   });
@@ -376,7 +394,7 @@ export const PickList = <T,>({
   const inner = width === undefined ? undefined : Math.max(4, width - 4);
   const cellWidth = inner === undefined ? undefined : Math.max(6, Math.floor(inner / columns));
   const frameColor = borderColor ?? (isFocused ? colors.accent : colors.muted);
-  const hiddenRows = rows.length - start - size;
+  const hiddenRows = rows.length - end;
 
   return (
     <Box
@@ -415,6 +433,7 @@ export const PickList = <T,>({
                 <PickCell
                   key={item.id}
                   item={item}
+                  renderCell={renderCell}
                   width={item.isHeader ? inner : cellWidth}
                   isSelected={index === selected}
                   isFocused={isFocused}

@@ -1,4 +1,4 @@
-import type { DOMElement } from 'ink';
+import { type DOMElement, Text } from 'ink';
 import { useMemo, useRef } from 'react';
 
 import {
@@ -11,6 +11,8 @@ import {
   type RasterTechnique,
   type Subject,
 } from '@/dev-tools/terminal-canvas';
+import Box from '@/dev-tools/ui/components/Box';
+import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import GraphicsCanvas from '@/dev-tools/ui/components/GraphicsCanvas';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import useRasterOverlay from '@/dev-tools/ui/hooks/useRasterOverlay';
@@ -23,7 +25,8 @@ const MAX_ROWS = 16;
 /** Read a response without letting a large social card consume the TUI's memory. */
 const readImage = async (response: Response): Promise<Uint8Array> => {
   const advertised = Number(response.headers.get('content-length'));
-  if (Number.isFinite(advertised) && advertised > MAX_IMAGE_BYTES) throw new Error('image is too large');
+  if (Number.isFinite(advertised) && advertised > MAX_IMAGE_BYTES)
+    throw new Error('image is too large');
   const reader = response.body?.getReader();
   if (!reader) throw new Error('empty image');
   const chunks: Uint8Array[] = [];
@@ -76,12 +79,28 @@ const loadImage = async (url: string): Promise<DecodedImage | undefined> => {
  * A page's social card, below its URL. It is requested only when a real raster
  * protocol is available; unsuitable images leave the URL usable.
  */
-export const OpenGraphImage = ({ url }: { url: string }) => {
+export const OpenGraphImage = ({
+  url,
+  cols = MAX_COLS,
+  rows = MAX_ROWS,
+  overlayId = 9002,
+  fixed = false,
+}: {
+  url: string;
+  cols?: number;
+  rows?: number;
+  overlayId?: number;
+  fixed?: boolean;
+}) => {
+  const colors = useColors();
   const ref = useRef<DOMElement>(null);
   const support = graphicsSupport();
   const selected = bestTechnique(support);
   const raster = selected.kind === 'raster' ? (selected as RasterTechnique) : undefined;
-  const { data: image } = useLoader(() => (raster ? loadImage(url) : undefined), [url, raster]);
+  const { data: image, isLoading } = useLoader(
+    () => (raster || fixed ? loadImage(url) : undefined),
+    [url, raster, fixed],
+  );
   const subject = useMemo<Subject>(
     () => ({
       id: `og:${url}`,
@@ -94,7 +113,7 @@ export const OpenGraphImage = ({ url }: { url: string }) => {
     }),
     [url, image],
   );
-  const footprint = image ? fitFootprint(MAX_COLS, MAX_ROWS, image.width / image.height) : undefined;
+  const footprint = image ? fitFootprint(cols, rows, image.width / image.height) : undefined;
 
   useRasterOverlay({
     technique: raster && image ? raster : undefined,
@@ -106,8 +125,27 @@ export const OpenGraphImage = ({ url }: { url: string }) => {
     cellHeight: support.cellHeight,
     imagesInCells: support.imagesInCells,
     // The favicon uses 9001; both images can be visible at once.
-    imageId: 9002,
+    imageId: overlayId,
   });
+
+  if (fixed) {
+    return (
+      <Box width={cols} height={rows} justifyContent="center" alignItems="center" overflow="hidden">
+        {image && footprint ? (
+          <GraphicsCanvas
+            ref={ref}
+            technique={selected}
+            subject={subject}
+            time={0}
+            cols={footprint.cols}
+            rows={footprint.rows}
+          />
+        ) : (
+          <Text color={colors.muted}>{isLoading ? 'Loading image…' : 'Image unavailable'}</Text>
+        )}
+      </Box>
+    );
+  }
 
   return raster && image && footprint ? (
     <GraphicsCanvas

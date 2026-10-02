@@ -35,6 +35,16 @@ export interface ListDetailProps<T> {
   /** Names the list pane, with its count in the badge. */
   title: string;
   items: PickItem<T>[];
+  /** Pack options into a responsive grid; headers keep their own row. */
+  layout?: 'list' | 'grid';
+  gridCellWidth?: number;
+  gridCellHeight?: number;
+  renderGridCell?: (
+    item: PickItem<T>,
+    width: number,
+    selected: boolean,
+    height: number,
+  ) => ReactNode;
   /** Shown in place of the rows when there is nothing to list. */
   emptyText?: string;
   /** Names the detail pane. Defaults to the selected row's own label. */
@@ -105,6 +115,10 @@ export interface ListDetailProps<T> {
 export const ListDetail = <T,>({
   title,
   items,
+  layout = 'list',
+  gridCellWidth = 24,
+  gridCellHeight = 1,
+  renderGridCell,
   emptyText,
   detailTitle,
   renderDetail,
@@ -189,10 +203,24 @@ export const ListDetail = <T,>({
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
 
+  const appWidth = Math.max(
+    viewport.columns - theme.sizes.app.horizontalMargin,
+    theme.sizes.app.minWidth,
+  );
+  const sideBySide = layout === 'grid' || viewport.columns >= SIDE_BY_SIDE_COLUMNS;
+  const listWidth = sideBySide
+    ? Math.floor(appWidth * (layout === 'grid' ? 0.6 : LIST_SHARE))
+    : appWidth;
+  const columns = layout === 'grid' ? Math.max(1, Math.floor((listWidth - 4) / gridCellWidth)) : 1;
+
   useInput(
     (_input, key) => {
-      if (key.upArrow) setSelected((at) => moveInList(items, 1, at, 'up'));
-      else if (key.downArrow) setSelected((at) => moveInList(items, 1, at, 'down'));
+      if (key.upArrow) setSelected((at) => moveInList(items, columns, at, 'up'));
+      else if (key.downArrow) setSelected((at) => moveInList(items, columns, at, 'down'));
+      else if (layout === 'grid' && key.leftArrow)
+        setSelected((at) => moveInList(items, columns, at, 'left'));
+      else if (layout === 'grid' && key.rightArrow)
+        setSelected((at) => moveInList(items, columns, at, 'right'));
       else if (key.return && current && !current.isHeader && !current.disabled) {
         onActivate?.(current, selected);
       }
@@ -200,24 +228,23 @@ export const ListDetail = <T,>({
     { isActive: isInputActive },
   );
 
-  const appWidth = Math.max(
-    viewport.columns - theme.sizes.app.horizontalMargin,
-    theme.sizes.app.minWidth,
-  );
-  const sideBySide = viewport.columns >= SIDE_BY_SIDE_COLUMNS;
-  const listWidth = sideBySide ? Math.floor(appWidth * LIST_SHARE) : undefined;
-
   //? Stacked, the two panes share the rows; side by side they each get all of
   //? them. `panelFrame` is charged once either way — the detail pane's own frame
   //? is inside the budget the row count is measured against.
   const contentRows = viewport.contentRows(
-    ['appShell', 'viewHints', 'panelFrame', ...reservedChrome],
+    ['appShell', 'viewHints', ...(layout === 'grid' ? [] : ['panelFrame']), ...reservedChrome],
     3,
   );
-  const listRows = sideBySide ? contentRows : Math.max(2, Math.floor(contentRows / 2));
+  // Grid frame: two borders, one title and one scroll indicator.
+  const listRows =
+    layout === 'grid'
+      ? Math.max(3, contentRows - 4)
+      : sideBySide
+        ? contentRows
+        : Math.max(2, Math.floor(contentRows / 2));
 
   const navigationHints: Hint[] = [
-    { key: '↑/↓', label: 'move' },
+    { key: layout === 'grid' ? '↑/↓/←/→' : '↑/↓', label: 'move' },
     ...(onActivate ? [{ key: 'Enter', label: activateLabel }] : []),
     ...hints,
   ];
@@ -231,6 +258,14 @@ export const ListDetail = <T,>({
           selected={selected}
           visibleRows={listRows}
           width={listWidth}
+          columns={columns}
+          cellHeight={layout === 'grid' ? Math.min(gridCellHeight, listRows) : 1}
+          renderCell={
+            layout === 'grid' && renderGridCell
+              ? (item, width, selected) =>
+                  renderGridCell(item, width, selected, Math.min(gridCellHeight, listRows))
+              : undefined
+          }
           emptyText={emptyText ?? 'Nothing to show.'}
           onSelect={setSelected}
           activateOnClick={activateOnClick}
