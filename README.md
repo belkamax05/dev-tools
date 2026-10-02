@@ -15,6 +15,7 @@ built on them, whose executables live in `bin/` — one shim per app, calling it
 | `processi` | the process table, btop-style — sort, scope to a folder, stop ([README](apps/processi/README.md)) |
 | `pkgi` | the current folder's npm packages — updates, versions, notes, compare ([README](apps/pkgi/README.md)) |
 | `bmi` | bookmarks, raindrop-style — groups, tags, fuzzy search, page previews ([README](apps/bmi/README.md)) |
+| `envi` | environment variables — the shell's, `.env` files and your own, layered like dotenv; shell hook and library ([README](apps/envi/README.md)) |
 
 Three ways to get them on `PATH`, all defined once in `nix/`:
 
@@ -82,7 +83,7 @@ linker points every member's `node_modules/react` and `node_modules/ink` at one 
 the root store, so a component authored here is reconciled by the same React the consumer is
 using and its hooks find their dispatcher. There are two ways to be one:
 
-- this repo's own `apps/*` (`giti`, `agenti`, `porti`, `processi`, `pkgi`, `bmi`, `devi`), with this repo as
+- this repo's own `apps/*` (`giti`, `agenti`, `porti`, `processi`, `pkgi`, `bmi`, `envi`, `devi`), with this repo as
   the workspace root —
   `bun install` here;
 - a repo that checks this one out as a git submodule at `libs/dev-tools` and lists it in its

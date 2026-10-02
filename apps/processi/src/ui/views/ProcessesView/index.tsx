@@ -2,7 +2,7 @@ import { Text, useInput } from 'ink';
 import { useEffect, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
-import ChipRow from '@/dev-tools/ui/components/ChipRow';
+import ChipRow, { chipLeadWidth, chipWidth } from '@/dev-tools/ui/components/ChipRow';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
@@ -10,7 +10,8 @@ import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import { barInnerWidth } from '@/dev-tools/ui/theme';
 import type { ProcessInfo } from '@/dev-tools/utils/process/listProcesses';
 
 import {
@@ -54,6 +55,9 @@ const MY_UID = process.getuid?.();
 const columns = (pid: string, cpu: string, mem: string, name: string) =>
   `${pid.padStart(7)} ${cpu.padStart(5)} ${mem.padStart(5)}  ${name}`;
 const HEADER = `  ${columns('PID', 'CPU%', 'MEM', 'NAME')}`;
+
+/** The `│` between the sort and show chips, with its margins. */
+const DIVIDER_WIDTH = 4;
 
 const next = <T,>(list: readonly T[], at: T): T => list[(list.indexOf(at) + 1) % list.length] ?? at;
 
@@ -117,6 +121,7 @@ export const ProcessesView = ({
   onCaptureInput,
 }: ProcessesViewProps) => {
   const colors = useColors();
+  const theme = useTuiTheme();
   const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
   const [scope, setScope] = useState<Scope>(session.scope);
@@ -248,22 +253,24 @@ export const ProcessesView = ({
         : []),
     ].map((action) => ({ ...action, disabled: busy || row.pid === process.pid }));
 
+  //? Sort and show are not here: the chip rows above the list carry their keys
   const hints: Hint[] = [
-    {
-      key: 's',
-      label: `sort: ${SORT_LABELS[sort]}`,
-      onPress: () => changeSort(next(SORT_KEYS, sort)),
-    },
-    {
-      key: 'f',
-      label: `show: ${SCOPE_LABELS[scope]}`,
-      onPress: () => changeScope(next(SCOPES, scope)),
-    },
     { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
     ...(filter ? [{ key: 'Esc', label: 'clear', onPress: () => changeFilter('') }] : []),
   ];
 
   const compact = viewport.columns < 120;
+  const sortChips = SORT_KEYS.map((id) => ({ id, label: SORT_LABELS[id], isOn: id === sort }));
+  const scopeChips = SCOPES.map((id) => ({ id, label: SCOPE_LABELS[id], isOn: id === scope }));
+  const chipsWidth = [...sortChips, ...scopeChips].reduce(
+    (sum, chip) => sum + chipWidth(chip, compact),
+    0,
+  );
+  //? The chip row is budgeted as one line. Where the words and the divider would wrap it, they
+  //? go and the keys stay: `[s] ▣ CPU` still says what `s` does
+  const terse =
+    chipsWidth + chipLeadWidth('sort', 's') + chipLeadWidth('show', 'f') + DIVIDER_WIDTH >
+    barInnerWidth(viewport.columns, false, theme.sizes.app);
   const totalCpu = rows.reduce((sum, row) => sum + row.cpu, 0);
   const header = prompt.line ?? (
     <Text color={busy ? colors.warn : colors.muted} wrap="truncate">
@@ -279,16 +286,23 @@ export const ProcessesView = ({
       <Box flexShrink={0}>{header}</Box>
       <Box flexShrink={0} flexDirection="row">
         <ChipRow
-          label="show"
+          label={terse ? undefined : 'sort'}
+          hotkey="s"
           compact={compact}
-          chips={SCOPES.map((id) => ({ id, label: SCOPE_LABELS[id], isOn: id === scope }))}
-          onToggle={(id) => changeScope(id as Scope)}
-        />
-        <ChipRow
-          label="sort"
-          compact={compact}
-          chips={SORT_KEYS.map((id) => ({ id, label: SORT_LABELS[id], isOn: id === sort }))}
+          chips={sortChips}
           onToggle={(id) => changeSort(id as SortKey)}
+        />
+        {!terse && (
+          <Box marginLeft={1} marginRight={2}>
+            <Text color={colors.muted}>│</Text>
+          </Box>
+        )}
+        <ChipRow
+          label={terse ? undefined : 'show'}
+          hotkey="f"
+          compact={compact}
+          chips={scopeChips}
+          onToggle={(id) => changeScope(id as Scope)}
         />
       </Box>
       <ListDetail

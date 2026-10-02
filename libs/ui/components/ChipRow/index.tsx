@@ -15,6 +15,12 @@ export interface Chip {
   tooltip?: string;
 }
 
+/** Cells a row's lead takes — `[s] sort` and the gap after it — or none, with neither given. */
+export const chipLeadWidth = (label?: string, hotkey?: string): number => {
+  const parts = [hotkey === undefined ? '' : `[${hotkey}]`, label ?? ''].filter(Boolean);
+  return parts.length ? parts.join(' ').length + 1 : 0;
+};
+
 /** Cells a chip takes: its marker, a space, the label, and the gap after it. */
 export const chipWidth = (chip: Chip, compact = false): number =>
   (compact ? 1 : 3) + 1 + chip.label.length + 1;
@@ -67,6 +73,12 @@ const ChipButton = ({ chip, compact = false, onClick, onHover }: ChipButtonProps
 
 export interface ChipRowProps {
   label?: string;
+  /**
+   * The key that steps through the chips, drawn before the label the way a hint
+   * draws it — `[s] sort` — so the row is its own reminder and the hint bar under
+   * the view does not have to repeat it.
+   */
+  hotkey?: string;
   chips: Chip[];
   /**
    * Shrink each chip's marker from `[ ]` to one glyph.
@@ -87,7 +99,14 @@ export interface ChipRowProps {
  * list of ten one-word options wastes ten rows to say what one row can.
  * Horizontal is not a compromise here, it is the better fit.
  */
-export const ChipRow = ({ label, chips, compact = false, onToggle, onHover }: ChipRowProps) => {
+export const ChipRow = ({
+  label,
+  hotkey,
+  chips,
+  compact = false,
+  onToggle,
+  onHover,
+}: ChipRowProps) => {
   const colors = useColors();
   //? Tracked by id here rather than left to the chips: each one only knows
   //? whether the pointer is on itself, and the last to say "no" would otherwise
@@ -105,9 +124,14 @@ export const ChipRow = ({ label, chips, compact = false, onToggle, onHover }: Ch
 
   return (
     <Box flexDirection="row" flexWrap="wrap">
-      {label !== undefined && (
+      {(label !== undefined || hotkey !== undefined) && (
         <Box marginRight={1}>
-          <Text color={colors.muted}>{label}</Text>
+          {hotkey !== undefined && (
+            <Text bold color={colors.text}>
+              [{hotkey}]{label !== undefined ? ' ' : ''}
+            </Text>
+          )}
+          {label !== undefined && <Text color={colors.muted}>{label}</Text>}
         </Box>
       )}
       {chips.map((chip) => (
