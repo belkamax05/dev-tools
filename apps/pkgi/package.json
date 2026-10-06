@@ -1,0 +1,31 @@
+{
+  "name": "pkgi",
+  "description": "The current folder's npm packages — updates, versions, notes, compare",
+  "module": "src/run.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "bun biome check .",
+    "format": "bun biome check --write --unsafe ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.18"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "ink": "^7.1.1",
+    "react": "^19.2.8"
+  },
+  "dev-tools": {
+    "aliases": [
+      "pkg",
+      "deps",
+      "packages"
+    ]
+  }
+}

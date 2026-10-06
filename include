@@ -1,0 +1,28 @@
+#!/bin/sh
+# Source from your shell rc to get dev-tools' commands in every shell.
+# With Nix: the same environment shell.nix/.envrc give you inside the repo
+# (latest bun, git-subrepo, bin/), loaded globally - see nix/lib/activate.sh.
+# Without Nix (or DEV_TOOLS_NIX=0): just bin/ on PATH, bun from your system.
+
+get_this_file_directory() {
+    __get_dirname_of_script() {
+        # shellcheck disable=SC2128,SC3054
+        if [ -n "$BASH_SOURCE" ]; then
+            dirname "${BASH_SOURCE[0]}"
+        elif [ -n "$ZSH_VERSION" ]; then
+            # shellcheck disable=SC2296
+            dirname "${(%):-%x}" 2>/dev/null || dirname "$0"
+        else
+            dirname "$0"
+        fi
+    }
+    (cd "$(__get_dirname_of_script)" && pwd)
+}
+
+_dev_tools_root=$(get_this_file_directory)
+# shellcheck disable=SC1091
+. "$_dev_tools_root/nix/lib/activate.sh"
+if ! dev_tools_nix_env "$_dev_tools_root" dev-tools; then
+    export PATH="$_dev_tools_root/bin:$PATH"
+fi
+unset _dev_tools_root

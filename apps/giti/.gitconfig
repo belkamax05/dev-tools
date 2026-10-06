@@ -1,0 +1,33 @@
+[alias]
+# ? core
+test-giti = "!echo 'Giti lib .gitconfig works'"
+giti = "!giti"
+i = "!giti"
+# ? shortcuts
+fc = commit --no-verify -m
+fp = fast-push
+fps = fast-push
+
+st = status -s
+sta = status
+conf = config --global --edit
+cge = config --global --edit
+co = commit
+ch = checkout
+cod = checkout .
+rh = reset HEAD
+cdf = clean -df # command is used to remove untracked files and directories from your Git repository. AAA1
+br = branch
+bra = branch -a
+pr = pull --rebase
+amend = commit -a --amend --no-edit
+ciam = commit -a --amend --no-edit
+last = log -10 --oneline
+ps = push
+psn = push --no-verify
+cm = commit -m
+sw = switch
+swc = switch -c
+
+[include]
+path = ".gitconfig-commands"

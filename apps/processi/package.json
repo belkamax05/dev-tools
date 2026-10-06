@@ -1,0 +1,30 @@
+{
+  "name": "processi",
+  "description": "The process table, btop-style — sort, scope to a folder, stop",
+  "module": "src/run.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "bun biome check .",
+    "format": "bun biome check --write --unsafe ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.18"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "ink": "^7.1.1",
+    "react": "^19.2.8"
+  },
+  "dev-tools": {
+    "aliases": [
+      "proc",
+      "process",
+      "ps"
+    ]
+  }
+}

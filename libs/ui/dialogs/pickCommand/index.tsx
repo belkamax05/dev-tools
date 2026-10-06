@@ -1,0 +1,60 @@
+import { render } from 'ink';
+import type PickerItem from '../../../types/PickerItem';
+import type PickerSelection from '../../../types/PickerSelection';
+import CommandPicker from '../../components/CommandPicker';
+import renderInkImmediate from '../../utils/renderInkImmediate';
+
+export interface PickCommandOptions {
+  items: PickerItem[];
+  /** Header text, shown verbatim, e.g. `giti TUI`. */
+  title: string;
+  /** Leads the example command line — defaults to `title`. */
+  commandPrefix?: string;
+  /**
+   * Groups to descend into before the first render, outermost first.
+   *
+   * E.g. `['mega']` opens the picker already inside the mega group, so `giti mega` behaves
+   * like pressing Enter on the mega folder from the top-level picker.
+   */
+  initialPath?: string[];
+}
+
+/**
+ * Show the interactive command browser and resolve with what the user picked, or `undefined`
+ * when they backed out.
+ *
+ * The whole Ink tree is mounted and torn down in here, with this lib's own `ink`, so callers
+ * exchange plain data with it and never a React element — see {@link PickerItem}.
+ */
+const pickCommand = async ({
+  items,
+  title,
+  commandPrefix,
+  initialPath,
+}: PickCommandOptions): Promise<PickerSelection | undefined> => {
+  let settle: (selection: PickerSelection | undefined) => void;
+  const picked = new Promise<PickerSelection | undefined>((resolve) => {
+    settle = resolve;
+  });
+
+  return renderInkImmediate<PickerSelection | undefined>(
+    <CommandPicker
+      items={items}
+      title={title}
+      commandPrefix={commandPrefix}
+      initialPath={initialPath}
+      onPick={(selection) => settle(selection)}
+      onCancel={() => settle(undefined)}
+    />,
+    {
+      render,
+      //? The menu is transient — its frame is erased before the picked command runs
+      clear: true,
+      until: picked,
+      //? Long-lived TUI, so console output has to be kept out of the rendered frame
+      patchConsole: true,
+    },
+  );
+};
+
+export default pickCommand;
