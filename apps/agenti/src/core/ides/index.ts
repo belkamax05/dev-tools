@@ -34,8 +34,12 @@ export interface AgentsMapping {
 export type InstructionsTarget = { path: string; mode: 'import' | 'link' } | 'native';
 
 export interface IdeLayout {
-  /** Per-entry mappings, or `{ mirror }`: the whole of `.agents`, 1:1, into one folder. */
-  agents: AgentsMapping[] | { mirror: string };
+  /**
+   * Per-entry mappings; `{ mirror }`: the whole of `.agents`, 1:1, into one
+   * folder; or `{ native }`: these `.agents` entries are read where they are,
+   * so there is nothing to link.
+   */
+  agents: AgentsMapping[] | { mirror: string } | { native: string[] };
   instructions?: InstructionsTarget;
 }
 
@@ -166,16 +170,22 @@ export const IDES: readonly IdeDefinition[] = [
   {
     id: 'antigravity',
     name: 'Antigravity',
-    folder: '.agent',
-    commands: ['antigravity', 'agy'],
+    folder: '.agents',
+    //? `antigravity-ide` is the 2.x binary, the one these layouts describe
+    commands: ['antigravity-ide', 'antigravity', 'agy'],
     layouts: {
+      //? 2.x reads `.agents` itself, and `AGENTS.md` beside it — the `.agent/`
+      //? folder and `GEMINI.md` were 1.x
       project: {
+        agents: { native: ['rules', 'skills', 'plugins', 'hooks.json', 'skills.json'] },
+        instructions: 'native',
+      },
+      //? Its machine-wide customization root is ~/.gemini/config
+      user: {
         agents: [
-          { source: 'rules', target: '.agent/rules' },
-          { source: 'workflows', target: '.agent/workflows' },
+          { source: 'skills', target: '.gemini/config/skills' },
+          { source: 'plugins', target: '.gemini/config/plugins' },
         ],
-        //? The Gemini family's context file
-        instructions: { path: 'GEMINI.md', mode: 'link' },
       },
     },
     mcp: [
@@ -183,7 +193,7 @@ export const IDES: readonly IdeDefinition[] = [
         scope: 'user',
         kind: 'file',
         key: 'mcpServers',
-        path: () => join(homedir(), '.gemini', 'antigravity', 'mcp_config.json'),
+        path: () => join(homedir(), '.gemini', 'config', 'mcp_config.json'),
       },
     ],
     launch: 'gui',

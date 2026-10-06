@@ -297,7 +297,7 @@ const staleLinks = (scope: Scope, ides: IdeDefinition[]): HealthIssue[] => {
   }
   for (const ide of ides) {
     const layout = layoutFor(ide, scope.kind);
-    if (!layout || 'mirror' in layout.agents) continue;
+    if (!layout || 'mirror' in layout.agents || 'native' in layout.agents) continue;
     const targets = layout.agents.map((m) => join(scope.root, m.target));
     const folder = join(scope.root, ide.folder);
     let entries: string[] = [];

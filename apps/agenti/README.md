@@ -25,15 +25,16 @@ anything else you like. Each IDE reads what it has a place for; the rest shows a
 | --- | --- | --- | --- | --- | --- | --- |
 | Claude Code | `.claude/rules` | `.claude/skills` | `.claude/agents` | `.claude/commands` | `.claude/settings.json` | `CLAUDE.md` imports `AGENTS.md` |
 | Cursor | `.cursor/rules/*.mdc` (generated) | — | — | `.cursor/commands` | — | reads `AGENTS.md` itself |
-| Antigravity | `.agent/rules` | — | — | `.agent/workflows` | — | `GEMINI.md` → `AGENTS.md` |
+| Antigravity | reads `.agents/rules` itself | reads `.agents/skills` itself | — | — | — | reads `AGENTS.md` itself |
 | VS Code | `.github/instructions/*.instructions.md` (generated) | — | — | `.github/prompts/*.prompt.md` (generated) | — | `.github/copilot-instructions.md` → `AGENTS.md` |
 | Devin | all of `.agents` mirrored into `.devin` | | | | | reads `AGENTS.md` itself |
 
 Linked entries are relative symlinks, so they work in every clone. Where an IDE needs its own
 format, agenti generates a copy with the IDE's front matter and a marker line — edit the source,
 not the copy. Rule front matter in `.agents` may use `globs`, `paths` or `applyTo`; all three
-mean the same thing. The user scope (`--user`) currently covers Claude Code, whose user folders
-mirror the project ones under `~/.claude`.
+mean the same thing. The user scope (`--user`) covers Claude Code, whose user folders
+mirror the project ones under `~/.claude`, and Antigravity's skills and plugins under
+`~/.gemini/config`.
 
 Nothing is ever overwritten or deleted that `.agents` does not already hold: a file that
 differs is reported, and adopting it (IDE → `.agents`) or pushing (`.agents` → IDE) is your
@@ -65,7 +66,7 @@ and launching Claude Code hands it the terminal; the dashboard comes back where 
 The reference config is `.agents/mcp_config.json` (or `config/mcp_config.json`). Each IDE's own
 scopes are shown one at a time: Claude Code's project `.mcp.json`, plus its local and user
 scopes, which are changed only through `claude mcp` since Claude Code owns `~/.claude.json`.
-IDEs with only a global file — Antigravity's `~/.gemini/antigravity/mcp_config.json`, Devin's
+IDEs with only a global file — Antigravity's `~/.gemini/config/mcp_config.json`, Devin's
 `~/.config/devin/mcp_config.json`, Cursor's `~/.cursor/mcp.json` — show it inside a repository
 too (last, marked "every repo"), so the reference servers can be copied into it with `p` / `P`.
 Claude Code will not start a project server until it is approved; agenti shows that and

@@ -13,8 +13,8 @@
  * Body…
  * ```
  *
- * An IDE that reads that as-is (Claude Code's `.claude/rules`, Antigravity's
- * `.agent/rules`) gets a symlink. One that does not gets a generated copy in its
+ * An IDE that reads that as-is (Claude Code's `.claude/rules`, Devin's
+ * `.devin/rules`) gets a symlink. One that does not gets a generated copy in its
  * own format, marked as generated so it is never mistaken for — or edited as —
  * the source:
  *

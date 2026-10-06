@@ -84,7 +84,7 @@ const printReport = (data: ReturnType<typeof report>) => {
     const a = ide.agents;
     const m = ide.mcp;
     console.log(
-      `${(getIde(ide.id)?.name ?? ide.id).padEnd(12)} agents ${a.synced ?? 0} in sync · ${a.mismatch ?? 0} differ · ${a.missing ?? 0} off · ${a.orphan ?? 0} IDE-only` +
+      `${(getIde(ide.id)?.name ?? ide.id).padEnd(12)} agents ${a.native ? `${a.native} read natively` : `${a.synced ?? 0} in sync`} · ${a.mismatch ?? 0} differ · ${a.missing ?? 0} off · ${a.orphan ?? 0} IDE-only` +
         `  · instructions ${ide.instructions}` +
         (Object.keys(m).length
           ? `  · mcp ${m.synced ?? 0} synced · ${m.diff ?? 0} differ · ${m['missing-in-target'] ?? 0} missing`

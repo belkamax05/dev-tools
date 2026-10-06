@@ -46,6 +46,7 @@ import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
  * row so the names after it line up.
  */
 const CHECKBOX: Record<AgentStatus, string> = {
+  native: '[x]',
   synced: '[x]',
   implicit: '[~]',
   missing: '[ ]',
@@ -56,6 +57,7 @@ const CHECKBOX: Record<AgentStatus, string> = {
 };
 
 const DESCRIBE: Record<AgentStatus, string> = {
+  native: 'read in .agents itself, nothing to link',
   synced: 'in every IDE that reads it, same as .agents',
   implicit: 'in some IDEs, or partly',
   missing: 'in none of the IDEs yet',
@@ -66,7 +68,7 @@ const DESCRIBE: Record<AgentStatus, string> = {
 };
 
 const statusColor = (status: AgentStatus, colors: ThemeColors) =>
-  status === 'synced'
+  status === 'synced' || status === 'native'
     ? colors.ok
     : status === 'mismatch' || status === 'unknown'
       ? colors.warn
@@ -98,7 +100,9 @@ const hintForStatus = (status: AgentStatus): string =>
           ? '?'
           : status === 'unused'
             ? 'unused'
-            : 'off';
+            : status === 'native'
+              ? 'read natively'
+              : 'off';
 
 /** One IDE's view of an entry, in a word. */
 const hintFor = (node: AgentNode): string =>
@@ -118,7 +122,7 @@ const mergedHint = (node: MergedNode): string => {
 const summary = (inventory: Inventory) => {
   const { counts } = inventory;
   return [
-    `${counts.synced} in sync`,
+    counts.native ? `${counts.native} read natively` : `${counts.synced} in sync`,
     counts.mismatch && `${counts.mismatch} differ`,
     counts.missing && `${counts.missing} off`,
     counts.orphan && `${counts.orphan} IDE-only`,
@@ -135,7 +139,9 @@ const summary = (inventory: Inventory) => {
 const countFor = (node: MergedNode): string => {
   const children = (node.children ?? []).filter((child) => child.status !== 'unused');
   if (node.type !== 'directory' || children.length < 2) return '';
-  const inStep = children.filter((child) => child.status === 'synced').length;
+  const inStep = children.filter(
+    (child) => child.status === 'synced' || child.status === 'native',
+  ).length;
   return ` [${inStep}/${children.length}]`;
 };
 
@@ -279,6 +285,10 @@ export const AgentsView = ({
     }
     if (node.status === 'orphan') {
       notify(`${node.relativePath} is only in an IDE — [a] adopts it into .agents`, 'warn');
+      return;
+    }
+    if (node.status === 'native') {
+      notify(`${node.relativePath} is read in .agents itself — nothing to link`, 'ok');
       return;
     }
     if (node.status === 'unused') {

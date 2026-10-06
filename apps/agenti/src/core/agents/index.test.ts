@@ -203,6 +203,27 @@ describe('syncNode and deleteNode', () => {
   });
 });
 
+describe('a native layout', () => {
+  const antigravity = getIde('antigravity') as IdeDefinition;
+
+  test('reads skills and rules in .agents itself, down to each file, and links nothing', () => {
+    const inv = inventory(antigravity);
+    expect(node('skills/one/SKILL.md', antigravity).status).toBe('native');
+    expect(node('rules', antigravity).status).toBe('native');
+    expect(node('knowledge', antigravity).status).toBe('unused');
+    expect(toggleLink(inv, node('skills/one', antigravity), true).ok).toBe(false);
+    expect(syncInventory(inv).changed).toEqual([]);
+    expect(existsSync(join(root, '.agent'))).toBe(false);
+  });
+
+  test('does not hide what another IDE still has to link', async () => {
+    const { combineStatus } = await import('.');
+    expect(combineStatus(['native', 'unused'])).toBe('native');
+    expect(combineStatus(['native', 'missing'])).toBe('missing');
+    expect(combineStatus(['native', 'synced'])).toBe('synced');
+  });
+});
+
 describe('setLinkMode', () => {
   test('is refused for a mapped layout', () => {
     expect(setLinkMode(inventory(), 'directory').ok).toBe(false);

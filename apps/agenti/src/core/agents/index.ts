@@ -45,8 +45,10 @@ import type { Scope } from '../scope';
  * - `unknown` — present but unreadable, a dangling link, or a file where the
  *   source has a directory
  * - `unused` — in `.agents`, but this IDE has nowhere that reads it
+ * - `native` — the IDE reads it in `.agents` itself; nothing to keep in step
  */
 export type AgentStatus =
+  | 'native'
   | 'synced'
   | 'mismatch'
   | 'missing'
@@ -342,6 +344,7 @@ const scanDir = (
 
 /** The layout's mappings; a mirror becomes one mapping per name on either side. */
 const mappingsFor = (layout: IdeLayout, scope: Scope): AgentsMapping[] => {
+  if ('native' in layout.agents) return [];
   if (!('mirror' in layout.agents)) return layout.agents;
   const mirror = layout.agents.mirror;
   const names = new Set([...listNames(scope.agentsDir), ...listNames(join(scope.root, mirror))]);
@@ -357,6 +360,7 @@ const countFiles = (nodes: AgentNode[], counts: Record<AgentStatus, number>) => 
 };
 
 const emptyCounts = (): Record<AgentStatus, number> => ({
+  native: 0,
   synced: 0,
   mismatch: 0,
   missing: 0,
@@ -382,17 +386,41 @@ export const getInventory = (scope: Scope, ide: IdeDefinition): Inventory => {
     hasSource,
   };
 
-  if (!layout) {
-    const nodes = listNames(scope.agentsDir).map(
-      (name): AgentNode => ({
-        name,
-        relativePath: name,
-        type: statSync(join(scope.agentsDir, name)).isDirectory() ? 'directory' : 'file',
-        status: 'unused',
-        sourcePath: join(scope.agentsDir, name),
+  if (!layout || 'native' in layout.agents) {
+    const native = new Set(layout && 'native' in layout.agents ? layout.agents.native : []);
+    //? Read in place, so every file under it is as much in step as it can be —
+    //? listed, so a single skill shows that too rather than nothing
+    const readInPlace = (sourcePath: string, relativePath: string): AgentNode => {
+      const isDir = statSync(sourcePath).isDirectory();
+      return {
+        name: basename(sourcePath),
+        relativePath,
+        type: isDir ? 'directory' : 'file',
+        status: 'native',
+        sourcePath,
         isLinked: false,
-      }),
-    );
+        children: isDir
+          ? listNames(sourcePath)
+              .map((child) => readInPlace(join(sourcePath, child), `${relativePath}/${child}`))
+              .sort(byTypeThenName)
+          : undefined,
+      };
+    };
+    const nodes = listNames(scope.agentsDir)
+      .map(
+        (name): AgentNode =>
+          native.has(name)
+            ? readInPlace(join(scope.agentsDir, name), name)
+            : {
+                name,
+                relativePath: name,
+                type: statSync(join(scope.agentsDir, name)).isDirectory() ? 'directory' : 'file',
+                status: 'unused',
+                sourcePath: join(scope.agentsDir, name),
+                isLinked: false,
+              },
+      )
+      .sort(byTypeThenName);
     return {
       ...base,
       targets: [],
@@ -751,6 +779,9 @@ export const toggleLink = (inventory: Inventory, node: AgentNode, on: boolean): 
   if (node.status === 'orphan') {
     return refused(`${node.relativePath} is not in .agents — adopt it to bring it in`);
   }
+  if (node.status === 'native') {
+    return refused(`${inventory.ide.name} reads ${node.relativePath} in .agents itself`);
+  }
   if (node.status === 'unused' || !node.targetPath || !node.targetBase) {
     return refused(`${inventory.ide.name} does not read ${node.relativePath}`);
   }
@@ -999,7 +1030,7 @@ export const syncInventory = (inventory: Inventory): { changed: string[]; left: 
   if (inventory.mode === 'directory') return { changed, left };
 
   const visit = (node: AgentNode) => {
-    if (node.status === 'unused' || node.status === 'synced') return;
+    if (node.status === 'unused' || node.status === 'synced' || node.status === 'native') return;
     if (node.status === 'missing') {
       const result = toggleLink(inventory, node, true);
       (result.ok ? changed : left).push(node.relativePath);
@@ -1042,12 +1073,15 @@ export interface MergedNode {
 
 /**
  * One status for several IDEs' statuses of the same entry. IDEs that do not
- * read it (`unused`) have no say; the rest must all agree for it to be
- * `synced` or `missing`, and anything differing anywhere makes it `mismatch`.
+ * read it (`unused`) have no say, and one that reads it in place (`native`)
+ * only decides it when it is the only one; the rest must all agree for it to
+ * be `synced` or `missing`, and anything differing anywhere makes it `mismatch`.
  */
 export const combineStatus = (statuses: AgentStatus[]): AgentStatus => {
-  const relevant = statuses.filter((status) => status !== 'unused');
-  if (relevant.length === 0) return 'unused';
+  const reading = statuses.filter((status) => status !== 'unused');
+  if (reading.length === 0) return 'unused';
+  const relevant = reading.filter((status) => status !== 'native');
+  if (relevant.length === 0) return 'native';
   if (relevant.some((status) => status === 'mismatch' || status === 'unknown')) return 'mismatch';
   if (relevant.every((status) => status === 'synced')) return 'synced';
   if (relevant.every((status) => status === 'missing')) return 'missing';
@@ -1106,7 +1140,8 @@ export const toggleEverywhere = (
 ): { ide: IdeDefinition; result: OperationResult }[] =>
   inventories.flatMap((inventory) => {
     const own = node.perIde[inventory.ide.id];
-    if (!own || own.status === 'unused' || own.status === 'orphan') return [];
+    if (!own || own.status === 'unused' || own.status === 'orphan' || own.status === 'native')
+      return [];
     //? Already the way it is being asked to be — nothing to report for this IDE
     if (on && own.status === 'synced') return [];
     if (!on && own.status === 'missing') return [];
