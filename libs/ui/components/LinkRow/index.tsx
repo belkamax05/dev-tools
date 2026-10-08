@@ -22,9 +22,10 @@ export interface LinkRowProps {
  * folder — when clicked or when the keyboard lands on it and Enter is pressed.
  *
  * Highlighted the same way for the pointer and the keyboard, so there is one
- * look for "this is what Enter or a click would open". A row with no `onOpen`
- * is drawn plain and ignores the pointer: something that looks clickable and is
- * not is worse than something that is not styled at all.
+ * look for "this is what Enter or a click would open". Only the value is the
+ * link — it alone is hit-tested and lit; the label is a caption. A row with no
+ * `onOpen` is drawn plain and ignores the pointer: something that looks
+ * clickable and is not is worse than something that is not styled at all.
  */
 export const LinkRow = ({
   label,
@@ -40,19 +41,19 @@ export const LinkRow = ({
   const lit = Boolean(onOpen) && (isHovered || isFocused);
 
   return (
-    <Box ref={ref} backgroundColor={lit ? colors.accent : undefined}>
-      {/* A fixed-width box, not padEnd: Ink trims a Text's trailing spaces
-          when the row has a background, which shifted the value a column */}
+    <Box>
       <Box width={labelWidth} flexShrink={0}>
-        <Text color={lit ? colors.accentText : colors.muted}>{label}</Text>
+        <Text color={colors.muted}>{label}</Text>
       </Box>
-      <Text
-        color={lit ? colors.accentText : (color ?? colors.text)}
-        underline={Boolean(onOpen) && !lit}
-        wrap="truncate"
-      >
-        {value}
-      </Text>
+      <Box ref={ref} flexShrink={1} backgroundColor={lit ? colors.accent : undefined}>
+        <Text
+          color={lit ? colors.accentText : (color ?? colors.text)}
+          underline={Boolean(onOpen) && !lit}
+          wrap="truncate"
+        >
+          {value}
+        </Text>
+      </Box>
     </Box>
   );
 };

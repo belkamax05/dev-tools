@@ -26,6 +26,7 @@ import {
   type PackageManagerName,
   PROJECT_CONFIG_TEMPLATE,
   userConfigStore,
+  writeFolderState,
 } from '../../../config/settings';
 import { pkgiCacheDir } from '../../../config/paths';
 import { toAbsolute, toRelative } from '../../../core/compare';
@@ -171,6 +172,20 @@ export const SettingsView = ({
     }
   };
 
+  //? Written with what is in force now (the defaults, when nothing was saved) so there is a
+  //? file to open — the same as pkgi.config.ts, which is created from its template
+  const editStateFile = async () => {
+    if (!existsSync(context.statePath)) {
+      try {
+        await writeFolderState(context.statePath, state);
+      } catch (error) {
+        notify(`Could not write ${context.statePath}: ${(error as Error).message}`, 'error');
+        return;
+      }
+    }
+    onEdit(context.statePath);
+  };
+
   const apply = (setting: Setting | undefined) => {
     if (!setting) return;
     if (themes.owns(setting)) return themes.activate(setting);
@@ -220,8 +235,7 @@ export const SettingsView = ({
         void editProjectConfig();
         return;
       case 'stateFile':
-        if (existsSync(context.statePath)) onEdit(context.statePath);
-        else notify('Not written yet — it is created on the first note or setting saved here');
+        void editStateFile();
         return;
       case 'userConfig':
         onEdit(userConfigStore.path);
@@ -311,7 +325,7 @@ export const SettingsView = ({
     {
       id: 'stateFile',
       label: 'Notes & state',
-      hint: existsSync(context.statePath) ? 'edit' : 'not written yet',
+      hint: existsSync(context.statePath) ? 'edit' : 'create',
       value: { kind: 'stateFile' },
     },
     { id: 'userConfig', label: 'Theme (user config)', value: { kind: 'userConfig' } },
@@ -349,7 +363,7 @@ export const SettingsView = ({
           ? `${project.path}${project.error ? `\n\nIgnored: ${project.error}` : ''}\n\nThe folder's defaults, shared with everyone who runs pkgi here. Enter opens it in $EDITOR.`
           : `No pkgi.config.ts here. Enter writes a commented one with every setting at its default, and opens it.`;
       case 'stateFile':
-        return `${context.statePath}\n\nNotes, compare folders and the settings changed here. ${
+        return `${context.statePath}\n\nNotes, compare folders and the settings changed here. Enter opens it in $EDITOR, creating it first if nothing was saved yet. ${
           project.config.stateFile
             ? 'Placed by stateFile in pkgi.config.ts.'
             : 'Outside the repository by default; set stateFile in pkgi.config.ts to keep it in the repo and share the notes.'
