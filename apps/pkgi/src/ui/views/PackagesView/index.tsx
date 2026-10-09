@@ -36,6 +36,7 @@ export const TYPE_LABELS: Record<DependencyType, string> = {
 };
 
 type Colors = ReturnType<typeof useColors>;
+type SupportColors = Pick<Colors, 'error' | 'warn' | 'ok' | 'muted'>;
 
 /** The colour an update is drawn in: the web page's chips — major red, minor amber, patch green. */
 export const updateColor = (row: PackageRow, colors: Colors) => {
@@ -46,7 +47,7 @@ export const updateColor = (row: PackageRow, colors: Colors) => {
   return colors.muted;
 };
 
-export const supportColor = (support: SupportInfo | undefined, colors: Colors) =>
+export const supportColor = (support: SupportInfo | undefined, colors: SupportColors) =>
   support?.status === 'eol'
     ? colors.error
     : support?.status === 'ending' || support?.status === 'stale'
@@ -55,8 +56,11 @@ export const supportColor = (support: SupportInfo | undefined, colors: Colors) =
         ? colors.ok
         : colors.muted;
 
-export const packageColor = (row: PackageRow, support: SupportInfo | undefined, colors: Colors) =>
-  row.deprecated ? colors.error : supportColor(support, colors);
+export const packageColor = (
+  row: Pick<PackageRow, 'deprecated'>,
+  support: SupportInfo | undefined,
+  colors: SupportColors,
+) => (row.deprecated ? colors.error : supportColor(support, colors));
 
 export const supportGroup = (row: Pick<PackageRow, 'deprecated'>, support?: SupportInfo) =>
   row.deprecated || isUnsupported(support)
@@ -217,91 +221,83 @@ const PackageDetail = ({
             </Text>
           </Field>
         )}
-        <>
-          {!support && (
-            <Field label="Support">
-              <Text color={colors.muted} wrap="wrap">
-                {row.local
-                  ? 'Local dependency — EOL information unavailable.'
-                  : 'No confirmed EOL information for this release line.'}
-              </Text>
-            </Field>
-          )}
-          <Field label="npm publish">
-            <Text color={colors.muted} wrap="truncate">
-              {'Version'.padEnd(versionWidth) +
-                '  ' +
-                'Date'.padEnd(10) +
-                '  ' +
-                'Age'.padStart(6) +
-                '  Stale if'}
-            </Text>
-          </Field>
-          <Field label="Any release">
-            <Text
-              color={
-                !support?.maintenance?.lastPublished
-                  ? colors.muted
-                  : Date.now() - Date.parse(support.maintenance.lastPublished) > STALE_PACKAGE_MS
-                    ? colors.warn
-                    : colors.ok
-              }
-              wrap="truncate"
-            >
-              {releaseMetrics(metrics?.lastVersion, metrics?.lastPublished, '>730d', versionWidth)}
-            </Text>
-          </Field>
-          <Field label="Your release">
-            <Text
-              color={
-                !support?.maintenance?.installedPublished
-                  ? colors.muted
-                  : Date.now() - Date.parse(support.maintenance.installedPublished) >
-                      STALE_VERSION_MS
-                    ? colors.warn
-                    : colors.ok
-              }
-              wrap="truncate"
-            >
-              {releaseMetrics(row.current, metrics?.installedPublished, '>365d', versionWidth)}
-            </Text>
-          </Field>
-          <Field label="Major latest">
-            <Text color={colors.muted} wrap="truncate">
-              {releaseMetrics(
-                metrics?.lineVersion,
-                metrics?.linePublished,
-                'context',
-                versionWidth,
-              )}
-            </Text>
-          </Field>
-          <Field label="Major gap">
-            <Text
-              color={
-                support?.maintenance?.majorGap === undefined
-                  ? colors.muted
-                  : support.maintenance.majorGap > 0
-                    ? colors.warn
-                    : colors.ok
-              }
-              wrap="wrap"
-            >
-              {support?.maintenance?.majorGap === undefined
-                ? 'Unknown'
-                : support.maintenance.majorGap + ' behind latest'}{' '}
-              · context only
-            </Text>
-          </Field>
-          <Field label="Rules">
+        {!support && (
+          <Field label="Support">
             <Text color={colors.muted} wrap="wrap">
-              Stale = any release &gt;730d OR your exact release &gt;365d. Any release includes
-              prereleases. Major latest is context only. Green = below threshold; amber = threshold
-              exceeded; gray = unknown. Activity ≠ support. EOL uses published policy; ending =
-              within 90d.
+              {row.local
+                ? 'Local dependency — EOL information unavailable.'
+                : 'No confirmed EOL information for this release line.'}
             </Text>
           </Field>
-        </>
+        )}
+        <Field label="npm publish">
+          <Text color={colors.muted} wrap="truncate">
+            {'Version'.padEnd(versionWidth) +
+              '  ' +
+              'Date'.padEnd(10) +
+              '  ' +
+              'Age'.padStart(6) +
+              '  Stale if'}
+          </Text>
+        </Field>
+        <Field label="Any release">
+          <Text
+            color={
+              !support?.maintenance?.lastPublished
+                ? colors.muted
+                : Date.now() - Date.parse(support.maintenance.lastPublished) > STALE_PACKAGE_MS
+                  ? colors.warn
+                  : colors.ok
+            }
+            wrap="truncate"
+          >
+            {releaseMetrics(metrics?.lastVersion, metrics?.lastPublished, '>730d', versionWidth)}
+          </Text>
+        </Field>
+        <Field label="Your release">
+          <Text
+            color={
+              !support?.maintenance?.installedPublished
+                ? colors.muted
+                : Date.now() - Date.parse(support.maintenance.installedPublished) > STALE_VERSION_MS
+                  ? colors.warn
+                  : colors.ok
+            }
+            wrap="truncate"
+          >
+            {releaseMetrics(row.current, metrics?.installedPublished, '>365d', versionWidth)}
+          </Text>
+        </Field>
+        <Field label="Major latest">
+          <Text color={colors.muted} wrap="truncate">
+            {releaseMetrics(metrics?.lineVersion, metrics?.linePublished, 'context', versionWidth)}
+          </Text>
+        </Field>
+        <Field label="Major gap">
+          <Text
+            color={
+              support?.maintenance?.majorGap === undefined
+                ? colors.muted
+                : support.maintenance.majorGap > 0
+                  ? colors.warn
+                  : colors.ok
+            }
+            wrap="wrap"
+          >
+            {support?.maintenance?.majorGap === undefined
+              ? 'Unknown'
+              : support.maintenance.majorGap + ' behind latest'}{' '}
+            · context only
+          </Text>
+        </Field>
+        <Field label="Rules">
+          <Text color={colors.muted} wrap="wrap">
+            Stale = any release &gt;730d OR your exact release &gt;365d. Any release includes
+            prereleases. Major latest is context only. Green = below threshold; amber = threshold
+            exceeded; gray = unknown. Activity ≠ support. EOL uses published policy; ending = within
+            90d.
+          </Text>
+        </Field>
         {details?.license && (
           <Field label="License">
             <Text color={colors.muted}>{details.license}</Text>

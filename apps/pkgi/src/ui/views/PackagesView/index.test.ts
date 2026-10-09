@@ -1,7 +1,13 @@
 import { expect, test } from 'bun:test';
 
 import type { SupportInfo } from '../../../core/eol';
-import { registryUpdateAge, releaseMetrics, supportGroup } from './index';
+import {
+  packageColor,
+  registryUpdateAge,
+  releaseMetrics,
+  supportColor,
+  supportGroup,
+} from './index';
 
 const support = (status: SupportInfo['status']): SupportInfo => ({
   status,
@@ -52,4 +58,22 @@ test('release metric columns align for different versions, ages and unavailable 
   expect(rows[0]?.slice(26, 32)).toBe('    8d');
   expect(rows[2]?.slice(14, 24)).toBe('?         ');
   expect(rows[3]?.slice(0, 12)).toBe('1.0.0-beta.…');
+});
+
+test('list and detail share support colors independently of grouping mode', () => {
+  const colors = { error: 'red', warn: 'yellow', ok: 'green', muted: 'gray' };
+  const expectations = {
+    eol: 'red',
+    ending: 'yellow',
+    stale: 'yellow',
+    supported: 'green',
+    unknown: 'gray',
+  } as const;
+  for (const [status, expected] of Object.entries(expectations)) {
+    const verdict = support(status as SupportInfo['status']);
+    expect(supportColor(verdict, colors)).toBe(expected);
+    expect(packageColor({ deprecated: undefined }, verdict, colors)).toBe(expected);
+  }
+  expect(packageColor({ deprecated: 'deprecated' }, support('supported'), colors)).toBe('red');
+  expect(packageColor({ deprecated: undefined }, undefined, colors)).toBe('gray');
 });
