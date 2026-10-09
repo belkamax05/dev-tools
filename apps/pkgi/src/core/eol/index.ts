@@ -88,6 +88,13 @@ export type SupportStatus = 'supported' | 'ending' | 'eol' | 'stale' | 'unknown'
 
 export interface SupportInfo {
   status: SupportStatus;
+  /** Exact npm publish timestamps, not package metadata modification dates. */
+  maintenance?: {
+    lastPublished?: string;
+    linePublished?: string;
+    major?: number;
+    majorGap?: number;
+  };
   /** The endoflife.date product, or `npm` for a verdict read from the registry. */
   product: string;
   /** Where the verdict comes from: a published support window, or release dates. */

@@ -104,10 +104,10 @@ detail panel, `e` to group all packages by support status), in `pkgi list` (the 
   Express, Tailwind, Ionic, jQuery, Bootstrap, Ember, Bun, pnpm, Yarn (`ENDOFLIFE_PRODUCTS` in
   `src/core/eol`). `EOL` past the end, `EOL <date>` within 90 days, `→ <month>` when supported.
 - **The registry** for everything else (and lines endoflife.date doesn't list): `stale` when the
-  package has published nothing for 2 years, or when the major line in use has had no release for
-  a year while `latest` is 2+ majors ahead. Never "supported" — recent releases show activity,
-  not a promise. The line check needs the full registry document, so it is fetched only for
-  packages 2+ majors behind, and its result is cached for a week (`~/.cache/pkgi/release-lines.json`).
+  package has published nothing for 730 days (including prereleases), or when the major line in use has had no release for
+  365 days while `latest` is 2+ majors ahead. No published support window means "unknown", even with recent activity. Never "supported" — recent releases show activity,
+  not a promise. Both checks use per-version npm publish timestamps, never metadata modification dates.
+  The full registry document is fetched for packages being assessed, and compact release activity is cached for a week (`~/.cache/pkgi/release-lines.json`).
 
 ## Reports
 

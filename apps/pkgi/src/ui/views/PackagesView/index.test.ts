@@ -29,8 +29,8 @@ test('support groups retain every verdict and prioritize deprecation', () => {
 
 test('registry update age handles missing, invalid and future dates', () => {
   const now = Date.parse('2026-10-09');
-  expect(registryUpdateAge('2026-10-01', now)).toBe('2026-10-01 · 8 days ago (registry)');
-  expect(registryUpdateAge(undefined, now)).toBe('Registry update date unavailable');
-  expect(registryUpdateAge('invalid', now)).toBe('Registry update date unavailable');
+  expect(registryUpdateAge('2026-10-01', now)).toBe('2026-10-01 · 8 days ago (npm publish)');
+  expect(registryUpdateAge(undefined, now)).toBe('Publish date unavailable');
+  expect(registryUpdateAge('invalid', now)).toBe('Publish date unavailable');
   expect(registryUpdateAge('2026-10-10', now)).toContain('today');
 });

@@ -245,11 +245,12 @@ const timesMemo = new Map<string, Promise<Record<string, string>>>();
 
 /**
  * When each version was published — only in the *full* document, which can be large, so it is
- * fetched only when the version picker is opened on a package, and kept for the session.
+ * used by maintenance assessment and the version picker, and kept for the session.
  */
 export const getPublishTimes = (
   name: string,
   registry: string,
+  force = false,
 ): Promise<Record<string, string>> => {
   const key = `${registry}|${name}`;
   const known = timesMemo.get(key);
@@ -294,7 +295,12 @@ export type ReleaseLines = Record<number, string>;
 export const toReleaseLines = (times: Record<string, string>): ReleaseLines => {
   const lines: ReleaseLines = {};
   for (const [version, time] of Object.entries(times)) {
-    if (version === 'created' || version === 'modified' || isPrerelease(version)) continue;
+    if (
+      !/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) ||
+      isPrerelease(version) ||
+      !Number.isFinite(Date.parse(time))
+    )
+      continue;
     const major = Number.parseInt(version, 10);
     if (Number.isNaN(major)) continue;
     const known = lines[major];
@@ -303,21 +309,39 @@ export const toReleaseLines = (times: Record<string, string>): ReleaseLines => {
   return lines;
 };
 
+export interface ReleaseActivity {
+  lines: ReleaseLines;
+  lastPublished?: string;
+}
+
+export const toReleaseActivity = (times: Record<string, string>): ReleaseActivity => ({
+  lines: toReleaseLines(times),
+  lastPublished: Object.entries(times)
+    .filter(
+      ([version, time]) =>
+        /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) &&
+        Number.isFinite(Date.parse(time)),
+    )
+    .map(([, time]) => time)
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0],
+});
+
 const LINES_FILE = () => join(pkgiCacheDir(), 'release-lines.json');
 /** Old lines only ever get fewer releases; a week-old answer is still right. */
 const LINES_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-let linesCache: Record<string, { fetchedAt: number; lines: ReleaseLines }> | undefined;
+let linesCache:
+  | Record<string, { fetchedAt: number; lines: ReleaseLines; activity?: ReleaseActivity }>
+  | undefined;
 
 /**
- * {@link ReleaseLines} for one package. Needs the *full* registry document (only it has publish
- * times), which can be megabytes — so callers ask only for packages a major or more behind, and
- * the folded answer, a few bytes, is kept on disk for a week.
+ * Exact publish activity from the full registry document. Only the compact result is cached
+ * on disk for a week. Older line-only cache entries are refreshed to obtain package activity.
  */
-export const getReleaseLines = async (
+export const getReleaseActivity = async (
   name: string,
   registry: string,
   force = false,
-): Promise<ReleaseLines | undefined> => {
+): Promise<ReleaseActivity | undefined> => {
   if (!linesCache) {
     try {
       linesCache = JSON.parse(await Bun.file(LINES_FILE()).text());
@@ -328,16 +352,20 @@ export const getReleaseLines = async (
   const store = linesCache ?? {};
   const key = cacheKey(registry, name);
   const cached = store[key];
-  if (cached && !force && Date.now() - cached.fetchedAt < LINES_MAX_AGE_MS) return cached.lines;
-  const times = await getPublishTimes(name, registry);
-  if (!Object.keys(times).length) return cached?.lines;
-  const lines = toReleaseLines(times);
-  store[key] = { fetchedAt: Date.now(), lines };
+  if (cached?.activity && !force && Date.now() - cached.fetchedAt < LINES_MAX_AGE_MS)
+    return cached.activity;
+  const times = await getPublishTimes(name, registry, force);
+  if (!Object.keys(times).length) return cached?.activity;
+  const activity = toReleaseActivity(times);
+  store[key] = { fetchedAt: Date.now(), lines: activity.lines, activity };
   try {
     await mkdir(pkgiCacheDir(), { recursive: true });
     const temporary = `${LINES_FILE()}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
     await writeFile(temporary, JSON.stringify(store));
     await rename(temporary, LINES_FILE());
   } catch {}
-  return lines;
+  return activity;
 };
+
+export const getReleaseLines = async (name: string, registry: string, force = false) =>
+  (await getReleaseActivity(name, registry, force))?.lines;

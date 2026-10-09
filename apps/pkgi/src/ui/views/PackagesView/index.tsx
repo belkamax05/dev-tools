@@ -18,7 +18,14 @@ import { readManifest, removeCommand, setVersionCommand, shellQuote } from '../.
 import { buildRows, fetchInfos, isOutdated, type PackageRow } from '../../../core/packages';
 import { getVersionDetails, type VersionDetails } from '../../../core/registry';
 import { majorDistance } from '../../../core/semver';
-import { getManyPackageSupport, isUnsupported, supportLabel } from '../../../core/support';
+import {
+  getManyPackageSupport,
+  isUnsupported,
+  STALE_PACKAGE_MS,
+  STALE_LINE_MS,
+  STALE_LINE_MAJORS,
+  supportLabel,
+} from '../../../core/support';
 import type { ViewProps } from '../../types';
 import VersionPicker from '../../VersionPicker';
 
@@ -51,10 +58,10 @@ export const supportGroup = (row: Pick<PackageRow, 'deprecated'>, support?: Supp
 
 export const registryUpdateAge = (modified?: string, now = Date.now()): string => {
   const date = modified ? Date.parse(modified) : Number.NaN;
-  if (!Number.isFinite(date)) return 'Registry update date unavailable';
+  if (!Number.isFinite(date)) return 'Publish date unavailable';
   const days = Math.max(0, Math.floor((now - date) / 86400000));
   return (
-    modified?.slice(0, 10) + ' · ' + (days === 0 ? 'today' : days + ' days ago') + ' (registry)'
+    modified?.slice(0, 10) + ' · ' + (days === 0 ? 'today' : days + ' days ago') + ' (npm publish)'
   );
 };
 
@@ -192,16 +199,63 @@ const PackageDetail = ({
                 </Text>
               </Field>
             )}
-            <Field label="Last update">
-              <Text color={colors.muted} wrap="wrap">
-                {registryUpdateAge(row.info?.modified)}
+            <Field label="Package">
+              <Text
+                color={
+                  !support?.maintenance?.lastPublished
+                    ? colors.muted
+                    : Date.now() - Date.parse(support.maintenance.lastPublished) > STALE_PACKAGE_MS
+                      ? colors.warn
+                      : colors.ok
+                }
+                wrap="wrap"
+              >
+                {registryUpdateAge(support?.maintenance?.lastPublished)} · stale if &gt;730d
               </Text>
             </Field>
-            <Field label="EOL / stale">
+            <Field
+              label={
+                support?.maintenance?.major === undefined
+                  ? 'Used major'
+                  : support.maintenance.major + '.x stable'
+              }
+            >
+              <Text
+                color={
+                  !support?.maintenance?.linePublished
+                    ? colors.muted
+                    : Date.now() - Date.parse(support.maintenance.linePublished) > STALE_LINE_MS
+                      ? colors.warn
+                      : colors.ok
+                }
+                wrap="wrap"
+              >
+                {registryUpdateAge(support?.maintenance?.linePublished)} · old if &gt;365d
+              </Text>
+            </Field>
+            <Field label="Major gap">
+              <Text
+                color={
+                  support?.maintenance?.majorGap === undefined
+                    ? colors.muted
+                    : support.maintenance.majorGap >= STALE_LINE_MAJORS
+                      ? colors.warn
+                      : colors.ok
+                }
+                wrap="wrap"
+              >
+                {support?.maintenance?.majorGap === undefined
+                  ? 'Unknown'
+                  : support.maintenance.majorGap + ' behind latest'}{' '}
+                · stale line if ≥2 AND old
+              </Text>
+            </Field>
+            <Field label="Rules">
               <Text color={colors.muted} wrap="wrap">
-                EOL: published support has ended. Ending: support ends within 90 days. Stale: no
-                package release for 2 years, or no release on the installed major for 1 year while
-                2+ majors behind. Recent activity does not guarantee support.
+                Stale = package &gt;730d OR (major &gt;365d AND gap ≥2). Package includes
+                prereleases; major counts stable releases only. Green = below threshold; amber =
+                threshold exceeded; gray = unknown. Activity ≠ support. EOL uses published policy;
+                ending = within 90d.
               </Text>
             </Field>
           </>

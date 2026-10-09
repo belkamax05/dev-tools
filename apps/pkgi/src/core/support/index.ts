@@ -1,5 +1,5 @@
 import { ENDOFLIFE_PRODUCTS, getSupport, type SupportInfo } from '../eol';
-import { getReleaseLines, type PackageInfo, type ReleaseLines } from '../registry';
+import { getReleaseActivity, type PackageInfo, type ReleaseLines } from '../registry';
 import { parseVersion } from '../semver';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -21,14 +21,14 @@ export const assessMaintenance = ({
   name,
   current,
   latest,
-  modified,
+  lastPublished,
   lines,
   now = Date.now(),
 }: {
   name: string;
   current: string;
   latest?: string;
-  modified?: string;
+  lastPublished?: string;
   lines?: ReleaseLines;
   now?: number;
 }): SupportInfo | undefined => {
@@ -43,8 +43,8 @@ export const assessMaintenance = ({
     source,
   });
 
-  if (modified && now - Date.parse(modified) > STALE_PACKAGE_MS)
-    return stale(`no release since ${month(modified)}`);
+  if (lastPublished && now - Date.parse(lastPublished) > STALE_PACKAGE_MS)
+    return stale(`no release since ${month(lastPublished)}`);
 
   const used = parseVersion(current)?.major;
   const newest = latest ? parseVersion(latest)?.major : undefined;
@@ -59,7 +59,7 @@ export const assessMaintenance = ({
   return undefined;
 };
 
-/** Worth the full registry document: far enough behind for the line check to apply at all. */
+/** Whether the major-version gap meets the stale-line threshold. */
 export const needsReleaseLines = (current: string, latest?: string): boolean => {
   const used = parseVersion(current)?.major;
   const newest = latest ? parseVersion(latest)?.major : undefined;
@@ -69,7 +69,7 @@ export const needsReleaseLines = (current: string, latest?: string): boolean => 
 /**
  * Whether the version in use is still supported: endoflife.date's published window for the
  * packages it tracks, and for every other one — or a line endoflife.date doesn't list — a
- * judgement from the registry's release dates. Undefined when there is nothing to say.
+ * judgement from exact registry publish dates. Unknown verdicts retain their measurements.
  */
 export const getPackageSupport = async (
   name: string,
@@ -78,21 +78,38 @@ export const getPackageSupport = async (
   { registry, force = false }: { registry: string; force?: boolean },
 ): Promise<SupportInfo | undefined> => {
   if (!current) return undefined;
-  if (ENDOFLIFE_PRODUCTS[name]) {
-    const published = await getSupport(name, current, force);
-    if (published && published.status !== 'unknown') return published;
-  }
-  if (!info || info.error) return undefined;
-  const lines = needsReleaseLines(current, info.latest)
-    ? await getReleaseLines(name, registry, force)
-    : undefined;
-  return assessMaintenance({
-    name,
-    current,
-    latest: info.latest,
-    modified: info.modified,
-    lines,
-  });
+  const published = ENDOFLIFE_PRODUCTS[name] ? await getSupport(name, current, force) : undefined;
+  if (!info || info.error) return published;
+  const activity = await getReleaseActivity(name, registry, force);
+  const major = parseVersion(current)?.major;
+  const newest = info.latest ? parseVersion(info.latest)?.major : undefined;
+  const maintenance = {
+    lastPublished: activity?.lastPublished,
+    linePublished: major === undefined ? undefined : activity?.lines[major],
+    major,
+    majorGap: major === undefined || newest === undefined ? undefined : Math.max(0, newest - major),
+  };
+  const verdict =
+    published && published.status !== 'unknown'
+      ? published
+      : assessMaintenance({
+          name,
+          current,
+          latest: info.latest,
+          lastPublished: activity?.lastPublished,
+          lines: activity?.lines,
+        });
+  return {
+    ...(verdict ?? {
+      status: 'unknown',
+      product: 'npm',
+      basis: 'registry',
+      summary: 'No confirmed EOL information',
+      lts: false,
+      source: `https://www.npmjs.com/package/${name}?activeTab=versions`,
+    }),
+    maintenance,
+  };
 };
 
 /** Many at once, a few in flight — the full documents behind the line check can be large. */
