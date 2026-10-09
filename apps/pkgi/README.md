@@ -96,7 +96,7 @@ modules list under `install`, and under direnv watch the `--print-watched` files
 ## Support: end of life and stale packages
 
 Every package gets a support verdict where there is one to give, in the dashboard (each row, the
-detail panel, `e` to show only the ones that need attention), in `pkgi list` (the SUPPORT column),
+detail panel, `e` to group all packages by support status), in `pkgi list` (the SUPPORT column),
 `pkgi eol` and `pkgi report`:
 
 - **endoflife.date** for what it publishes support windows for — Node (`@types/node`), React and
@@ -126,7 +126,7 @@ dropped.
 
 | Tab | Keys |
 | --- | --- |
-| 📦 Packages | `u`/Enter update to latest · `U` to the prerelease · `v` pick any version · `A` every minor/patch update at once (majors are left to you) · `n` note · `x` remove · `w` npm page · `o` outdated only · `e` EOL/stale/deprecated only · `/` filter · `c` ask the registry now |
+| 📦 Packages | `u`/Enter update to latest · `U` to the prerelease · `v` pick any version · `A` every minor/patch update at once (majors are left to you) · `n` note · `x` remove · `w` npm page · `o` outdated only · `e` EOL/stale mode · `/` filter · `c` ask the registry now |
 | 📜 Scripts | `package.json`'s scripts, then its hooks and lifecycle scripts (`prebuild`, `postinstall`…) · Enter run · `a` run with arguments · `/` filter. A script gets the real terminal like any handoff — Ctrl+C stops it, Enter comes back to the list with its result |
 | 🔀 Compare | first a picker: tick folders (Space or click) from `pkgi.config.ts`, the ones saved here and the ones found nearby (workspace members, sibling projects); `a` adds a path, `s` saves a found one. Then a row per package with each folder's version: `a`/Enter align every folder to the newest, `u` just this one, `d` only differences, `p` back to the folders |
 | 🔍 Add | `/` search the registry · `i`/Enter add · `d` prod/dev · `v` a specific version |

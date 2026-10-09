@@ -14,8 +14,8 @@ export interface Session {
   selected: Record<string, string | undefined>;
   filter: string;
   onlyOutdated: boolean;
-  /** Packages tab: only those past or near their end of life, stale or deprecated. */
-  onlyUnsupported?: boolean;
+  /** Packages tab: group all packages by support status. */
+  supportMode?: boolean;
   onlyDifferent: boolean;
   /** The Scripts tab's name/command filter. */
   scriptFilter?: string;

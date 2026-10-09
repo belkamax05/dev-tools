@@ -1,10 +1,13 @@
-import { type DOMElement, measureElement, Text } from 'ink';
-import { type ReactNode, useEffect, useMemo, useRef } from 'react';
-import useClickable from '../../hooks/useClickable';
-import useScrollWindow, { windowEnd, windowStart } from '../../hooks/useScrollWindow';
-import { useColors } from '../../providers/TuiThemeProvider';
-import type { TerminalMouseEvent } from '../../terminal/mouse';
-import Box from '../Box';
+import { type DOMElement, measureElement, Text } from "ink";
+import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import useClickable from "../../hooks/useClickable";
+import useScrollWindow, {
+	windowEnd,
+	windowStart,
+} from "../../hooks/useScrollWindow";
+import { useColors } from "../../providers/TuiThemeProvider";
+import type { TerminalMouseEvent } from "../../terminal/mouse";
+import Box from "../Box";
 
 /**
  * One row of a `PickList`.
@@ -15,244 +18,268 @@ import Box from '../Box';
  * serve the whole list.
  */
 export interface PickItem<T = unknown> {
-  id: string;
-  label: string;
-  /** Secondary text, dimmed. Dropped in grid mode, where there is no room. */
-  hint?: string;
-  /**
-   * The hint's colour when the row is neither selected nor hovered — to make
-   * one status stand out from the dimmed rest. The selected and hovered rows
-   * keep their own colours: an accent hint on an accent highlight disappears.
-   */
-  hintColor?: string;
-  value?: T;
-  isHeader?: boolean;
-  disabled?: boolean;
-  /** Marks the option that is currently in force, independent of the cursor. */
-  isCurrent?: boolean;
-  /**
-   * Small buttons drawn between the cursor marker and the label — a tree's fold
-   * triangle, a checkbox. Each is its own click target: a click on one runs it
-   * and does *not* also count as a click on the row, so a row can be selected
-   * without toggling it and toggled without opening it.
-   */
-  controls?: PickItemControl[];
-  /** Blank cells before the controls — a tree's depth, so its controls line up per level. */
-  indent?: number;
+	id: string;
+	label: string;
+	/** Secondary text, dimmed. Dropped in grid mode, where there is no room. */
+	hint?: string;
+	/**
+	 * The hint's colour when the row is neither selected nor hovered — to make
+	 * one status stand out from the dimmed rest. The selected and hovered rows
+	 * keep their own colours: an accent hint on an accent highlight disappears.
+	 */
+	hintColor?: string;
+	value?: T;
+	isHeader?: boolean;
+	disabled?: boolean;
+	/** Marks the option that is currently in force, independent of the cursor. */
+	isCurrent?: boolean;
+	/**
+	 * Small buttons drawn between the cursor marker and the label — a tree's fold
+	 * triangle, a checkbox. Each is its own click target: a click on one runs it
+	 * and does *not* also count as a click on the row, so a row can be selected
+	 * without toggling it and toggled without opening it.
+	 */
+	controls?: PickItemControl[];
+	/** Blank cells before the controls — a tree's depth, so its controls line up per level. */
+	indent?: number;
 }
 
 export interface PickItemControl {
-  id: string;
-  /** What is drawn — keep it a fixed width across rows, or the labels stop lining up. */
-  glyph: string;
-  color?: string;
-  onPress: () => void;
+	id: string;
+	/** What is drawn — keep it a fixed width across rows, or the labels stop lining up. */
+	glyph: string;
+	color?: string;
+	onPress: () => void;
 }
 
 /** The same hit test `useClickable` does, for a box that is not itself subscribed. */
 const isInside = (node: DOMElement | null, event: TerminalMouseEvent) => {
-  if (!node) return false;
-  const { x, y, width, height } = measureElement(node);
-  const column = event.column - 1;
-  const row = event.row - 1;
-  return column >= x && column < x + width && row >= y && row < y + height;
+	if (!node) return false;
+	const { x, y, width, height } = measureElement(node);
+	const column = event.column - 1;
+	const row = event.row - 1;
+	return column >= x && column < x + width && row >= y && row < y + height;
 };
 
 const RowControl = ({
-  control,
-  register,
-  onAccent,
+	control,
+	register,
+	onAccent,
 }: {
-  control: PickItemControl;
-  register: (node: DOMElement | null) => void;
-  /**
-   * The row under it is drawn in the accent (selected, or under the pointer). The control's own
-   * colour — a green tick, a grey box — is then unreadable against the fill, so it takes the
-   * row's text colour like the label beside it, hovered or not.
-   */
-  onAccent: boolean;
+	control: PickItemControl;
+	register: (node: DOMElement | null) => void;
+	/**
+	 * The row under it is drawn in the accent (selected, or under the pointer). The control's own
+	 * colour — a green tick, a grey box — is then unreadable against the fill, so it takes the
+	 * row's text colour like the label beside it, hovered or not.
+	 */
+	onAccent: boolean;
 }) => {
-  const colors = useColors();
-  const ref = useRef<DOMElement>(null);
-  const { isHovered } = useClickable(ref, { onClick: () => control.onPress() });
-  return (
-    <Box
-      ref={(node: DOMElement | null) => {
-        ref.current = node;
-        register(node);
-      }}
-      marginRight={1}
-      flexShrink={0}
-      backgroundColor={isHovered && !onAccent ? colors.accent : undefined}
-    >
-      <Text color={isHovered || onAccent ? colors.accentText : (control.color ?? colors.muted)}>
-        {control.glyph}
-      </Text>
-    </Box>
-  );
+	const colors = useColors();
+	const ref = useRef<DOMElement>(null);
+	const { isHovered } = useClickable(ref, { onClick: () => control.onPress() });
+	return (
+		<Box
+			ref={(node: DOMElement | null) => {
+				ref.current = node;
+				register(node);
+			}}
+			marginRight={1}
+			flexShrink={0}
+			backgroundColor={isHovered && !onAccent ? colors.accent : undefined}
+		>
+			<Text
+				color={
+					isHovered || onAccent
+						? colors.accentText
+						: (control.color ?? colors.muted)
+				}
+			>
+				{control.glyph}
+			</Text>
+		</Box>
+	);
 };
 
 interface PickCellProps<T> {
-  item: PickItem<T>;
-  /**
-   * Cells to pad the label into, or undefined to let the row flex.
-   *
-   * Only a caller that gave the list a width knows how wide a cell is; a list
-   * that is flexing does not, and guessing produces labels truncated to a width
-   * the panel never had. So the two cases lay out differently: a measured list
-   * pads its labels into a column, a flexing one lets Yoga place them.
-   */
-  width?: number;
-  isSelected: boolean;
-  isFocused: boolean;
-  onHover: (hovered: boolean) => void;
-  onClick: () => void;
-  /** Select without activating — what a click on one of the row's controls also does. */
-  onSelectOnly: () => void;
-  renderCell?: (item: PickItem<T>, width: number, selected: boolean) => ReactNode;
+	item: PickItem<T>;
+	/**
+	 * Cells to pad the label into, or undefined to let the row flex.
+	 *
+	 * Only a caller that gave the list a width knows how wide a cell is; a list
+	 * that is flexing does not, and guessing produces labels truncated to a width
+	 * the panel never had. So the two cases lay out differently: a measured list
+	 * pads its labels into a column, a flexing one lets Yoga place them.
+	 */
+	width?: number;
+	isSelected: boolean;
+	isFocused: boolean;
+	onHover: (hovered: boolean) => void;
+	onClick: () => void;
+	/** Select without activating — what a click on one of the row's controls also does. */
+	onSelectOnly: () => void;
+	renderCell?: (
+		item: PickItem<T>,
+		width: number,
+		selected: boolean,
+	) => ReactNode;
 }
 
 const PickCell = <T,>({
-  item,
-  width,
-  isSelected,
-  isFocused,
-  onHover,
-  onClick,
-  onSelectOnly,
-  renderCell,
+	item,
+	width,
+	isSelected,
+	isFocused,
+	onHover,
+	onClick,
+	onSelectOnly,
+	renderCell,
 }: PickCellProps<T>) => {
-  const colors = useColors();
-  const ref = useRef<DOMElement>(null);
-  const controlNodes = useRef(new Map<string, DOMElement>());
-  const { isHovered } = useClickable(ref, {
-    onClick: (event) => {
-      //? A control handles its own click; the row stepping in too would select
-      //? or open whatever the control was only meant to toggle
-      for (const node of controlNodes.current.values()) if (isInside(node, event)) return;
-      onClick();
-    },
-    isActive: !item.isHeader && !item.disabled,
-  });
+	const colors = useColors();
+	const ref = useRef<DOMElement>(null);
+	const controlNodes = useRef(new Map<string, DOMElement>());
+	const { isHovered } = useClickable(ref, {
+		onClick: (event) => {
+			//? A control handles its own click; the row stepping in too would select
+			//? or open whatever the control was only meant to toggle
+			for (const node of controlNodes.current.values())
+				if (isInside(node, event)) return;
+			onClick();
+		},
+		isActive: !item.isHeader && !item.disabled,
+	});
 
-  const onHoverRef = useRef(onHover);
-  onHoverRef.current = onHover;
-  useEffect(() => {
-    onHoverRef.current(isHovered);
-  }, [isHovered]);
+	const onHoverRef = useRef(onHover);
+	onHoverRef.current = onHover;
+	useEffect(() => {
+		onHoverRef.current(isHovered);
+	}, [isHovered]);
 
-  if (item.isHeader) {
-    return (
-      <Box>
-        <Text bold color={colors.muted} wrap="truncate">
-          {item.label.toUpperCase()}
-        </Text>
-      </Box>
-    );
-  }
+	if (item.isHeader) {
+		return (
+			<Box>
+				<Text bold color={colors.muted} wrap="truncate">
+					{item.label.toUpperCase()}
+				</Text>
+			</Box>
+		);
+	}
 
-  if (renderCell && width !== undefined) {
-    return (
-      <Box ref={ref} width={width} flexShrink={0} flexDirection="column">
-        {renderCell(item, width, isSelected || isHovered)}
-      </Box>
-    );
-  }
+	if (renderCell && width !== undefined) {
+		return (
+			<Box ref={ref} width={width} flexShrink={0} flexDirection="column">
+				{renderCell(item, width, isSelected || isHovered)}
+			</Box>
+		);
+	}
 
-  const highlight = isHovered || (isSelected && isFocused);
-  const color = item.disabled
-    ? colors.muted
-    : highlight
-      ? colors.accentText
-      : isSelected
-        ? colors.accent
-        : item.isCurrent
-          ? colors.ok
-          : colors.text;
+	const highlight = isHovered || (isSelected && isFocused);
+	const color = item.disabled
+		? colors.muted
+		: highlight
+			? colors.accentText
+			: isSelected
+				? colors.accent
+				: item.isCurrent
+					? colors.ok
+					: colors.text;
 
-  //? The marker column is two cells wide and always drawn, so the labels line up
-  //? whether or not anything is selected — a list whose text shifts sideways as
-  //? the cursor moves is unreadable while it moves.
-  const marker = isSelected ? '❯ ' : item.isCurrent ? '• ' : '  ';
-  const hint = item.hint ?? '';
-  const controls = item.controls ?? [];
-  //? Each control is its glyph plus the one-cell margin after it
-  const indent = ' '.repeat(item.indent ?? 0);
-  const controlsWidth =
-    indent.length + controls.reduce((total, control) => total + control.glyph.length + 1, 0);
+	//? The marker column is two cells wide and always drawn, so the labels line up
+	//? whether or not anything is selected — a list whose text shifts sideways as
+	//? the cursor moves is unreadable while it moves.
+	const marker = isSelected ? "❯ " : item.isCurrent ? "• " : "  ";
+	const hint = item.hint ?? "";
+	const controls = item.controls ?? [];
+	//? Each control is its glyph plus the one-cell margin after it
+	const indent = " ".repeat(item.indent ?? 0);
+	const controlsWidth =
+		indent.length +
+		controls.reduce((total, control) => total + control.glyph.length + 1, 0);
 
-  //? Measured list: pad the label so the hints line up into a column. The
-  //? separating space is only spent when there is a hint to separate from —
-  //? charging for it either way costs the label a column on every row that has
-  //? no hint, which is exactly enough to truncate the longest category name.
-  let labelText = item.label;
-  if (width !== undefined) {
-    const room = Math.max(
-      1,
-      width - marker.length - controlsWidth - (hint === '' ? 0 : hint.length + 1),
-    );
-    labelText = item.label.length > room ? item.label.slice(0, room) : item.label.padEnd(room);
-  }
+	//? Measured list: pad the label so the hints line up into a column. The
+	//? separating space is only spent when there is a hint to separate from —
+	//? charging for it either way costs the label a column on every row that has
+	//? no hint, which is exactly enough to truncate the longest category name.
+	//? The label wins: a hint longer than the room the label leaves (a whole package.json script,
+	//? say) is cut with `…` rather than squeezing the label down to its first letter.
+	let labelText = item.label;
+	let hintText = hint;
+	if (width !== undefined) {
+		const available = Math.max(1, width - marker.length - controlsWidth);
+		if (hint !== "") {
+			const hintRoom = available - item.label.length - 1;
+			if (hint.length > hintRoom)
+				hintText = hintRoom >= 2 ? `${hint.slice(0, hintRoom - 1)}…` : "";
+		}
+		const room = Math.max(
+			1,
+			available - (hintText === "" ? 0 : hintText.length + 1),
+		);
+		labelText =
+			item.label.length > room
+				? item.label.slice(0, room)
+				: item.label.padEnd(room);
+	}
 
-  return (
-    <Box
-      ref={ref}
-      width={width}
-      //? A flexing cell has to claim the row, or the spacer below it has nothing
-      //? to distribute and the hint is drawn hard against the end of the label
-      //? instead of at the right edge. A measured cell must not, or it would
-      //? stretch past the column width it was given.
-      flexGrow={width === undefined ? 1 : 0}
-      backgroundColor={highlight ? colors.accent : undefined}
-    >
-      <Text color={color} bold={isSelected || item.isCurrent}>
-        {marker}
-        {indent}
-      </Text>
-      {controls.map((control) => (
-        <RowControl
-          key={control.id}
-          onAccent={highlight}
-          //? The row the control is on becomes the selection too, so the detail
-          //? pane describes what was just toggled rather than whatever it was on
-          control={{
-            ...control,
-            onPress: () => {
-              onSelectOnly();
-              control.onPress();
-            },
-          }}
-          register={(node) => {
-            if (node) controlNodes.current.set(control.id, node);
-            else controlNodes.current.delete(control.id);
-          }}
-        />
-      ))}
-      <Text color={color} bold={isSelected || item.isCurrent} wrap="truncate">
-        {labelText}
-      </Text>
-      {hint !== '' && (
-        <>
-          {/* Flexing list: the spacer is what puts the hint at the right edge,
+	return (
+		<Box
+			ref={ref}
+			width={width}
+			//? A flexing cell has to claim the row, or the spacer below it has nothing
+			//? to distribute and the hint is drawn hard against the end of the label
+			//? instead of at the right edge. A measured cell must not, or it would
+			//? stretch past the column width it was given.
+			flexGrow={width === undefined ? 1 : 0}
+			backgroundColor={highlight ? colors.accent : undefined}
+		>
+			<Text color={color} bold={isSelected || item.isCurrent}>
+				{marker}
+				{indent}
+			</Text>
+			{controls.map((control) => (
+				<RowControl
+					key={control.id}
+					onAccent={highlight}
+					//? The row the control is on becomes the selection too, so the detail
+					//? pane describes what was just toggled rather than whatever it was on
+					control={{
+						...control,
+						onPress: () => {
+							onSelectOnly();
+							control.onPress();
+						},
+					}}
+					register={(node) => {
+						if (node) controlNodes.current.set(control.id, node);
+						else controlNodes.current.delete(control.id);
+					}}
+				/>
+			))}
+			<Text color={color} bold={isSelected || item.isCurrent} wrap="truncate">
+				{labelText}
+			</Text>
+			{hintText !== "" && (
+				<>
+					{/* Flexing list: the spacer is what puts the hint at the right edge,
               since there is no known width to pad against. */}
-          {width === undefined && <Box flexGrow={1} />}
-          <Text
-            color={
-              highlight
-                ? colors.accentText
-                : isSelected
-                  ? colors.muted
-                  : (item.hintColor ?? colors.muted)
-            }
-            wrap="truncate"
-          >
-            {' '}
-            {hint}
-          </Text>
-        </>
-      )}
-    </Box>
-  );
+					{width === undefined && <Box flexGrow={1} />}
+					<Text
+						color={
+							highlight
+								? colors.accentText
+								: isSelected
+									? colors.muted
+									: (item.hintColor ?? colors.muted)
+						}
+						wrap="truncate-end"
+					>
+						{" "}
+						{hintText}
+					</Text>
+				</>
+			)}
+		</Box>
+	);
 };
 
 /**
@@ -263,67 +290,74 @@ const PickCell = <T,>({
  * group's first entry at the start of a row, so the groups stay visually
  * separate instead of running together at whatever column the last one ended on.
  */
-export const packRows = <T,>(items: PickItem<T>[], columns: number): number[][] => {
-  if (columns <= 1) return items.map((_, index) => [index]);
+export const packRows = <T,>(
+	items: PickItem<T>[],
+	columns: number,
+): number[][] => {
+	if (columns <= 1) return items.map((_, index) => [index]);
 
-  const rows: number[][] = [];
-  let row: number[] = [];
-  const flush = () => {
-    if (row.length > 0) rows.push(row);
-    row = [];
-  };
+	const rows: number[][] = [];
+	let row: number[] = [];
+	const flush = () => {
+		if (row.length > 0) rows.push(row);
+		row = [];
+	};
 
-  items.forEach((item, index) => {
-    if (item.isHeader) {
-      flush();
-      rows.push([index]);
-      return;
-    }
-    row.push(index);
-    if (row.length === columns) flush();
-  });
-  flush();
-  return rows;
+	items.forEach((item, index) => {
+		if (item.isHeader) {
+			flush();
+			rows.push([index]);
+			return;
+		}
+		row.push(index);
+		if (row.length === columns) flush();
+	});
+	flush();
+	return rows;
 };
 
 export interface PickListProps<T> {
-  title?: string;
-  items: PickItem<T>[];
-  /** Index into `items`. Headers are skipped by `nextSelectable`. */
-  selected: number;
-  isFocused?: boolean;
-  visibleRows: number;
-  width?: number;
-  /**
-   * Lay short options out across the panel instead of one per row. The width is
-   * there whether or not it gets used, and a long catalogue read one entry per
-   * row is a scroll where it could have been a glance.
-   */
-  columns?: number;
-  /** Fixed height of a custom cell; windowing counts physical terminal rows. */
-  cellHeight?: number;
-  renderCell?: (item: PickItem<T>, width: number, selected: boolean) => ReactNode;
-  borderColor?: string;
-  /** Shown in place of the rows when there is nothing to list. */
-  emptyText?: string;
-  onSelect: (index: number) => void;
-  onActivate: (index: number) => void;
-  onHover?: (index: number | null) => void;
-  /**
-   * Whether a click on a row activates it as well as selecting it. Off for a
-   * list whose rows carry their own controls, where the row itself should only
-   * ever be a selection and the controls are the actions.
-   *
-   * A function decides per row, for a list that mixes the two kinds — a
-   * settings list where a click applies a theme but only selects an IDE whose
-   * checkbox is the action.
-   */
-  activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
-  /**
-   * Told which `items` are on screen — `from` inclusive, `to` exclusive — whenever the window
-   * scrolls or resizes, for a caller that lays its labels out to fit what is actually visible.
-   */
-  onWindowChange?: (from: number, to: number) => void;
+	title?: string;
+	items: PickItem<T>[];
+	/** Index into `items`. Headers are skipped by `nextSelectable`. */
+	selected: number;
+	isFocused?: boolean;
+	visibleRows: number;
+	width?: number;
+	/**
+	 * Lay short options out across the panel instead of one per row. The width is
+	 * there whether or not it gets used, and a long catalogue read one entry per
+	 * row is a scroll where it could have been a glance.
+	 */
+	columns?: number;
+	/** Fixed height of a custom cell; windowing counts physical terminal rows. */
+	cellHeight?: number;
+	renderCell?: (
+		item: PickItem<T>,
+		width: number,
+		selected: boolean,
+	) => ReactNode;
+	borderColor?: string;
+	/** Shown in place of the rows when there is nothing to list. */
+	emptyText?: string;
+	onSelect: (index: number) => void;
+	onActivate: (index: number) => void;
+	onHover?: (index: number | null) => void;
+	/**
+	 * Whether a click on a row activates it as well as selecting it. Off for a
+	 * list whose rows carry their own controls, where the row itself should only
+	 * ever be a selection and the controls are the actions.
+	 *
+	 * A function decides per row, for a list that mixes the two kinds — a
+	 * settings list where a click applies a theme but only selects an IDE whose
+	 * checkbox is the action.
+	 */
+	activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
+	/**
+	 * Told which `items` are on screen — `from` inclusive, `to` exclusive — whenever the window
+	 * scrolls or resizes, for a caller that lays its labels out to fit what is actually visible.
+	 */
+	onWindowChange?: (from: number, to: number) => void;
 }
 
 /**
@@ -336,132 +370,142 @@ export interface PickListProps<T> {
  * everywhere else.
  */
 export const PickList = <T,>({
-  title,
-  items,
-  selected,
-  isFocused = true,
-  visibleRows,
-  width,
-  columns = 1,
-  cellHeight = 1,
-  renderCell,
-  borderColor,
-  emptyText = 'Nothing here.',
-  onSelect,
-  onActivate,
-  onHover,
-  activateOnClick = true,
-  onWindowChange,
+	title,
+	items,
+	selected,
+	isFocused = true,
+	visibleRows,
+	width,
+	columns = 1,
+	cellHeight = 1,
+	renderCell,
+	borderColor,
+	emptyText = "Nothing here.",
+	onSelect,
+	onActivate,
+	onHover,
+	activateOnClick = true,
+	onWindowChange,
 }: PickListProps<T>) => {
-  const colors = useColors();
-  const rows = useMemo(() => packRows(items, columns), [items, columns]);
-  const selectedRow = useMemo(
-    () =>
-      Math.max(
-        0,
-        rows.findIndex((row) => row.includes(selected)),
-      ),
-    [rows, selected],
-  );
+	const colors = useColors();
+	const rows = useMemo(() => packRows(items, columns), [items, columns]);
+	const selectedRow = useMemo(
+		() =>
+			Math.max(
+				0,
+				rows.findIndex((row) => row.includes(selected)),
+			),
+		[rows, selected],
+	);
 
-  const heights = rows.map((row) => (items[row[0] ?? -1]?.isHeader ? 1 : cellHeight));
-  const budget = Math.max(1, visibleRows);
-  const [offset, setStart] = useScrollWindow(rows.length, selectedRow, budget, heights);
-  const last = windowStart(heights, heights.length, budget);
-  const start = Math.max(0, Math.min(offset, last));
-  const end = windowEnd(heights, start, budget);
-  const shown = rows.slice(start, end);
+	const heights = rows.map((row) =>
+		items[row[0] ?? -1]?.isHeader ? 1 : cellHeight,
+	);
+	const budget = Math.max(1, visibleRows);
+	const [offset, setStart] = useScrollWindow(
+		rows.length,
+		selectedRow,
+		budget,
+		heights,
+	);
+	const last = windowStart(heights, heights.length, budget);
+	const start = Math.max(0, Math.min(offset, last));
+	const end = windowEnd(heights, start, budget);
+	const shown = rows.slice(start, end);
 
-  const windowFrom = shown[0]?.[0] ?? 0;
-  const windowTo = (shown.at(-1)?.at(-1) ?? -1) + 1;
-  //? Only when the numbers move — a caller relaying out its labels hands back fresh `items`
-  const onWindowChangeRef = useRef(onWindowChange);
-  onWindowChangeRef.current = onWindowChange;
-  useEffect(() => {
-    onWindowChangeRef.current?.(windowFrom, windowTo);
-  }, [windowFrom, windowTo]);
+	const windowFrom = shown[0]?.[0] ?? 0;
+	const windowTo = (shown.at(-1)?.at(-1) ?? -1) + 1;
+	//? Only when the numbers move — a caller relaying out its labels hands back fresh `items`
+	const onWindowChangeRef = useRef(onWindowChange);
+	onWindowChangeRef.current = onWindowChange;
+	useEffect(() => {
+		onWindowChangeRef.current?.(windowFrom, windowTo);
+	}, [windowFrom, windowTo]);
 
-  const ref = useRef<DOMElement>(null);
-  useClickable(ref, {
-    onWheel: (event) => {
-      setStart((at) => (event.wheel === 'down' ? Math.min(at + 3, last) : Math.max(0, at - 3)));
-    },
-  });
+	const ref = useRef<DOMElement>(null);
+	useClickable(ref, {
+		onWheel: (event) => {
+			setStart((at) =>
+				event.wheel === "down" ? Math.min(at + 3, last) : Math.max(0, at - 3),
+			);
+		},
+	});
 
-  //? Two columns of border and two of padding are not available to the text.
-  //? Unknown until the caller says how wide it is — a flexing list lets Yoga
-  //? place its cells rather than padding them into a column that may not exist.
-  const inner = width === undefined ? undefined : Math.max(4, width - 4);
-  const cellWidth = inner === undefined ? undefined : Math.max(6, Math.floor(inner / columns));
-  const frameColor = borderColor ?? (isFocused ? colors.accent : colors.muted);
-  const hiddenRows = rows.length - end;
+	//? Two columns of border and two of padding are not available to the text.
+	//? Unknown until the caller says how wide it is — a flexing list lets Yoga
+	//? place its cells rather than padding them into a column that may not exist.
+	const inner = width === undefined ? undefined : Math.max(4, width - 4);
+	const cellWidth =
+		inner === undefined ? undefined : Math.max(6, Math.floor(inner / columns));
+	const frameColor = borderColor ?? (isFocused ? colors.accent : colors.muted);
+	const hiddenRows = rows.length - end;
 
-  return (
-    <Box
-      ref={ref}
-      flexDirection="column"
-      width={width}
-      borderStyle="round"
-      borderColor={frameColor}
-      paddingX={1}
-      flexGrow={width === undefined ? 1 : 0}
-      flexShrink={0}
-    >
-      {title !== undefined && (
-        <Box justifyContent="space-between">
-          <Text bold color={frameColor}>
-            {title}
-          </Text>
-          {items.length > 0 && (
-            <Text color={colors.muted}>
-              {selected + 1}/{items.length}
-            </Text>
-          )}
-        </Box>
-      )}
+	return (
+		<Box
+			ref={ref}
+			flexDirection="column"
+			width={width}
+			borderStyle="round"
+			borderColor={frameColor}
+			paddingX={1}
+			flexGrow={width === undefined ? 1 : 0}
+			flexShrink={0}
+		>
+			{title !== undefined && (
+				<Box justifyContent="space-between">
+					<Text bold color={frameColor}>
+						{title}
+					</Text>
+					{items.length > 0 && (
+						<Text color={colors.muted}>
+							{selected + 1}/{items.length}
+						</Text>
+					)}
+				</Box>
+			)}
 
-      {items.length === 0 ? (
-        <Text color={colors.muted} wrap="truncate">
-          {emptyText}
-        </Text>
-      ) : (
-        shown.map((row) => (
-          <Box key={`row-${row[0]}`} flexDirection="row">
-            {row.map((index) => {
-              const item = items[index] as PickItem<T>;
-              return (
-                <PickCell
-                  key={item.id}
-                  item={item}
-                  renderCell={renderCell}
-                  width={item.isHeader ? inner : cellWidth}
-                  isSelected={index === selected}
-                  isFocused={isFocused}
-                  onHover={(hovered) => onHover?.(hovered ? index : null)}
-                  onClick={() => {
-                    onSelect(index);
-                    const activates =
-                      typeof activateOnClick === 'function'
-                        ? activateOnClick(item)
-                        : activateOnClick;
-                    if (activates) onActivate(index);
-                  }}
-                  onSelectOnly={() => onSelect(index)}
-                />
-              );
-            })}
-          </Box>
-        ))
-      )}
+			{items.length === 0 ? (
+				<Text color={colors.muted} wrap="truncate">
+					{emptyText}
+				</Text>
+			) : (
+				shown.map((row) => (
+					<Box key={`row-${row[0]}`} flexDirection="row">
+						{row.map((index) => {
+							const item = items[index] as PickItem<T>;
+							return (
+								<PickCell
+									key={item.id}
+									item={item}
+									renderCell={renderCell}
+									width={item.isHeader ? inner : cellWidth}
+									isSelected={index === selected}
+									isFocused={isFocused}
+									onHover={(hovered) => onHover?.(hovered ? index : null)}
+									onClick={() => {
+										onSelect(index);
+										const activates =
+											typeof activateOnClick === "function"
+												? activateOnClick(item)
+												: activateOnClick;
+										if (activates) onActivate(index);
+									}}
+									onSelectOnly={() => onSelect(index)}
+								/>
+							);
+						})}
+					</Box>
+				))
+			)}
 
-      {hiddenRows > 0 && (
-        <Text color={colors.muted} wrap="truncate">
-          {'  '}
-          {hiddenRows} more row{hiddenRows === 1 ? '' : 's'} ↓
-        </Text>
-      )}
-    </Box>
-  );
+			{hiddenRows > 0 && (
+				<Text color={colors.muted} wrap="truncate">
+					{"  "}
+					{hiddenRows} more row{hiddenRows === 1 ? "" : "s"} ↓
+				</Text>
+			)}
+		</Box>
+	);
 };
 
 /**
@@ -470,16 +514,25 @@ export const PickList = <T,>({
  * Returns the index unchanged when there is nowhere to go, so a cursor at the
  * end of a list stays put rather than wrapping onto a heading.
  */
-export const nextSelectable = <T,>(items: PickItem<T>[], from: number, step: number): number => {
-  for (let index = from + step; index >= 0 && index < items.length; index += step) {
-    const item = items[index];
-    if (item && !item.isHeader && !item.disabled) return index;
-  }
-  return from;
+export const nextSelectable = <T,>(
+	items: PickItem<T>[],
+	from: number,
+	step: number,
+): number => {
+	for (
+		let index = from + step;
+		index >= 0 && index < items.length;
+		index += step
+	) {
+		const item = items[index];
+		if (item && !item.isHeader && !item.disabled) return index;
+	}
+	return from;
 };
 
 /** The first row a cursor may rest on — where a freshly built list starts. */
-export const firstSelectable = <T,>(items: PickItem<T>[]): number => nextSelectable(items, -1, 1);
+export const firstSelectable = <T,>(items: PickItem<T>[]): number =>
+	nextSelectable(items, -1, 1);
 
 /**
  * Where an arrow key lands in a list laid out `columns` wide.
@@ -490,28 +543,32 @@ export const firstSelectable = <T,>(items: PickItem<T>[]): number => nextSelecta
  * parks somewhere Enter would do nothing.
  */
 export const moveInList = <T,>(
-  items: PickItem<T>[],
-  columns: number,
-  from: number,
-  direction: 'up' | 'down' | 'left' | 'right',
+	items: PickItem<T>[],
+	columns: number,
+	from: number,
+	direction: "up" | "down" | "left" | "right",
 ): number => {
-  if (direction === 'left') return nextSelectable(items, from, -1);
-  if (direction === 'right') return nextSelectable(items, from, 1);
+	if (direction === "left") return nextSelectable(items, from, -1);
+	if (direction === "right") return nextSelectable(items, from, 1);
 
-  const rows = packRows(items, columns);
-  const rowAt = rows.findIndex((row) => row.includes(from));
-  if (rowAt === -1) return firstSelectable(items);
-  const column = Math.max(0, (rows[rowAt] as number[]).indexOf(from));
+	const rows = packRows(items, columns);
+	const rowAt = rows.findIndex((row) => row.includes(from));
+	if (rowAt === -1) return firstSelectable(items);
+	const column = Math.max(0, (rows[rowAt] as number[]).indexOf(from));
 
-  const step = direction === 'down' ? 1 : -1;
-  for (let index = rowAt + step; index >= 0 && index < rows.length; index += step) {
-    const row = rows[index] as number[];
-    //? Short row — the last row of a group — takes the nearest column it has.
-    const candidate = row[Math.min(column, row.length - 1)] as number;
-    const item = items[candidate];
-    if (item && !item.isHeader && !item.disabled) return candidate;
-  }
-  return from;
+	const step = direction === "down" ? 1 : -1;
+	for (
+		let index = rowAt + step;
+		index >= 0 && index < rows.length;
+		index += step
+	) {
+		const row = rows[index] as number[];
+		//? Short row — the last row of a group — takes the nearest column it has.
+		const candidate = row[Math.min(column, row.length - 1)] as number;
+		const item = items[candidate];
+		if (item && !item.isHeader && !item.disabled) return candidate;
+	}
+	return from;
 };
 
 export default PickList;

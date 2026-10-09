@@ -257,7 +257,15 @@ export const CommandsView = ({
                 {[prefix, ...path, command.name].join(' ')}
                 {command.args ? <Text color={colors.muted}>{` ${command.args}`}</Text> : null}
               </Text>
-              {command.description ? (
+              {command.description && command.source === 'script' ? (
+                //? The list cuts a long script short with `…`; here it is whole
+                <Box marginTop={1} flexDirection="column">
+                  <Text color={colors.muted}>package.json</Text>
+                  <Text color={colors.text} wrap="wrap">
+                    {command.description}
+                  </Text>
+                </Box>
+              ) : command.description ? (
                 <Text color={colors.text} wrap="wrap">
                   {command.description}
                 </Text>

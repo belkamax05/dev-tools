@@ -42,6 +42,22 @@ export const updateColor = (row: PackageRow, colors: Colors, support?: SupportIn
   return colors.muted;
 };
 
+export const supportGroup = (row: Pick<PackageRow, 'deprecated'>, support?: SupportInfo) =>
+  row.deprecated || isUnsupported(support)
+    ? 'attention'
+    : support?.status === 'supported'
+      ? 'supported'
+      : 'unknown';
+
+export const registryUpdateAge = (modified?: string, now = Date.now()): string => {
+  const date = modified ? Date.parse(modified) : Number.NaN;
+  if (!Number.isFinite(date)) return 'Registry update date unavailable';
+  const days = Math.max(0, Math.floor((now - date) / 86400000));
+  return (
+    modified?.slice(0, 10) + ' · ' + (days === 0 ? 'today' : days + ' days ago') + ' (registry)'
+  );
+};
+
 const rowHint = (row: PackageRow, support: SupportInfo | undefined, checking: boolean) => {
   if (row.local) return row.range;
   const parts = [row.installed ?? `${row.range} · not installed`];
@@ -76,10 +92,12 @@ const PackageDetail = ({
   row,
   support,
   registry,
+  supportMode,
 }: {
   row: PackageRow;
   support?: SupportInfo;
   registry: string;
+  supportMode: boolean;
 }) => {
   const colors = useColors();
   const { data: details } = useLoader(
@@ -153,15 +171,40 @@ const PackageDetail = ({
                       ? colors.ok
                       : colors.muted
               }
-              wrap="truncate"
+              wrap="wrap"
             >
-              {`${support.summary}${support.lts ? ' (LTS)' : ''} · ${
+              {`${support.status.toUpperCase()}: ${support.summary}${support.lts ? ' (LTS)' : ''} · ${
                 support.basis === 'endoflife'
                   ? `endoflife.date/${support.product}`
                   : 'npm release dates'
               }`}
             </Text>
           </Field>
+        )}
+        {supportMode && (
+          <>
+            {!support && (
+              <Field label="Support">
+                <Text color={colors.muted} wrap="wrap">
+                  {row.local
+                    ? 'Local dependency — EOL information unavailable.'
+                    : 'No confirmed EOL information for this release line.'}
+                </Text>
+              </Field>
+            )}
+            <Field label="Last update">
+              <Text color={colors.muted} wrap="wrap">
+                {registryUpdateAge(row.info?.modified)}
+              </Text>
+            </Field>
+            <Field label="EOL / stale">
+              <Text color={colors.muted} wrap="wrap">
+                EOL: published support has ended. Ending: support ends within 90 days. Stale: no
+                package release for 2 years, or no release on the installed major for 1 year while
+                2+ majors behind. Recent activity does not guarantee support.
+              </Text>
+            </Field>
+          </>
         )}
         {details?.license && (
           <Field label="License">
@@ -220,7 +263,7 @@ export const PackagesView = ({
   const prompt = usePrompt(onCaptureInput);
   const [filter, setFilter] = useState(session.filter);
   const [onlyOutdated, setOnlyOutdated] = useState(session.onlyOutdated);
-  const [onlyUnsupported, setOnlyUnsupported] = useState(session.onlyUnsupported ?? false);
+  const [supportMode, setSupportMode] = useState(session.supportMode ?? false);
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.packages);
   const [picker, setPicker] = useState(session.picker?.mode === 'set' ? session.picker : undefined);
   const [check, setCheck] = useState(0);
@@ -282,23 +325,39 @@ export const PackagesView = ({
   const visible = rows.filter(
     (row) =>
       (!onlyOutdated || isOutdated(row) || row.deprecated) &&
-      (!onlyUnsupported || isUnsupported(support[row.name]) || row.deprecated) &&
       (!filter ||
         row.name.toLowerCase().includes(filter.toLowerCase()) ||
         row.note?.toLowerCase().includes(filter.toLowerCase())),
   );
   const current = visible.find((row) => row.name === currentId);
 
-  const items: PickItem<PackageRow>[] = settings.dependencyTypes.flatMap((type) => {
-    const group = visible.filter((row) => row.type === type);
+  const groups = supportMode
+    ? [
+        { id: 'attention', label: 'Needs attention · EOL / ending / stale / deprecated' },
+        { id: 'supported', label: 'Supported' },
+        { id: 'unknown', label: 'No confirmed EOL information' },
+      ]
+    : settings.dependencyTypes.map((type) => ({ id: type, label: TYPE_LABELS[type] }));
+  const items: PickItem<PackageRow>[] = groups.flatMap(({ id, label }) => {
+    const group = visible.filter((row) =>
+      supportMode ? supportGroup(row, support[row.name]) === id : row.type === id,
+    );
     if (!group.length) return [];
     return [
-      { id: `header-${type}`, label: `${TYPE_LABELS[type]} (${group.length})`, isHeader: true },
+      { id: `header-${id}`, label: `${label} (${group.length})`, isHeader: true },
       ...group.map((row) => ({
         id: row.name,
         label: row.name,
         hint: rowHint(row, support[row.name], isChecking),
-        hintColor: updateColor(row, colors, support[row.name]),
+        hintColor: supportMode
+          ? row.deprecated || support[row.name]?.status === 'eol'
+            ? colors.error
+            : isUnsupported(support[row.name])
+              ? colors.warn
+              : support[row.name]?.status === 'supported'
+                ? colors.ok
+                : colors.muted
+          : updateColor(row, colors, support[row.name]),
         value: row,
       })),
     ];
@@ -398,9 +457,9 @@ export const PackagesView = ({
     notify('Asking the registry for every package…');
   };
 
-  const toggleUnsupported = () => {
-    setOnlyUnsupported((was) => {
-      session.onlyUnsupported = !was;
+  const toggleSupportMode = () => {
+    setSupportMode((was) => {
+      session.supportMode = !was;
       return !was;
     });
   };
@@ -432,7 +491,7 @@ export const PackagesView = ({
       else if (input === 'n') editNote(current);
       else if (input === 'w' && current) openUrl(`https://www.npmjs.com/package/${current.name}`);
       else if (input === 'o') toggleOutdated();
-      else if (input === 'e') toggleUnsupported();
+      else if (input === 'e') toggleSupportMode();
       else if (input === 'c') checkNow();
       else if (input === '/') askFilter();
       else if (key.escape && filter) {
@@ -502,8 +561,8 @@ export const PackagesView = ({
     },
     {
       key: 'e',
-      label: onlyUnsupported ? 'show all' : `EOL/stale (${unsupportedCount})`,
-      onPress: toggleUnsupported,
+      label: `[${supportMode ? 'x' : ' '}] EOL/stale mode (${unsupportedCount})`,
+      onPress: toggleSupportMode,
     },
     { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
     { key: 'c', label: 'check now', onPress: checkNow },
@@ -525,7 +584,7 @@ export const PackagesView = ({
               rows.filter((row) => isUnsupported(support[row.name])).length
             } EOL/stale${
               age !== undefined ? ` · checked ${age < 1 ? 'just now' : `${age}m ago`}` : ''
-            }${onlyOutdated ? ' · outdated only' : ''}${onlyUnsupported ? ' · EOL/stale only' : ''}${
+            }${onlyOutdated ? ' · outdated only' : ''}${supportMode ? ' · EOL/stale mode' : ''}${
               filter ? ` · "${filter}"` : ''
             }`}
     </Text>
@@ -549,7 +608,7 @@ export const PackagesView = ({
       <ListDetail
         //? Remounted when the rows change (a filter, the outdated toggle), restoring the cursor by
         //? package name instead of leaving it on whatever slid into its old position
-        key={`${filter}|${onlyOutdated}|${visible.length}`}
+        key={`${filter}|${onlyOutdated}|${supportMode}|${visible.length}`}
         title={`Packages (${visible.length})`}
         items={items}
         emptyText={
@@ -580,7 +639,12 @@ export const PackagesView = ({
           return (
             <Box flexDirection="column">
               <Toolbar actions={actionsFor(row)} />
-              <PackageDetail row={row} support={support[row.name]} registry={settings.registry} />
+              <PackageDetail
+                row={row}
+                support={support[row.name]}
+                registry={settings.registry}
+                supportMode={supportMode}
+              />
             </Box>
           );
         }}
