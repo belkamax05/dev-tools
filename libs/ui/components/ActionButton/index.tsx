@@ -97,8 +97,9 @@ export const ActionButton = ({
       backgroundColor={isHovered && !disabled ? colors.accent : undefined}
     >
       <Text color={textColor} bold={isOn} dimColor={disabled}>
-        {marker}
         {hotkey === undefined ? '' : `[${hotkey}] `.padEnd(hotkeyWidth)}
+        {/* After the key, not before: in a stack the keys' brackets line up down one column */}
+        {marker}
         {label}
       </Text>
     </Box>

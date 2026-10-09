@@ -249,6 +249,8 @@ export const ListDetail = <T,>({
 
   useInput(
     (_input, key) => {
+      //? Shift+↑/↓ is left to the detail pane — a diff beside the list scrolls on it
+      if (key.shift && (key.upArrow || key.downArrow)) return;
       if (key.upArrow) setSelected((at) => moveInList(items, columns, at, 'up'));
       else if (key.downArrow) setSelected((at) => moveInList(items, columns, at, 'down'));
       else if (layout === 'grid' && key.leftArrow)

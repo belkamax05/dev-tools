@@ -145,7 +145,7 @@ export const StashView = ({
                   { hotkey: 'x', label: 'Drop', onPress: () => drop(entry), tone: 'danger' },
                 ]}
               />
-              <PatchLines text={diff} rows={rows} />
+              <PatchLines text={diff} rows={rows} isActive={!prompt.isOpen} />
             </Box>
           );
         }}

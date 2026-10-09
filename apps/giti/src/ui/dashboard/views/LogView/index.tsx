@@ -5,7 +5,10 @@ import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
+import Toolbar, {
+  type ToolbarAction,
+  toolbarExtraRows,
+} from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
@@ -23,7 +26,7 @@ import {
 } from '../../../../core/log';
 import type { OperationResult } from '../../../../core/status';
 import copyToClipboard from '../../clipboard';
-import PatchLines from '../../PatchLines';
+import PatchLines, { PATCH_SCROLL_HINT } from '../../PatchLines';
 import SpinnerGlyph from '../../SpinnerGlyph';
 import type { GitViewProps } from '../../types';
 
@@ -142,6 +145,7 @@ export const LogView = ({
 
   const hints: Hint[] = [
     { key: 'g', label: graph ? 'graph: on' : 'graph: off', onPress: () => setGraph((on) => !on) },
+    ...(showDiff ? [PATCH_SCROLL_HINT] : []),
   ];
 
   const rows = Math.max(
@@ -183,11 +187,14 @@ export const LogView = ({
         renderDetail={(item) => {
           const commit = item?.value;
           if (!commit) return null;
+          const actions = actionsFor(commit);
+          //? What the toolbar leaves: it stacks past a few buttons, whichever side is showing
+          const left = rows - toolbarExtraRows(actions.length, rows - 1);
           return (
             <Box flexDirection="column">
-              <Toolbar actions={actionsFor(commit)} />
+              <Toolbar actions={actions} maxRows={rows - 1} />
               {showDiff ? (
-                <PatchLines text={diff} rows={rows} />
+                <PatchLines text={diff} rows={left} isActive={!prompt.isOpen} />
               ) : (
                 <Box flexDirection="column">
                   <Text bold color={colors.text} wrap="truncate">
@@ -205,7 +212,7 @@ export const LogView = ({
                     </Box>
                   ) : null}
                   <Box flexDirection="column" marginTop={1}>
-                    {(detail?.stat ?? []).slice(0, Math.max(1, rows - 6)).map((line, index) => (
+                    {(detail?.stat ?? []).slice(0, Math.max(1, left - 6)).map((line, index) => (
                       <Text key={index} color={colors.muted} wrap="truncate">
                         {line}
                       </Text>

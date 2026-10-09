@@ -29,6 +29,7 @@ describe('branches', () => {
       (await getBranches(repo.root)).find((b) => b.name === name)!;
     expect((await find('main')).upstream).toBe('origin/main');
     expect((await find('origin/main')).isRemote).toBe(true);
+    expect((await find('feature')).author).toBe('Test');
     expect((await find('done')).isCurrent).toBe(true);
 
     await switchBranch(repo.root, await find('main'));

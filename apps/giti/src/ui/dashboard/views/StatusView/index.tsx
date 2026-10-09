@@ -213,7 +213,9 @@ export const StatusView = ({
   useInput(
     (input) => {
       if (busy) return;
-      if (input === 'a') return run(() => stageAll(root));
+      if (input === 'a') {
+        return counts.unstaged ? run(() => stageAll(root)) : notify('Nothing to stage', 'info');
+      }
       if (input === 'A') return unstageAll();
       if (!counts.staged) {
         if (input === 'C') return commitEmpty();
@@ -363,7 +365,12 @@ export const StatusView = ({
   };
 
   const hints: Hint[] = [
-    { key: 'a', label: 'stage all', onPress: () => void run(() => stageAll(root)) },
+    //? Gray, not hidden, with nothing to stage — it stays where the hand expects it
+    {
+      key: 'a',
+      label: 'stage all',
+      onPress: counts.unstaged ? () => void run(() => stageAll(root)) : undefined,
+    },
     ...(counts.staged ? [{ key: 'A', label: 'unstage all', onPress: unstageAll }] : []),
     ...(counts.staged
       ? [

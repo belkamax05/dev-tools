@@ -31,17 +31,37 @@ export interface ToolbarAction {
 export interface ToolbarProps {
   actions: ToolbarAction[];
   /**
-   * Lines the caller can spare for the buttons. When every button fits, they are stacked one per
-   * line with their labels aligned — far easier to scan than a wrapped row. Left off, or too few,
-   * and they wrap into a row as before.
+   * Lines the pane has for the buttons at most — a cap, for a pane too short to hold a stack.
+   * Left off, there is no cap. It is not how the layout is chosen: see `isToolbarStacked`.
    */
   maxRows?: number;
 }
 
-export const Toolbar = ({ actions, maxRows = 0 }: ToolbarProps) => {
+/** Up to this many buttons sit in a row; more are stacked. */
+const ROW_AT_MOST = 3;
+
+/**
+ * Whether a toolbar of `count` buttons is drawn stacked, one per line with the labels aligned.
+ *
+ * Decided by the buttons alone, never by what else the pane is showing: a toolbar that turned
+ * from a column into a row when a toggle beside it gave the pane something else to draw moved
+ * every button out from under the pointer. A few buttons fit a row and read at a glance; past
+ * that, a wrapped row is a paragraph to search, and a stack is a list to scan.
+ */
+export const isToolbarStacked = (count: number, maxRows?: number): boolean =>
+  count > ROW_AT_MOST && (maxRows === undefined || count <= maxRows);
+
+/**
+ * Lines a toolbar takes beyond the single row a pane budgets for it — for a caller sizing
+ * whatever sits under it, a diff that scrolls, to the rows that are actually left.
+ */
+export const toolbarExtraRows = (count: number, maxRows?: number): number =>
+  isToolbarStacked(count, maxRows) ? count - 1 : 0;
+
+export const Toolbar = ({ actions, maxRows }: ToolbarProps) => {
   const colors = useColors();
   if (actions.length === 0) return null;
-  const stacked = actions.length <= maxRows;
+  const stacked = isToolbarStacked(actions.length, maxRows);
   const hotkeyWidth = stacked ? Math.max(...actions.map((action) => action.hotkey.length)) + 3 : 0;
   const ordered = [
     ...actions.filter((action) => action.tone === 'primary'),

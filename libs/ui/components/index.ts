@@ -52,7 +52,7 @@ export { default as TerminalTooSmall } from './TerminalTooSmall';
 export type { ThemeSwitcherProps } from './ThemeSwitcher';
 export { default as ThemeSwitcher } from './ThemeSwitcher';
 export type { ToolbarAction } from './Toolbar';
-export { default as Toolbar } from './Toolbar';
+export { default as Toolbar, isToolbarStacked, toolbarExtraRows } from './Toolbar';
 export type { PaletteSwatchProps } from './PaletteSwatch';
 export { default as PaletteSwatch, paletteSwatchRows } from './PaletteSwatch';
 export type { ThemeEditorProps } from './ThemeEditor';

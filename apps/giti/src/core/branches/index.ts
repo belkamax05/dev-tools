@@ -14,6 +14,11 @@ export interface Branch {
   /** Already contained in HEAD, so deleting it loses nothing. */
   merged: boolean;
   subject: string;
+  /**
+   * Who wrote the tip commit. Git keeps no record of who made a branch, so this stands in for
+   * it — and for a branch someone is working on, it is the person working on it.
+   */
+  author: string;
   when: string;
   /** Tip's committer date, unix seconds — what "newest first" sorts on. */
   timestamp: number;
@@ -38,6 +43,7 @@ export const getBranches = async (root: string): Promise<Branch[]> => {
     '%(upstream:track)',
     '%(HEAD)',
     '%(contents:subject)',
+    '%(authorname)',
     '%(committerdate:relative)',
     '%(committerdate:unix)',
   ].join(SEP);
@@ -58,6 +64,7 @@ export const getBranches = async (root: string): Promise<Branch[]> => {
           track = '',
           head = '',
           subject = '',
+          author = '',
           when = '',
           unix = '',
         ] = line.split(SEP);
@@ -71,6 +78,7 @@ export const getBranches = async (root: string): Promise<Branch[]> => {
           ...parseTrack(track),
           merged: !isRemote && !isCurrent && mergedSet.has(name),
           subject,
+          author,
           when,
           timestamp: Number(unix) || 0,
         };

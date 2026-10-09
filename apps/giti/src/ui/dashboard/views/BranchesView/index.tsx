@@ -5,7 +5,10 @@ import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
+import Toolbar, {
+  type ToolbarAction,
+  toolbarExtraRows,
+} from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
@@ -44,6 +47,8 @@ const trackHint = (branch: Branch) =>
     branch.behind ? `↓${branch.behind}` : undefined,
     branch.gone ? 'upstream gone' : undefined,
     branch.merged ? 'merged' : undefined,
+    //? First name only, as the Log tab writes it: the row has room for a word, not a name
+    branch.author.split(' ')[0],
   ]
     .filter(Boolean)
     .join(' ');
@@ -341,20 +346,25 @@ export const BranchesView = ({
         renderDetail={(item) => {
           const branch = item?.value;
           if (!branch) return null;
+          const actions = actionsFor(branch);
           return (
             <Box flexDirection="column">
-              {/* Stacked while the few detail lines below still fit; the compare diff wants
-                  every row it can get, so it keeps the wrapped row. */}
-              <Toolbar actions={actionsFor(branch)} maxRows={compare ? 0 : rows - 1} />
+              {/* The same shape whether Compare is on or off: it is the diff that gives up
+                  rows, never the buttons that move. */}
+              <Toolbar actions={actions} maxRows={rows - 1} />
               {compare && !branch.isCurrent ? (
-                <PatchLines text={diff} rows={rows} />
+                <PatchLines
+                  text={diff}
+                  rows={rows - toolbarExtraRows(actions.length, rows - 1)}
+                  isActive={!prompt.isOpen && !isSearching}
+                />
               ) : (
                 <Box flexDirection="column">
                   <Text bold color={branch.isCurrent ? colors.accent : colors.text}>
                     {branch.name}
                   </Text>
                   <Text color={colors.muted} wrap="truncate">
-                    {branch.subject} · {branch.when}
+                    {branch.author} · {branch.when} · {branch.subject}
                   </Text>
                   {!branch.isRemote && (
                     <Text color={branch.upstream ? colors.text : colors.warn} wrap="truncate">
