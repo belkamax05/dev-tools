@@ -105,7 +105,7 @@ detail panel, `e` to group all packages by support status), in `pkgi list` (the 
   `src/core/eol`). `EOL` past the end, `EOL <date>` within 90 days, `→ <month>` when supported.
 - **The registry** for everything else (and lines endoflife.date doesn't list): `stale` when the
   package has published nothing for more than 730 days (including prereleases), or when your exact
-  installed release was published more than 365 days ago while `latest` is 2+ majors ahead.
+  installed release was published more than 365 days ago, regardless of the major-version gap.
   No published support window means "unknown", even with recent activity: activity is not a
   support promise. Both checks use per-version npm publish timestamps, never metadata modification
   dates. The full registry document is fetched for packages being assessed; release timestamps

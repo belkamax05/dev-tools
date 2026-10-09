@@ -5,7 +5,7 @@ import { parseVersion } from '../semver';
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** No release at all for this long: the package itself looks abandoned. */
 export const STALE_PACKAGE_MS = 2 * 365 * DAY_MS;
-/** The exact version in use was published this long ago, while latest is two majors ahead. */
+/** The exact version in use is stale after this age, regardless of newer releases. */
 export const STALE_VERSION_MS = 365 * DAY_MS;
 /** How far ahead `latest` must be for the installed-version age rule. */
 export const STALE_VERSION_MAJORS = 2;
@@ -20,7 +20,6 @@ const month = (iso: string) => iso.slice(0, 7);
 export const assessMaintenance = ({
   name,
   current,
-  latest,
   lastPublished,
   installedPublished,
   now = Date.now(),
@@ -46,16 +45,11 @@ export const assessMaintenance = ({
   if (lastPublished && now - Date.parse(lastPublished) > STALE_PACKAGE_MS)
     return stale(`no release since ${month(lastPublished)}`);
 
-  const used = parseVersion(current)?.major;
-  const newest = latest ? parseVersion(latest)?.major : undefined;
-  if (used === undefined || newest === undefined || newest - used < STALE_VERSION_MAJORS) return;
-  const last = installedPublished;
-  if (last && now - Date.parse(last) > STALE_VERSION_MS) {
+  if (installedPublished && now - Date.parse(installedPublished) > STALE_VERSION_MS)
     return stale(
-      `${current} published ${month(last)}, ${newest - used} majors behind`,
-      String(used),
+      `${current} published ${month(installedPublished)}; installed release older than 365 days`,
     );
-  }
+
   return undefined;
 };
 
@@ -90,16 +84,17 @@ export const getPackageSupport = async (
     major,
     majorGap: major === undefined || newest === undefined ? undefined : Math.max(0, newest - major),
   };
+  const inactive = assessMaintenance({
+    name,
+    current,
+    lastPublished: activity?.lastPublished,
+    installedPublished: maintenance.installedPublished,
+  });
   const verdict =
-    published && published.status !== 'unknown'
+    published?.status === 'eol' || published?.status === 'ending'
       ? published
-      : assessMaintenance({
-          name,
-          current,
-          latest: info.latest,
-          lastPublished: activity?.lastPublished,
-          installedPublished: maintenance.installedPublished,
-        });
+      : (inactive ?? published);
+
   return {
     ...(verdict ?? {
       status: 'unknown',

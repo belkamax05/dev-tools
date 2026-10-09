@@ -44,7 +44,7 @@ describe('assessMaintenance', () => {
         installedPublished: '2025-02-01T00:00:00Z',
         now: NOW,
       })?.summary,
-    ).toBe('3.4.0 published 2025-02, 2 majors behind');
+    ).toBe('3.4.0 published 2025-02; installed release older than 365 days');
   });
 
   test('no verdict for an active package, one major behind, or a recently installed release', () => {
@@ -134,7 +134,7 @@ test('a fresh patch on our major does not hide an old installed version', async 
       installedPublished: activity.published['3.0.0'],
       now: NOW,
     })?.summary,
-  ).toBe('3.0.0 published 2022-01, 2 majors behind');
+  ).toBe('3.0.0 published 2022-01; installed release older than 365 days');
   expect(
     assessMaintenance({
       name: 'x',
@@ -145,4 +145,20 @@ test('a fresh patch on our major does not hide an old installed version', async 
       now: NOW,
     }),
   ).toBeUndefined();
+});
+
+test('716-day package activity cannot hide our 2171-day release at any major gap', () => {
+  const ago = (days: number) => new Date(NOW - days * 86400000).toISOString();
+  for (const latest of [undefined, '1.0.0', '1.9.0', '2.0.0', '3.0.0']) {
+    expect(
+      assessMaintenance({
+        name: 'x',
+        current: '1.0.0',
+        latest,
+        lastPublished: ago(716),
+        installedPublished: ago(2171),
+        now: NOW,
+      })?.status,
+    ).toBe('stale');
+  }
 });

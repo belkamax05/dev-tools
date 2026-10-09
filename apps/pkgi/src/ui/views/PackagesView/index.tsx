@@ -23,7 +23,6 @@ import {
   isUnsupported,
   STALE_PACKAGE_MS,
   STALE_VERSION_MS,
-  STALE_VERSION_MAJORS,
   supportLabel,
 } from '../../../core/support';
 import type { ViewProps } from '../../types';
@@ -240,7 +239,7 @@ const PackageDetail = ({
                 color={
                   support?.maintenance?.majorGap === undefined
                     ? colors.muted
-                    : support.maintenance.majorGap >= STALE_VERSION_MAJORS
+                    : support.maintenance.majorGap > 0
                       ? colors.warn
                       : colors.ok
                 }
@@ -249,15 +248,15 @@ const PackageDetail = ({
                 {support?.maintenance?.majorGap === undefined
                   ? 'Unknown'
                   : support.maintenance.majorGap + ' behind latest'}{' '}
-                · stale if ≥2 AND your release is old
+                · context only
               </Text>
             </Field>
             <Field label="Rules">
               <Text color={colors.muted} wrap="wrap">
-                Stale = any release &gt;730d OR (your exact release &gt;365d AND gap ≥2). Any
-                release includes prereleases. Major latest is context only. Green = below threshold;
-                amber = threshold exceeded; gray = unknown. Activity ≠ support. EOL uses published
-                policy; ending = within 90d.
+                Stale = any release &gt;730d OR your exact release &gt;365d. Any release includes
+                prereleases. Major latest is context only. Green = below threshold; amber =
+                threshold exceeded; gray = unknown. Activity ≠ support. EOL uses published policy;
+                ending = within 90d.
               </Text>
             </Field>
           </>
