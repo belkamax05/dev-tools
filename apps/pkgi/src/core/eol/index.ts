@@ -91,6 +91,8 @@ export interface SupportInfo {
   /** Exact npm publish timestamps, not package metadata modification dates. */
   maintenance?: {
     lastPublished?: string;
+    lastVersion?: string;
+    lineVersion?: string;
     installedPublished?: string;
     linePublished?: string;
     major?: number;

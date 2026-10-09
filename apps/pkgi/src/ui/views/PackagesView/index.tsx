@@ -64,6 +64,29 @@ export const registryUpdateAge = (modified?: string, now = Date.now()): string =
   );
 };
 
+export const releaseMetrics = (
+  version: string | undefined,
+  published: string | undefined,
+  threshold: string,
+  versionWidth: number,
+  now = Date.now(),
+) => {
+  const value = version ?? '?';
+  const versionCell = value.length > versionWidth ? value.slice(0, versionWidth - 1) + '…' : value;
+  const date = published ? Date.parse(published) : Number.NaN;
+  const known = Number.isFinite(date);
+  const age = known ? Math.max(0, Math.floor((now - date) / 86400000)) + 'd' : '?';
+  return (
+    versionCell.padEnd(versionWidth) +
+    '  ' +
+    (known ? new Date(date).toISOString().slice(0, 10) : '?').padEnd(10) +
+    '  ' +
+    age.padStart(6) +
+    '  ' +
+    threshold
+  );
+};
+
 const rowHint = (row: PackageRow, support: SupportInfo | undefined, checking: boolean) => {
   if (row.local) return row.range;
   const parts = [row.installed ?? `${row.range} · not installed`];
@@ -110,6 +133,16 @@ const PackageDetail = ({
     (): VersionDetails | Promise<VersionDetails> =>
       row.local ? {} : getVersionDetails(row.name, row.latest ?? row.current, registry),
     [row.name, row.latest, row.current, registry],
+  );
+  const metrics = support?.maintenance;
+  const versionWidth = Math.min(
+    18,
+    Math.max(
+      7,
+      row.current.length,
+      metrics?.lastVersion?.length ?? 0,
+      metrics?.lineVersion?.length ?? 0,
+    ),
   );
   //? Home and Repo are often the same page (a GitHub README) — one link then, not two
   const homepage = details?.homepage;
@@ -198,6 +231,16 @@ const PackageDetail = ({
                 </Text>
               </Field>
             )}
+            <Field label="npm publish">
+              <Text color={colors.muted} wrap="truncate">
+                {'Version'.padEnd(versionWidth) +
+                  '  ' +
+                  'Date'.padEnd(10) +
+                  '  ' +
+                  'Age'.padStart(6) +
+                  '  Stale if'}
+              </Text>
+            </Field>
             <Field label="Any release">
               <Text
                 color={
@@ -207,9 +250,14 @@ const PackageDetail = ({
                       ? colors.warn
                       : colors.ok
                 }
-                wrap="wrap"
+                wrap="truncate"
               >
-                {registryUpdateAge(support?.maintenance?.lastPublished)} · stale if &gt;730d
+                {releaseMetrics(
+                  metrics?.lastVersion,
+                  metrics?.lastPublished,
+                  '>730d',
+                  versionWidth,
+                )}
               </Text>
             </Field>
             <Field label="Your release">
@@ -222,16 +270,19 @@ const PackageDetail = ({
                       ? colors.warn
                       : colors.ok
                 }
-                wrap="wrap"
+                wrap="truncate"
               >
-                {row.current} · {registryUpdateAge(support?.maintenance?.installedPublished)} · old
-                if &gt;365d
+                {releaseMetrics(row.current, metrics?.installedPublished, '>365d', versionWidth)}
               </Text>
             </Field>
             <Field label="Major latest">
-              <Text color={colors.muted} wrap="wrap">
-                {support?.maintenance?.major === undefined ? '?' : support.maintenance.major + '.x'}{' '}
-                · {registryUpdateAge(support?.maintenance?.linePublished)} · stable, context only
+              <Text color={colors.muted} wrap="truncate">
+                {releaseMetrics(
+                  metrics?.lineVersion,
+                  metrics?.linePublished,
+                  'context',
+                  versionWidth,
+                )}
               </Text>
             </Field>
             <Field label="Major gap">

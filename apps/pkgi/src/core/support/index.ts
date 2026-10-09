@@ -79,6 +79,16 @@ export const getPackageSupport = async (
   const newest = info.latest ? parseVersion(info.latest)?.major : undefined;
   const maintenance = {
     lastPublished: activity?.lastPublished,
+    lastVersion: Object.entries(activity?.published ?? {}).find(
+      ([, time]) => time === activity?.lastPublished,
+    )?.[0],
+    lineVersion: Object.entries(activity?.published ?? {}).find(
+      ([version, time]) =>
+        major !== undefined &&
+        time === activity?.lines[major] &&
+        parseVersion(version)?.major === major &&
+        !parseVersion(version)?.prerelease,
+    )?.[0],
     installedPublished: activity?.published[current],
     linePublished: major === undefined ? undefined : activity?.lines[major],
     major,
