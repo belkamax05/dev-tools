@@ -1,0 +1,26 @@
+{
+  "name": "convi",
+  "description": "File format converter — markdown to PDF, more to come",
+  "module": "src/run.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "bun biome check .",
+    "format": "bun biome check --write --unsafe ."
+  },
+  "dev-tools": {
+    "aliases": [
+      "convert"
+    ]
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.7.0"
+  }
+}

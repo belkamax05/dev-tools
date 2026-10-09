@@ -1,0 +1,5 @@
+#!/usr/bin/env -S bun --no-env-file
+
+import run from '../apps/proji/src/run';
+
+await run(...process.argv.slice(2));

@@ -1,0 +1,28 @@
+{
+  "name": "proji",
+  "description": "A project's commands — its package.json scripts plus your aliases, in one picker",
+  "module": "src/run.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "bun biome check .",
+    "format": "bun biome check --write --unsafe ."
+  },
+  "dev-tools": {
+    "aliases": [
+      "proj",
+      "project"
+    ]
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "ink": "^7.1.1",
+    "react": "^19.2.8"
+  }
+}
