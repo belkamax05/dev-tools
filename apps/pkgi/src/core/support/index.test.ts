@@ -34,20 +34,20 @@ describe('assessMaintenance', () => {
     expect(verdict?.summary).toBe('no release since 2023-04');
   });
 
-  test('stale when the line in use is a year quiet and two majors behind', () => {
+  test('stale when the installed release is old and two majors behind', () => {
     expect(
       assessMaintenance({
         name: 'x',
         current: '3.4.0',
         latest: '5.0.0',
         lastPublished: '2026-09-01T00:00:00Z',
-        lines: { 3: '2025-02-01T00:00:00Z', 5: '2026-09-01T00:00:00Z' },
+        installedPublished: '2025-02-01T00:00:00Z',
         now: NOW,
       })?.summary,
-    ).toBe('3.x last released 2025-02, 2 majors behind');
+    ).toBe('3.4.0 published 2025-02, 2 majors behind');
   });
 
-  test('no verdict for an active package, one major behind, or an old line still patched', () => {
+  test('no verdict for an active package, one major behind, or a recently installed release', () => {
     const base = { name: 'x', lastPublished: '2026-09-01T00:00:00Z', now: NOW };
     expect(assessMaintenance({ ...base, current: '4.0.0', latest: '5.0.0' })).toBeUndefined();
     expect(
@@ -55,7 +55,7 @@ describe('assessMaintenance', () => {
         ...base,
         current: '3.0.0',
         latest: '5.0.0',
-        lines: { 3: '2026-06-01T00:00:00Z' },
+        installedPublished: '2026-06-01T00:00:00Z',
       }),
     ).toBeUndefined();
   });
@@ -95,7 +95,11 @@ test('package inactivity uses real publishes, ignoring metadata and including pr
     invalid: '2026-10-01',
     '3.0.0': 'invalid',
   });
-  expect(activity).toEqual({ lastPublished: '2026-09-01', lines: { 1: '2020-01-01' } });
+  expect(activity).toEqual({
+    lastPublished: '2026-09-01',
+    lines: { 1: '2020-01-01' },
+    published: { '1.0.0': '2020-01-01', '2.0.0-beta.1': '2026-09-01' },
+  });
   const old = toReleaseActivity({ '1.0.0': '2020-01-01', modified: '2026-10-01' });
   expect(
     assessMaintenance({ name: 'x', current: '1.0.0', lastPublished: old.lastPublished, now: NOW })
@@ -108,7 +112,37 @@ test('stale boundaries are strict and missing publish data is not stale', () => 
   const daysAgo = (days: number) => new Date(NOW - days * 86400000).toISOString();
   expect(assessMaintenance({ ...base, lastPublished: daysAgo(730) })).toBeUndefined();
   expect(assessMaintenance({ ...base, lastPublished: daysAgo(731) })?.status).toBe('stale');
-  expect(assessMaintenance({ ...base, lines: { 1: daysAgo(365) } })).toBeUndefined();
-  expect(assessMaintenance({ ...base, lines: { 1: daysAgo(366) } })?.status).toBe('stale');
+  expect(assessMaintenance({ ...base, installedPublished: daysAgo(365) })).toBeUndefined();
+  expect(assessMaintenance({ ...base, installedPublished: daysAgo(366) })?.status).toBe('stale');
   expect(assessMaintenance(base)).toBeUndefined();
+});
+
+test('a fresh patch on our major does not hide an old installed version', async () => {
+  const { toReleaseActivity } = await import('../registry');
+  const activity = toReleaseActivity({
+    '3.0.0': '2022-01-01',
+    '3.9.2': '2026-09-30',
+    '5.0.0': '2026-09-30',
+  });
+  expect(activity.lines[3]).toBe('2026-09-30');
+  expect(
+    assessMaintenance({
+      name: 'x',
+      current: '3.0.0',
+      latest: '5.0.0',
+      lastPublished: activity.lastPublished,
+      installedPublished: activity.published['3.0.0'],
+      now: NOW,
+    })?.summary,
+  ).toBe('3.0.0 published 2022-01, 2 majors behind');
+  expect(
+    assessMaintenance({
+      name: 'x',
+      current: '3.9.2',
+      latest: '5.0.0',
+      lastPublished: activity.lastPublished,
+      installedPublished: activity.published['3.9.2'],
+      now: NOW,
+    }),
+  ).toBeUndefined();
 });

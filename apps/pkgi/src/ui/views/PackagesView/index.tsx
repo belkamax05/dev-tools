@@ -22,8 +22,8 @@ import {
   getManyPackageSupport,
   isUnsupported,
   STALE_PACKAGE_MS,
-  STALE_LINE_MS,
-  STALE_LINE_MAJORS,
+  STALE_VERSION_MS,
+  STALE_VERSION_MAJORS,
   supportLabel,
 } from '../../../core/support';
 import type { ViewProps } from '../../types';
@@ -199,7 +199,7 @@ const PackageDetail = ({
                 </Text>
               </Field>
             )}
-            <Field label="Package">
+            <Field label="Any release">
               <Text
                 color={
                   !support?.maintenance?.lastPublished
@@ -213,24 +213,26 @@ const PackageDetail = ({
                 {registryUpdateAge(support?.maintenance?.lastPublished)} · stale if &gt;730d
               </Text>
             </Field>
-            <Field
-              label={
-                support?.maintenance?.major === undefined
-                  ? 'Used major'
-                  : support.maintenance.major + '.x stable'
-              }
-            >
+            <Field label="Your release">
               <Text
                 color={
-                  !support?.maintenance?.linePublished
+                  !support?.maintenance?.installedPublished
                     ? colors.muted
-                    : Date.now() - Date.parse(support.maintenance.linePublished) > STALE_LINE_MS
+                    : Date.now() - Date.parse(support.maintenance.installedPublished) >
+                        STALE_VERSION_MS
                       ? colors.warn
                       : colors.ok
                 }
                 wrap="wrap"
               >
-                {registryUpdateAge(support?.maintenance?.linePublished)} · old if &gt;365d
+                {row.current} · {registryUpdateAge(support?.maintenance?.installedPublished)} · old
+                if &gt;365d
+              </Text>
+            </Field>
+            <Field label="Major latest">
+              <Text color={colors.muted} wrap="wrap">
+                {support?.maintenance?.major === undefined ? '?' : support.maintenance.major + '.x'}{' '}
+                · {registryUpdateAge(support?.maintenance?.linePublished)} · stable, context only
               </Text>
             </Field>
             <Field label="Major gap">
@@ -238,7 +240,7 @@ const PackageDetail = ({
                 color={
                   support?.maintenance?.majorGap === undefined
                     ? colors.muted
-                    : support.maintenance.majorGap >= STALE_LINE_MAJORS
+                    : support.maintenance.majorGap >= STALE_VERSION_MAJORS
                       ? colors.warn
                       : colors.ok
                 }
@@ -247,15 +249,15 @@ const PackageDetail = ({
                 {support?.maintenance?.majorGap === undefined
                   ? 'Unknown'
                   : support.maintenance.majorGap + ' behind latest'}{' '}
-                · stale line if ≥2 AND old
+                · stale if ≥2 AND your release is old
               </Text>
             </Field>
             <Field label="Rules">
               <Text color={colors.muted} wrap="wrap">
-                Stale = package &gt;730d OR (major &gt;365d AND gap ≥2). Package includes
-                prereleases; major counts stable releases only. Green = below threshold; amber =
-                threshold exceeded; gray = unknown. Activity ≠ support. EOL uses published policy;
-                ending = within 90d.
+                Stale = any release &gt;730d OR (your exact release &gt;365d AND gap ≥2). Any
+                release includes prereleases. Major latest is context only. Green = below threshold;
+                amber = threshold exceeded; gray = unknown. Activity ≠ support. EOL uses published
+                policy; ending = within 90d.
               </Text>
             </Field>
           </>

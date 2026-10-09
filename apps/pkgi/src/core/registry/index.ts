@@ -310,11 +310,19 @@ export const toReleaseLines = (times: Record<string, string>): ReleaseLines => {
 };
 
 export interface ReleaseActivity {
+  published: Record<string, string>;
   lines: ReleaseLines;
   lastPublished?: string;
 }
 
 export const toReleaseActivity = (times: Record<string, string>): ReleaseActivity => ({
+  published: Object.fromEntries(
+    Object.entries(times).filter(
+      ([version, time]) =>
+        /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) &&
+        Number.isFinite(Date.parse(time)),
+    ),
+  ),
   lines: toReleaseLines(times),
   lastPublished: Object.entries(times)
     .filter(
@@ -352,7 +360,7 @@ export const getReleaseActivity = async (
   const store = linesCache ?? {};
   const key = cacheKey(registry, name);
   const cached = store[key];
-  if (cached?.activity && !force && Date.now() - cached.fetchedAt < LINES_MAX_AGE_MS)
+  if (cached?.activity?.published && !force && Date.now() - cached.fetchedAt < LINES_MAX_AGE_MS)
     return cached.activity;
   const times = await getPublishTimes(name, registry, force);
   if (!Object.keys(times).length) return cached?.activity;

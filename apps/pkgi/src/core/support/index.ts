@@ -1,14 +1,14 @@
 import { ENDOFLIFE_PRODUCTS, getSupport, type SupportInfo } from '../eol';
-import { getReleaseActivity, type PackageInfo, type ReleaseLines } from '../registry';
+import { getReleaseActivity, type PackageInfo } from '../registry';
 import { parseVersion } from '../semver';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** No release at all for this long: the package itself looks abandoned. */
 export const STALE_PACKAGE_MS = 2 * 365 * DAY_MS;
-/** The line in use got no release for this long, while the package moved on by two majors or more. */
-export const STALE_LINE_MS = 365 * DAY_MS;
-/** How far ahead `latest` has to be before an old line is judged — one major is normal lag. */
-export const STALE_LINE_MAJORS = 2;
+/** The exact version in use was published this long ago, while latest is two majors ahead. */
+export const STALE_VERSION_MS = 365 * DAY_MS;
+/** How far ahead `latest` must be for the installed-version age rule. */
+export const STALE_VERSION_MAJORS = 2;
 
 const month = (iso: string) => iso.slice(0, 7);
 
@@ -22,14 +22,14 @@ export const assessMaintenance = ({
   current,
   latest,
   lastPublished,
-  lines,
+  installedPublished,
   now = Date.now(),
 }: {
   name: string;
   current: string;
   latest?: string;
   lastPublished?: string;
-  lines?: ReleaseLines;
+  installedPublished?: string;
   now?: number;
 }): SupportInfo | undefined => {
   const source = `https://www.npmjs.com/package/${name}?activeTab=versions`;
@@ -48,22 +48,22 @@ export const assessMaintenance = ({
 
   const used = parseVersion(current)?.major;
   const newest = latest ? parseVersion(latest)?.major : undefined;
-  if (used === undefined || newest === undefined || newest - used < STALE_LINE_MAJORS) return;
-  const last = lines?.[used];
-  if (last && now - Date.parse(last) > STALE_LINE_MS) {
+  if (used === undefined || newest === undefined || newest - used < STALE_VERSION_MAJORS) return;
+  const last = installedPublished;
+  if (last && now - Date.parse(last) > STALE_VERSION_MS) {
     return stale(
-      `${used}.x last released ${month(last)}, ${newest - used} majors behind`,
+      `${current} published ${month(last)}, ${newest - used} majors behind`,
       String(used),
     );
   }
   return undefined;
 };
 
-/** Whether the major-version gap meets the stale-line threshold. */
+/** Whether the major-version gap meets the installed-version stale threshold. */
 export const needsReleaseLines = (current: string, latest?: string): boolean => {
   const used = parseVersion(current)?.major;
   const newest = latest ? parseVersion(latest)?.major : undefined;
-  return used !== undefined && newest !== undefined && newest - used >= STALE_LINE_MAJORS;
+  return used !== undefined && newest !== undefined && newest - used >= STALE_VERSION_MAJORS;
 };
 
 /**
@@ -85,6 +85,7 @@ export const getPackageSupport = async (
   const newest = info.latest ? parseVersion(info.latest)?.major : undefined;
   const maintenance = {
     lastPublished: activity?.lastPublished,
+    installedPublished: activity?.published[current],
     linePublished: major === undefined ? undefined : activity?.lines[major],
     major,
     majorGap: major === undefined || newest === undefined ? undefined : Math.max(0, newest - major),
@@ -97,7 +98,7 @@ export const getPackageSupport = async (
           current,
           latest: info.latest,
           lastPublished: activity?.lastPublished,
-          lines: activity?.lines,
+          installedPublished: maintenance.installedPublished,
         });
   return {
     ...(verdict ?? {
