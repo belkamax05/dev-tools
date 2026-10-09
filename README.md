@@ -17,7 +17,7 @@ built on them, whose executables live in `bin/` — one shim per app, calling it
 | `bmi` | bookmarks, raindrop-style — groups, tags, fuzzy search, page previews ([README](apps/bmi/README.md)) |
 | `envi` | environment variables — the shell's, `.env` files and your own, layered like dotenv; shell hook and library ([README](apps/envi/README.md)) |
 | `convi` | file format converter — markdown to PDF, more to come ([README](apps/convi/README.md)) |
-| `proji` | a project's commands — package.json scripts plus aliases, one picker; also a library ([README](apps/proji/README.md)) |
+| `proji` | a project's commands — package.json scripts plus aliases, in a dashboard; also a library ([README](apps/proji/README.md)) |
 
 Three ways to get them on `PATH`, all defined once in `nix/`:
 

@@ -164,6 +164,7 @@
       "devDependencies": {
         "@biomejs/biome": "^2.5.10",
         "@types/bun": "latest",
+        "@types/react": "^19.2.18",
       },
       "peerDependencies": {
         "typescript": "^5",

@@ -1,10 +1,11 @@
-# proji — a project's commands in one picker
+# proji — a project's commands in one dashboard
 
 Everything a project lets you run, in one place: its `package.json` scripts plus aliases you
-define, with a picker when you don't name one.
+define. With no command named it opens a dashboard like the other dev-tools apps (themes,
+mouse, buttons); without a terminal it prints the list.
 
 ```sh
-proji                          # picker over this project's aliases and scripts
+proji                          # dashboard over this project's commands, aliases and scripts
 proji dev --port 3000          # run one; extra words are its arguments
 proji run list                 # the explicit form, for a command called list/help
 proji -p fe dev                # a project named in proji.config.ts
@@ -63,5 +64,17 @@ process.exitCode = await runProject(
 );
 ```
 
-An override may have `children` (a group) and no `run` (the picker opens inside it). The
-picker is dev-tools' shared `pickCommand` dialog.
+An override may have `children` (a group). Give it `command` (argv) so the dashboard can run
+it: picked there, a command gets the whole terminal and the dashboard comes back when it exits.
+`run` is the in-process form used when the command is typed out instead.
+
+## The dashboard
+
+- **Commands** tab: the overrides, aliases and scripts under their own headings; `f` (or a
+  click on the chips) shows one kind only, `/` filters, Enter runs or opens a group, `a` runs
+  with arguments, Esc clears the filter or goes up a group. The detail pane shows the exact
+  command line that will run.
+- **Settings** tab: theme, the config file, clearing proji's settings and state.
+
+Theme in `~/.config/proji/config.json`; the last tab and show filter in
+`~/.local/state/proji/state.json`.
