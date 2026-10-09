@@ -121,6 +121,18 @@ export const updateIndicator = (
   return '=';
 };
 
+export const updateIndicatorColor = (
+  row: Pick<PackageRow, 'local' | 'update' | 'latest' | 'prerelease'>,
+  colors: Pick<Colors, 'error' | 'warn' | 'ok' | 'muted' | 'highlight'>,
+) => {
+  if (row.local) return colors.muted;
+  if (row.latest && row.update === 'major') return colors.error;
+  if (row.latest && row.update === 'minor') return colors.warn;
+  if (row.latest && row.update === 'patch') return colors.ok;
+  if (row.prerelease) return colors.highlight;
+  return colors.muted;
+};
+
 const rowHint = (row: PackageRow, support: SupportInfo | undefined, checking: boolean) => {
   if (row.local) return row.range;
   const parts = [row.installed ?? `${row.range} · not installed`];
@@ -460,7 +472,11 @@ export const PackagesView = ({
       { id: `header-${id}`, label: `${label} (${group.length})`, isHeader: true },
       ...group.map((row) => ({
         id: row.name,
-        label: `${updateIndicator(row, unicodeIcons)} ${row.name}`,
+        label: row.name,
+        prefix: {
+          text: updateIndicator(row, unicodeIcons),
+          color: updateIndicatorColor(row, colors),
+        },
         hint: rowHint(row, support[row.name], isChecking),
         hintColor: packageColor(row, support[row.name], colors),
         value: row,

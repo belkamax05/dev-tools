@@ -5,6 +5,7 @@ import {
   packageColor,
   packageIconsSupported,
   updateIndicator,
+  updateIndicatorColor,
   registryUpdateAge,
   releaseMetrics,
   supportColor,
@@ -101,4 +102,15 @@ test('glyphs fall back to ASCII for dumb and legacy Windows terminals', () => {
   expect(packageIconsSupported({ TERM: 'xterm-256color' }, 'linux')).toBe(true);
   expect(packageIconsSupported({}, 'win32')).toBe(false);
   expect(packageIconsSupported({ WT_SESSION: 'session' }, 'win32')).toBe(true);
+});
+
+test('only the update marker uses update severity; latest and unknown are gray', () => {
+  const colors = { error: 'red', warn: 'orange', ok: 'green', muted: 'gray', highlight: 'purple' };
+  const base = { local: false, latest: '2.0.0', update: 'none' as const };
+  expect(updateIndicatorColor({ ...base, update: 'patch' }, colors)).toBe('green');
+  expect(updateIndicatorColor({ ...base, update: 'minor' }, colors)).toBe('orange');
+  expect(updateIndicatorColor({ ...base, update: 'major' }, colors)).toBe('red');
+  expect(updateIndicatorColor(base, colors)).toBe('gray');
+  expect(updateIndicatorColor({ ...base, latest: undefined }, colors)).toBe('gray');
+  expect(updateIndicatorColor({ ...base, local: true }, colors)).toBe('gray');
 });

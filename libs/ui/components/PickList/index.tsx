@@ -20,6 +20,8 @@ import Box from "../Box";
 export interface PickItem<T = unknown> {
 	id: string;
 	label: string;
+	/** Independently colored, non-interactive marker before the label. */
+	prefix?: { text: string; color: string };
 	/** Secondary text, dimmed. Dropped in grid mode, where there is no room. */
 	hint?: string;
 	/**
@@ -205,7 +207,13 @@ const PickCell = <T,>({
 	let labelText = item.label;
 	let hintText = hint;
 	if (width !== undefined) {
-		const available = Math.max(1, width - marker.length - controlsWidth);
+		const available = Math.max(
+			1,
+			width -
+				marker.length -
+				controlsWidth -
+				(item.prefix ? item.prefix.text.length + 1 : 0),
+		);
 		if (hint !== "") {
 			const hintRoom = available - item.label.length - 1;
 			if (hint.length > hintRoom)
@@ -255,6 +263,9 @@ const PickCell = <T,>({
 					}}
 				/>
 			))}
+			{item.prefix && (
+				<Text color={item.prefix.color}>{item.prefix.text} </Text>
+			)}
 			<Text color={color} bold={isSelected || item.isCurrent} wrap="truncate">
 				{labelText}
 			</Text>
