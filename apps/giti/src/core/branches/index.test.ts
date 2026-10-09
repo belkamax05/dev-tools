@@ -5,9 +5,11 @@ import {
   type Branch,
   createBranch,
   deleteBranch,
+  deleteRemoteBranch,
   getBranches,
   mergeBranch,
   renameBranch,
+  restoreBranch,
   sortBranches,
   switchBranch,
 } from '.';
@@ -32,8 +34,28 @@ describe('branches', () => {
     await switchBranch(repo.root, await find('main'));
     expect((await deleteBranch(repo.root, await find('feature'))).ok).toBe(false);
     expect((await deleteBranch(repo.root, await find('done'))).ok).toBe(true);
+
+    const forced = await deleteBranch(repo.root, await find('feature'), { force: true });
+    expect(forced.ok).toBe(true);
+    expect((await getBranches(repo.root)).some((b) => b.name === 'feature')).toBe(false);
+    expect((await restoreBranch(repo.root, forced.undo!)).ok).toBe(true);
+    expect(repo.sh(['log', '-1', '--format=%s', 'feature']).trim()).toBe('feature work');
     expect((await renameBranch(repo.root, 'feature', 'feature-2')).ok).toBe(true);
     expect((await getBranches(repo.root)).some((b) => b.name === 'feature-2')).toBe(true);
+  });
+
+  test('deletes a branch on its remote, and refuses a local one', async () => {
+    repo = makeRepo({ remote: true });
+    repo.sh(['push', '-q', 'origin', 'main:feature']);
+    repo.sh(['fetch', '-q', 'origin']);
+    const find = async (name: string) =>
+      (await getBranches(repo.root)).find((b) => b.name === name);
+    const remote = await find('origin/feature');
+    if (!remote) throw new Error('missing origin/feature');
+    expect((await deleteRemoteBranch(repo.root, (await find('main'))!)).ok).toBe(false);
+    expect((await deleteRemoteBranch(repo.root, remote)).ok).toBe(true);
+    expect(await find('origin/feature')).toBeUndefined();
+    expect(repo.sh(['ls-remote', '--heads', 'origin', 'feature'])).toBe('');
   });
 
   test('sorts the checked-out branch first, then newest-first or by name', () => {

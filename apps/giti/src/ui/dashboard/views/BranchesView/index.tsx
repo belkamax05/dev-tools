@@ -17,9 +17,11 @@ import {
   compareWithCurrent,
   createBranch,
   deleteBranch,
+  deleteRemoteBranch,
   getBranches,
   mergeBranch,
   renameBranch,
+  restoreBranch,
   setUpstream,
   sortBranches,
   switchBranch,
@@ -28,6 +30,12 @@ import type { OperationResult } from '../../../../core/status';
 import PatchLines from '../../PatchLines';
 import SpinnerGlyph from '../../SpinnerGlyph';
 import type { GitViewProps } from '../../types';
+import type { RemoteSync } from '../../useRemoteSync';
+
+export interface BranchesViewProps extends GitViewProps {
+  /** Pull, shared with Overview and Remotes so a pull in flight is one state across tabs. */
+  sync: RemoteSync;
+}
 
 const trackHint = (branch: Branch) =>
   [
@@ -47,7 +55,7 @@ const printable = (input: string): string => input.replace(/[\u0000-\u001F\u007F
 /**
  * Local and remote branches, and everything you do with one: switch to it,
  * start a new one from it, rename, set what it tracks, see what it has that
- * the current branch does not — and delete it, but only once it is merged.
+ * the current branch does not — and delete it, with ^Z to bring it back.
  */
 export const BranchesView = ({
   root,
@@ -55,8 +63,10 @@ export const BranchesView = ({
   reload,
   notify,
   onCaptureInput,
+  offerUndo,
   reservedChrome,
-}: GitViewProps) => {
+  sync,
+}: BranchesViewProps) => {
   const colors = useColors();
   const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
@@ -108,24 +118,42 @@ export const BranchesView = ({
     );
   //? "Merged" only means every commit on it is already in the checked-out branch — true of a
   //? branch created a moment ago with no commits of its own. So say that, and whether it was
-  //? ever pushed, rather than implying it went somewhere.
+  //? ever pushed, rather than implying it went somewhere. An unmerged one is deleted too (often
+  //? it was squash-merged upstream, which git cannot see), but the question says what goes.
   const remove = (branch: Branch) => {
+    if (branch.isCurrent) return notify('Switch to another branch first', 'warn');
     const into = checkedOut?.name ?? 'HEAD';
     const remoteNote = branch.gone
       ? ', and its remote copy is already gone'
       : branch.upstream
         ? ''
         : ', but it was never pushed';
-    prompt.confirm(
-      `Delete ${branch.name}? Every commit on it is already in ${into}${remoteNote}.`,
-      () => run(() => deleteBranch(root, branch)),
+    const question = branch.merged
+      ? `Delete ${branch.name}? Every commit on it is already in ${into}${remoteNote}.`
+      : `Delete ${branch.name}? It has commits ${into} does not${remoteNote} — ^Z brings it back.`;
+    prompt.confirm(question, () =>
+      run(async () => {
+        const result = await deleteBranch(root, branch, { force: !branch.merged });
+        const undo = result.undo;
+        if (undo)
+          offerUndo({ label: `Deleted ${undo.name}`, run: () => restoreBranch(root, undo) });
+        return result;
+      }),
     );
   };
+  const removeRemote = (branch: Branch) =>
+    prompt.confirm(
+      `Delete ${branch.name} on the remote? It goes for everyone who fetches from there.`,
+      () => run(() => deleteRemoteBranch(root, branch)),
+    );
   const merge = (branch: Branch) => {
     if (branch.isCurrent || !checkedOut) return;
     prompt.confirm(`Merge ${branch.name} into ${checkedOut.name}?`, () =>
       run(() => mergeBranch(root, branch)),
     );
+  };
+  const pull = () => {
+    if (!sync.progress) sync.pull();
   };
   const toggleSort = () => setSort((by) => (by === 'time' ? 'name' : 'time'));
   const track = (branch: Branch) =>
@@ -158,15 +186,20 @@ export const BranchesView = ({
         return;
       }
       if (key.escape && query) return setQuery('');
+      //? Ctrl+P arrives as input 'p' too, and it belongs to the command palette
+      if (input === 'p' && !key.ctrl) return pull();
       if (input === 'n') return create(current);
       if (input === 's') return toggleSort();
       if (!current) return;
       if (key.return || input === ' ') switchTo(current);
       else if (input === 'v') setCompare((on) => !on);
       else if (input === 'M') merge(current);
-      else if (current.isRemote) return;
-      else if (input === 'r') rename(current);
-      else if (input === 'x') remove(current);
+      else if (current.isRemote) {
+        if (input === 'D') removeRemote(current);
+        //? Plain d is the local delete; a remote one takes the deliberate Shift+D
+        else if (input === 'd') notify('Shift+D deletes a remote branch', 'info');
+      } else if (input === 'r') rename(current);
+      else if (input === 'd') remove(current);
       else if (input === 'u') track(current);
     },
     { isActive: !prompt.isOpen },
@@ -227,18 +260,30 @@ export const BranchesView = ({
           { hotkey: 'r', label: 'Rename', onPress: () => rename(branch) },
           { hotkey: 'u', label: 'Set upstream', onPress: () => track(branch) },
           {
-            hotkey: 'x',
+            hotkey: 'd',
             label: 'Delete',
             onPress: () => remove(branch),
             tone: 'danger' as const,
-            //? Unmerged work is never deleted from a list — merge it first
-            disabled: !branch.merged,
+            disabled: branch.isCurrent,
           },
         ]
-      : []),
+      : [
+          {
+            hotkey: 'Shift+D',
+            label: 'Delete on remote',
+            onPress: () => removeRemote(branch),
+            tone: 'danger' as const,
+          },
+        ]),
   ];
 
   const hints: Hint[] = [
+    {
+      key: 'p',
+      label: checkedOut?.behind ? `pull ↓${checkedOut.behind}` : 'pull',
+      //? Gray while a fetch/pull/push is running, the same as Remotes' disabled button
+      onPress: sync.progress ? undefined : pull,
+    },
     { key: 'n', label: 'new branch', onPress: () => create(current) },
     { key: '/', label: 'search', onPress: () => setIsSearching(true) },
     {

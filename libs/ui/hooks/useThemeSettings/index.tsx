@@ -2,22 +2,20 @@ import { Text } from 'ink';
 import { type ReactNode, useState } from 'react';
 
 import Box from '../../components/Box';
-import PaletteSwatch from '../../components/PaletteSwatch';
 import type { PickItem } from '../../components/PickList';
 import ThemeEditor from '../../components/ThemeEditor';
+import ThemePicker, { ThemeCard } from '../../components/ThemePicker';
 import { useColors, useThemeControl } from '../../providers/TuiThemeProvider';
 import {
   CUSTOM_THEME_ID,
   type CustomThemeDraft,
   cloneTheme,
   saveCustomTheme,
-  type ThemeDefinition,
   themeById,
   themesFilePath,
 } from '../../theme';
-import choiceRows from '../../utils/choiceRows';
 
-/** A Settings row that picks a palette — or, with `EDIT_THEME_ID`, opens the editor. */
+/** A Settings row: `PICK_THEME_ID` opens the theme dialog, `EDIT_THEME_ID` the editor. */
 export interface ThemeSetting {
   kind: 'theme';
   id: string;
@@ -26,6 +24,9 @@ export interface ThemeSetting {
 /** The "Customize…" row's id: not a palette, the way into the editor. */
 export const EDIT_THEME_ID = '__edit';
 
+/** The one palette row's id: it shows the theme in force and opens the dialog of the rest. */
+export const PICK_THEME_ID = '__pick';
+
 export const isThemeSetting = (value: unknown): value is ThemeSetting =>
   typeof value === 'object' &&
   value !== null &&
@@ -33,11 +34,11 @@ export const isThemeSetting = (value: unknown): value is ThemeSetting =>
   typeof (value as { id?: unknown }).id === 'string';
 
 export interface ThemeSettings {
-  /** The "Theme" header, one row per palette (Custom last, once made), and "Customize…". */
+  /** The "Theme" header, the theme in force (Enter opens the dialog of all), and "Customize…". */
   items: PickItem<ThemeSetting>[];
   /**
-   * Whether this section answers for a row — its own rows, and, while the editor is open,
-   * every row: the editor sits in the detail pane whatever the list's cursor (or a stray click)
+   * Whether this section answers for a row — its own rows, and, while the editor or the theme
+   * dialog is open, every row: either sits in the detail pane whatever the list's cursor (or a stray click)
    * lands on, and a click on another row must not apply it. A view checks this before its own
    * cases, in both its apply and its detail.
    */
@@ -46,31 +47,17 @@ export interface ThemeSettings {
   activate: (setting: ThemeSetting) => void;
   /** The detail pane for one of its rows — the editor, while it is open. */
   renderDetail: (setting: ThemeSetting) => ReactNode;
-  /** True while the editor is open — for a view that names its detail pane. */
+  /** True while the editor or the theme dialog is open — for a view that names its detail pane. */
   isEditing: boolean;
 }
 
-/** Name, blurb and swatch: the detail pane for a palette row. */
-const ThemePreview = ({ theme, isCurrent }: { theme: ThemeDefinition; isCurrent: boolean }) => {
-  const colors = useColors();
-  return (
-    <Box flexDirection="column">
-      <Text bold color={theme.colors.accent}>
-        {theme.label}
-        <Text color={colors.muted}>{isCurrent ? '  in use' : '  Enter to use'}</Text>
-      </Text>
-      <Text color={colors.muted} wrap="wrap">
-        {theme.blurb}
-      </Text>
-      <Box marginTop={1}>
-        <PaletteSwatch colors={theme.colors} width={40} />
-      </Box>
-    </Box>
-  );
-};
-
 /**
- * The theme section of a Settings tab, whole: the palettes, the custom one, and its editor.
+ * The theme section of a Settings tab, whole: the theme in force, the dialog that changes it,
+ * and the custom theme's editor.
+ *
+ * Only the theme in force is a row. The palettes are a dozen and growing, and listed inline they
+ * pushed every other setting below the fold for a choice made once; Enter on the row opens
+ * `ThemePicker` in the detail pane, which repaints the app as its cursor moves.
  *
  * Reads the palette in force and the way to change it from `useThemeControl`, which `AppShell`
  * provides when the app hands it `onPaletteChange` — so a view takes no theme props at all, and
@@ -85,19 +72,19 @@ export const useThemeSettings = (): ThemeSettings => {
   const colors = useColors();
   const control = useThemeControl();
   const [editing, setEditing] = useState<CustomThemeDraft | undefined>(undefined);
+  const [picking, setPicking] = useState(false);
   const current = themeById(control.id, control.themes);
 
   const items: PickItem<ThemeSetting>[] = [
-    ...choiceRows({
-      key: 'theme',
-      header: 'Theme',
-      choices: control.themes,
-      idOf: (theme) => theme.id,
-      label: (theme) => (theme.id === CUSTOM_THEME_ID ? `★ ${theme.label}` : theme.label),
-      value: (theme) => ({ kind: 'theme' as const, id: theme.id }),
-      current: control.id,
-      accent: colors.accent,
-    }),
+    { id: 'header-theme', label: 'Theme', isHeader: true },
+    {
+      id: `theme:${PICK_THEME_ID}`,
+      label: current.id === CUSTOM_THEME_ID ? `★ ${current.label}` : current.label,
+      hint: picking ? 'choosing' : control.select ? 'change…' : 'in use',
+      hintColor: picking ? colors.highlight : colors.accent,
+      isCurrent: true,
+      value: { kind: 'theme' as const, id: PICK_THEME_ID },
+    },
     ...(control.select
       ? [
           {
@@ -113,9 +100,15 @@ export const useThemeSettings = (): ThemeSettings => {
   ];
 
   const activate = (setting: ThemeSetting) => {
-    if (editing) return;
+    if (editing || picking || !control.select) return;
     if (setting.id === EDIT_THEME_ID) setEditing(cloneTheme(current));
-    else control.select?.(setting.id);
+    else if (setting.id === PICK_THEME_ID) setPicking(true);
+    else control.select(setting.id);
+  };
+
+  const pick = (id: string) => {
+    setPicking(false);
+    control.select?.(id);
   };
 
   const save = (draft: CustomThemeDraft) => {
@@ -126,6 +119,16 @@ export const useThemeSettings = (): ThemeSettings => {
   };
 
   const renderDetail = (setting: ThemeSetting) => {
+    if (picking) {
+      return (
+        <ThemePicker
+          themes={control.themes}
+          current={control.id}
+          onPick={pick}
+          onCancel={() => setPicking(false)}
+        />
+      );
+    }
     if (editing) {
       return (
         <ThemeEditor initial={editing} onSave={save} onCancel={() => setEditing(undefined)} />
@@ -143,16 +146,24 @@ export const useThemeSettings = (): ThemeSettings => {
         </Box>
       );
     }
-    const theme = control.themes.find((candidate) => candidate.id === setting.id);
-    return theme ? <ThemePreview theme={theme} isCurrent={theme.id === control.id} /> : null;
+    if (setting.id === PICK_THEME_ID) {
+      return (
+        <ThemeCard
+          theme={current}
+          note={control.select ? `in use · Enter to choose from ${control.themes.length}` : 'in use'}
+        />
+      );
+    }
+    return null;
   };
 
   return {
     items,
-    owns: (value: unknown): value is ThemeSetting => Boolean(editing) || isThemeSetting(value),
+    owns: (value: unknown): value is ThemeSetting =>
+      Boolean(editing) || picking || isThemeSetting(value),
     activate,
     renderDetail,
-    isEditing: Boolean(editing),
+    isEditing: Boolean(editing) || picking,
   };
 };
 

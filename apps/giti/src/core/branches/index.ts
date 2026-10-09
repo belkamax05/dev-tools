@@ -145,20 +145,73 @@ export const renameBranch = async (
     : { ok: false, message: failure(result, 'could not rename the branch') };
 };
 
+/** What `deleteBranch` took away, enough for `restoreBranch` to put it back as it was. */
+export interface DeletedBranch {
+  name: string;
+  tip: string;
+  upstream: string;
+}
+
 /**
- * Delete a local branch — only one already merged into HEAD. `git branch -d`
- * refuses anything else, and there is deliberately no `-D` here: throwing away
- * unmerged commits from a list is too easy to do by accident.
+ * Delete a local branch. A merged one goes with `-d`; an unmerged one — often a branch that was
+ * squash-merged upstream, so git cannot see its commits in HEAD — needs `force`, which the view
+ * passes only after saying what is lost. Either way the tip is returned, so the delete can be
+ * undone even once the commits are no longer reachable from any branch.
  */
-export const deleteBranch = async (root: string, branch: Branch): Promise<OperationResult> => {
+export const deleteBranch = async (
+  root: string,
+  branch: Branch,
+  { force = false } = {},
+): Promise<OperationResult & { undo?: DeletedBranch }> => {
   if (branch.isRemote) return { ok: false, message: 'Remote branches are not deleted from here' };
   if (branch.isCurrent) return { ok: false, message: 'Switch to another branch first' };
-  if (!branch.merged)
+  if (!branch.merged && !force)
     return { ok: false, message: `${branch.name} has commits HEAD does not — merge it first` };
-  const result = await git(['branch', '-d', branch.name], root);
+  const tip = (await git(['rev-parse', `refs/heads/${branch.name}`], root)).stdout.trim();
+  const result = await git(['branch', force ? '-D' : '-d', branch.name], root);
   return result.ok
-    ? { ok: true, message: `Deleted ${branch.name}` }
+    ? {
+        ok: true,
+        message: `Deleted ${branch.name} (was ${tip.slice(0, 7)})`,
+        undo: { name: branch.name, tip, upstream: branch.upstream },
+      }
     : { ok: false, message: failure(result, 'could not delete the branch') };
+};
+
+/** Recreate a branch `deleteBranch` removed, at the same commit and tracking the same upstream. */
+export const restoreBranch = async (
+  root: string,
+  deleted: DeletedBranch,
+): Promise<OperationResult> => {
+  const result = await git(['branch', deleted.name, deleted.tip], root);
+  if (!result.ok) return { ok: false, message: failure(result, 'could not restore the branch') };
+  //? The upstream may be gone by now; the branch is back either way, so that is not a failure
+  if (deleted.upstream)
+    await git(['branch', `--set-upstream-to=${deleted.upstream}`, deleted.name], root);
+  return { ok: true, message: `Restored ${deleted.name}` };
+};
+
+/**
+ * Delete a branch on its remote — `origin/feature` → `git push origin --delete feature`. The
+ * remote is matched against `git remote` rather than cut at the first slash, since a remote's
+ * own name may hold one. The tip's hash goes into the message: it is the only way back.
+ */
+export const deleteRemoteBranch = async (
+  root: string,
+  branch: Branch,
+): Promise<OperationResult> => {
+  if (!branch.isRemote) return { ok: false, message: `${branch.name} is not a remote branch` };
+  const remotes = (await git(['remote'], root)).stdout.split('\n').filter(Boolean);
+  const remote = remotes
+    .filter((name) => branch.name.startsWith(`${name}/`))
+    .sort((a, b) => b.length - a.length)[0];
+  if (!remote) return { ok: false, message: `No remote owns ${branch.name}` };
+  const name = branch.name.slice(remote.length + 1);
+  const tip = (await git(['rev-parse', '--short', `refs/remotes/${branch.name}`], root)).stdout.trim();
+  const result = await git(['push', remote, '--delete', name], root);
+  return result.ok
+    ? { ok: true, message: `Deleted ${name} on ${remote} (was ${tip})` }
+    : { ok: false, message: failure(result, 'could not delete the remote branch') };
 };
 
 export const setUpstream = async (

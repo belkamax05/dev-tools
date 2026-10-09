@@ -396,7 +396,7 @@ export const App = ({
             />
           )}
           {activeTab === 'log' && <LogView {...viewProps} />}
-          {activeTab === 'branches' && <BranchesView {...viewProps} />}
+          {activeTab === 'branches' && <BranchesView {...viewProps} sync={sync} />}
           {activeTab === 'stash' && <StashView {...viewProps} />}
           {activeTab === 'remotes' && (
             <RemotesView

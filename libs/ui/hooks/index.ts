@@ -17,6 +17,7 @@ export { default as useScrollWindow } from './useScrollWindow';
 export type { ThemeSetting, ThemeSettings } from './useThemeSettings';
 export {
   EDIT_THEME_ID,
+  PICK_THEME_ID,
   isThemeSetting,
   default as useThemeSettings,
 } from './useThemeSettings';

@@ -126,10 +126,12 @@ export const RemotesView = ({
   };
 
   useInput(
-    (input) => {
+    (input, key) => {
+      //? Ctrl+P / Ctrl+X arrive as 'p' / 'x' too; they belong to the palette and the op banner
+      if (key.ctrl) return;
       if (input === 'f') fetch();
       else if (input === 'x') remove();
-      else if (input === 'l') pull();
+      else if (input === 'p') pull();
       //? On a vendored row, push means every vendored directory — what mega/push does
       else if (input === 'P') currentVendored ? onRunCommand('mega/push') : push();
       else if (input === 'S') onRunCommand('mega/status');
@@ -156,7 +158,7 @@ export const RemotesView = ({
       disabled: Boolean(progress),
     },
     {
-      hotkey: 'l',
+      hotkey: 'p',
       label: incoming ? `Pull ↓${incoming}` : 'Pull',
       onPress: pull,
       tone: incoming ? 'primary' : 'normal',
@@ -250,7 +252,7 @@ export const RemotesView = ({
         isInputActive={!prompt.isOpen}
         hints={[
           { key: 'f', label: 'fetch', onPress: fetch },
-          { key: 'l', label: 'pull', onPress: pull },
+          { key: 'p', label: 'pull', onPress: pull },
           currentVendored
             ? { key: 'P', label: 'push all', onPress: () => onRunCommand('mega/push') }
             : { key: 'P', label: 'push', onPress: () => push() },

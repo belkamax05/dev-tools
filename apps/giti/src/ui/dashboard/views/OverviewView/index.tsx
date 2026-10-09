@@ -84,7 +84,7 @@ const SyncBar = ({
         <ActionButton hotkey="f" label="Fetch" disabled={busy} onPress={sync.fetch} />
         <Text> </Text>
         <ActionButton
-          hotkey="l"
+          hotkey="p"
           label={incoming ? `Pull ↓${incoming}` : 'Pull'}
           color={incoming ? colors.accent : undefined}
           disabled={busy}
@@ -186,9 +186,11 @@ export const OverviewView = ({
   ...viewProps
 }: OverviewViewProps) => {
   useInput(
-    (input) => {
+    (input, key) => {
+      //? Ctrl+P arrives as input 'p' too, and it belongs to the command palette
+      if (key.ctrl) return;
       if (input === 'f') sync.fetch();
-      else if (input === 'l') sync.pull();
+      else if (input === 'p') sync.pull();
       else if (input === 'P') sync.push();
       else if (input === '+' || input === '=') {
         if (!details) onToggleDetails();

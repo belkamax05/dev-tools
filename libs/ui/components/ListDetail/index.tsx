@@ -18,6 +18,40 @@ const LIST_SHARE = 0.42;
 /** Below this the two panes are stacked rather than set side by side. */
 const SIDE_BY_SIDE_COLUMNS = 96;
 
+type Viewport = ReturnType<typeof useViewport>;
+
+//? Stacked, the two panes share the rows; side by side they each get all of
+//? them. `panelFrame` is charged once either way — the detail pane's own frame
+//? is inside the budget the row count is measured against.
+const listDetailContentRows = (
+  viewport: Viewport,
+  layout: 'list' | 'grid',
+  reservedChrome: string[],
+): number =>
+  viewport.contentRows(
+    ['appShell', 'viewHints', ...(layout === 'grid' ? [] : ['panelFrame']), ...reservedChrome],
+    3,
+  );
+
+const stackedListRows = (contentRows: number): number =>
+  Math.max(2, Math.floor(contentRows / 2));
+
+/**
+ * Rows the detail pane of a list-layout `ListDetail` has for its content, on this terminal.
+ *
+ * The pane is a flex child, so a component inside it measures only as tall as its own content
+ * — it cannot find out how much room there is by measuring. Something that wants to fill the
+ * pane (a list that scrolls in it, a dialog) asks here instead: the same budget `ListDetail`
+ * itself splits between the panes.
+ */
+export const listDetailPaneRows = (viewport: Viewport, reservedChrome: string[] = []): number => {
+  const contentRows = listDetailContentRows(viewport, 'list', reservedChrome);
+  //? Stacked, the detail pane also has its own frame and title to pay for under the list
+  return viewport.columns >= SIDE_BY_SIDE_COLUMNS
+    ? contentRows
+    : Math.max(3, contentRows - stackedListRows(contentRows) - 3);
+};
+
 /**
  * Cells a list row's own text has, for a `ListDetail` on a terminal this wide: the list pane's
  * width less its border and padding (4) and the cursor marker every row starts with (2).
@@ -228,20 +262,14 @@ export const ListDetail = <T,>({
     { isActive: isInputActive },
   );
 
-  //? Stacked, the two panes share the rows; side by side they each get all of
-  //? them. `panelFrame` is charged once either way — the detail pane's own frame
-  //? is inside the budget the row count is measured against.
-  const contentRows = viewport.contentRows(
-    ['appShell', 'viewHints', ...(layout === 'grid' ? [] : ['panelFrame']), ...reservedChrome],
-    3,
-  );
+  const contentRows = listDetailContentRows(viewport, layout, reservedChrome);
   // Grid frame: two borders, one title and one scroll indicator.
   const listRows =
     layout === 'grid'
       ? Math.max(3, contentRows - 4)
       : sideBySide
         ? contentRows
-        : Math.max(2, Math.floor(contentRows / 2));
+        : stackedListRows(contentRows);
 
   const navigationHints: Hint[] = [
     { key: layout === 'grid' ? '↑/↓/←/→' : '↑/↓', label: 'move' },

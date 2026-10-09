@@ -132,8 +132,8 @@ If you add an action, add both.
   lock from a git that the user is running) and `GIT_TERMINAL_PROMPT=0`.
 - **Destructive actions either ask first or can be undone.** Discarding a file or a hunk saves a
   patch under `.git/giti-undo/`, and dropping a stash keeps its hash. Ctrl+Z (or the footer Undo
-  button) puts it back. A branch is only deleted with `-d`, never `-D`. Pull is `--ff-only`, and
-  force-push is `--force-with-lease`.
+  button) puts it back. An unmerged branch is deleted (`-D`) only after a question that says so,
+  and ^Z restores it at its old tip. Pull is `--ff-only`, and force-push is `--force-with-lease`.
 - **Rebase/merge/cherry-pick/revert in progress** shows a banner above the tabs: ^N continue,
   ^K skip, ^X abort. Conflicted files get their own section in Status, with O/T to take
   ours/theirs.
