@@ -1,5 +1,4 @@
 import type PickerItem from '@/dev-tools/types/PickerItem';
-import pickCommand from '@/dev-tools/ui/dialogs/pickCommand';
 
 import { detectPackageManager, runScriptCommand } from '../../../../pkgi/src/core/manifest';
 import type { AliasSpec } from '../config';
@@ -196,6 +195,9 @@ export const runProject = async (options: ProjectOptions, argv: string[]): Promi
     return 1;
   }
 
+  //? Loaded only when shown: Ink brings top-level await (yoga-layout), which would make every
+  //? importer of this module async and unloadable through require() - dfs loads commands that way
+  const { default: pickCommand } = await import('@/dev-tools/ui/dialogs/pickCommand');
   const selection = await pickCommand({
     items: toPickerItems(commands),
     title: options.title,
