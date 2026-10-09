@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -17,7 +18,27 @@ import { join } from 'node:path';
 //? covers the shell-side decisions only; nix/check.ts covers the .nix files against real Nix.
 
 const devToolsRoot = join(import.meta.dir, '../..');
-const systemPath = '/usr/bin:/bin';
+
+//? The plain tools the scripts (and the fake nix-build) call, linked into one folder that leads
+//? the test PATH. `/usr/bin:/bin` alone is not enough everywhere: on NixOS it holds only `env`
+//? and `sh`. The host's own tool folders cannot be used instead — on NixOS they hold `nix-build`
+//? too, and the "without Nix" cases need it absent.
+const TOOLS = [
+  'basename', 'cat', 'chmod', 'cp', 'cut', 'date', 'dirname', 'env', 'find', 'grep', 'head',
+  'ln', 'ls', 'mkdir', 'mktemp', 'mv', 'readlink', 'realpath', 'rm', 'sed', 'sort', 'stat',
+  'tail', 'touch', 'tr', 'uniq', 'wc',
+];
+const toolsDir = mkdtempSync(join(tmpdir(), 'dev-tools-activate-tools-'));
+for (const tool of TOOLS) {
+  const found = Bun.which(tool);
+  if (found) symlinkSync(found, join(toolsDir, tool));
+}
+process.on('exit', () => rmSync(toolsDir, { recursive: true, force: true }));
+const systemPath = `${toolsDir}:/usr/bin:/bin`;
+
+//? NixOS's /etc/zshenv runs for every zsh, `-c` and `-f` included, and replaces PATH with the
+//? system one; it returns early when this is set. Meaningless anywhere else.
+const shellEnv = { __ETC_ZSHENV_SOURCED: '1' };
 
 /** Stands in for nix-build: `<file> -A profile -o <link>`. FAKE_NIX_FAIL=1 makes it fail. */
 const fakeNixBuild = `#!/bin/sh
@@ -103,6 +124,7 @@ const run = (
       cwd: tmpdir(),
       env: {
         HOME: join(fixture.dir, 'home'),
+        ...shellEnv,
         PATH: withNix ? `${fixture.fakeBin}:${systemPath}` : systemPath,
         FAKE_NIX_LOG: fixture.log,
         FAKE_NIX_STORE: join(fixture.dir, 'store'),
@@ -239,6 +261,7 @@ describe.each(shells)('activate.sh (%s)', (shell) => {
       {
         env: {
           HOME: join(fixture.dir, 'home'),
+          ...shellEnv,
           PATH: `${fixture.fakeBin}:${systemPath}`,
           FAKE_NIX_LOG: fixture.log,
           FAKE_NIX_STORE: join(fixture.dir, 'store'),

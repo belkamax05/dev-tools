@@ -101,6 +101,26 @@ export const releaseMetrics = (
   );
 };
 
+/** Text glyphs need Unicode support, not an image protocol or a special icon font. */
+export const packageIconsSupported = (
+  env: NodeJS.ProcessEnv = process.env,
+  platform = process.platform,
+) =>
+  env.TERM !== 'dumb' &&
+  (platform !== 'win32' ||
+    Boolean(env.WT_SESSION || env.TERM_PROGRAM || env.TERM === 'xterm-256color'));
+
+export const updateIndicator = (
+  row: Pick<PackageRow, 'local' | 'update' | 'latest' | 'prerelease' | 'info'>,
+  unicode: boolean,
+) => {
+  if (row.local) return unicode ? '−' : '-';
+  if (row.update !== 'none' && row.latest) return unicode ? '↑' : 'U';
+  if (row.prerelease) return unicode ? '⇡' : 'P';
+  if (!row.info || row.info.error || !row.latest) return '?';
+  return '=';
+};
+
 const rowHint = (row: PackageRow, support: SupportInfo | undefined, checking: boolean) => {
   if (row.local) return row.range;
   const parts = [row.installed ?? `${row.range} · not installed`];
@@ -423,6 +443,7 @@ export const PackagesView = ({
   );
   const current = visible.find((row) => row.name === currentId);
 
+  const unicodeIcons = packageIconsSupported();
   const groups = supportMode
     ? [
         { id: 'attention', label: 'Needs attention · EOL / ending / stale / deprecated' },
@@ -439,7 +460,7 @@ export const PackagesView = ({
       { id: `header-${id}`, label: `${label} (${group.length})`, isHeader: true },
       ...group.map((row) => ({
         id: row.name,
-        label: row.name,
+        label: `${updateIndicator(row, unicodeIcons)} ${row.name}`,
         hint: rowHint(row, support[row.name], isChecking),
         hintColor: packageColor(row, support[row.name], colors),
         value: row,
@@ -693,7 +714,7 @@ export const PackagesView = ({
         //? Remounted when the rows change (a filter, the outdated toggle), restoring the cursor by
         //? package name instead of leaving it on whatever slid into its old position
         key={`${filter}|${onlyOutdated}|${supportMode}|${visible.length}`}
-        title={`Packages (${visible.length})`}
+        title={`Packages (${visible.length}) · ${unicodeIcons ? '↑' : 'U'} update · ${unicodeIcons ? '⇡' : 'P'} pre · = latest · ? unknown`}
         items={items}
         emptyText={
           isReading

@@ -3,6 +3,8 @@ import { expect, test } from 'bun:test';
 import type { SupportInfo } from '../../../core/eol';
 import {
   packageColor,
+  packageIconsSupported,
+  updateIndicator,
   registryUpdateAge,
   releaseMetrics,
   supportColor,
@@ -76,4 +78,27 @@ test('list and detail share support colors independently of grouping mode', () =
   }
   expect(packageColor({ deprecated: 'deprecated' }, support('supported'), colors)).toBe('red');
   expect(packageColor({ deprecated: undefined }, undefined, colors)).toBe('gray');
+});
+
+test('update markers distinguish an update, latest, prerelease and unknown independently of stale', () => {
+  const info = { name: 'x', distTags: {}, versions: [], deprecated: {}, fetchedAt: 1 };
+  const row = { local: false, update: 'none' as const, latest: '1.0.0', info };
+  expect(updateIndicator(row, true)).toBe('=');
+  for (const update of ['major', 'minor', 'patch'] as const) {
+    expect(updateIndicator({ ...row, update }, true)).toBe('↑');
+    expect(updateIndicator({ ...row, update }, false)).toBe('U');
+  }
+  expect(updateIndicator({ ...row, prerelease: '2.0.0-beta.1' }, true)).toBe('⇡');
+  expect(updateIndicator({ ...row, prerelease: '2.0.0-beta.1' }, false)).toBe('P');
+  expect(updateIndicator({ ...row, info: undefined }, true)).toBe('?');
+  expect(updateIndicator({ ...row, info: { ...info, error: 'network' } }, true)).toBe('?');
+  expect(updateIndicator({ ...row, latest: undefined }, true)).toBe('?');
+  expect(updateIndicator({ ...row, local: true }, false)).toBe('-');
+});
+
+test('glyphs fall back to ASCII for dumb and legacy Windows terminals', () => {
+  expect(packageIconsSupported({ TERM: 'dumb' }, 'linux')).toBe(false);
+  expect(packageIconsSupported({ TERM: 'xterm-256color' }, 'linux')).toBe(true);
+  expect(packageIconsSupported({}, 'win32')).toBe(false);
+  expect(packageIconsSupported({ WT_SESSION: 'session' }, 'win32')).toBe(true);
 });
