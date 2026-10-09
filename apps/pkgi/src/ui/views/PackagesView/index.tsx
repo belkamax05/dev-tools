@@ -226,6 +226,9 @@ export const PackagesView = ({
   const [check, setCheck] = useState(0);
   const [progress, setProgress] = useState<{ done: number; total: number } | undefined>();
   const force = useRef(false);
+  //? Set by [c] alone: a check asked for by hand reports in the status line as it goes and when
+  //? it is done, where the automatic one on opening only shows in the header
+  const announce = useRef(false);
 
   const { data: manifest, isLoading: isReading } = useLoader(
     () => readManifest(dir, settings.dependencyTypes),
@@ -239,9 +242,24 @@ export const PackagesView = ({
     if (!manifest) return {};
     const result = await fetchInfos(manifest, settings, {
       force: force.current,
-      onProgress: (done, total) => setProgress({ done, total }),
+      onProgress: (done, total) => {
+        setProgress({ done, total });
+        if (announce.current) notify(`Asking the registry… ${done}/${total}`);
+      },
     });
     setProgress(undefined);
+    if (announce.current) {
+      announce.current = false;
+      const answers = Object.values(result);
+      //? `not-found` is an answer — a private or local package — not a failure to ask
+      const failed = answers.filter((info) => info?.error && info.error !== 'not-found').length;
+      notify(
+        failed
+          ? `Checked ${answers.length} packages — ${failed} could not be read from the registry`
+          : `Checked ${answers.length} packages against the registry`,
+        failed ? 'warn' : 'ok',
+      );
+    }
     return result;
   }, [registryNames, settings.registry, settings.cacheHours, check]);
 
@@ -375,6 +393,7 @@ export const PackagesView = ({
 
   const checkNow = () => {
     force.current = true;
+    announce.current = true;
     setCheck((count) => count + 1);
     notify('Asking the registry for every package…');
   };
