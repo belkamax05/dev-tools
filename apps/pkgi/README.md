@@ -113,6 +113,13 @@ detail panel, `e` to group all packages by support status), in `pkgi list` (the 
   In EOL/stale mode the detail panel shows package-wide, exact installed-version, and major-line publish dates and ages,
   the major-version gap, and each threshold (major-line activity is context only), with green / amber / gray for below / exceeded / unknown.
 
+If a registry lookup fails or has no latest version, pkgi falls back to read-only CLI queries:
+`bun info <package> dist-tags --json` for Bun projects, otherwise `npm view <package> dist-tags --json`,
+then tries the other tool if needed. Commands run in the project directory so project/user registry
+and authentication settings apply; an explicit custom pkgi registry is preserved. Each CLI has a
+15-second timeout. Successful results are cached per project; `c` refreshes them. If neither lookup
+succeeds, the update marker stays `?` and the registry error remains visible.
+
 ## Reports
 
 `pkgi report` puts every package of several folders in one table: the range (and installed

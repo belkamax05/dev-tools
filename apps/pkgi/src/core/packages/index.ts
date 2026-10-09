@@ -1,5 +1,5 @@
 import type { FolderSettings, PackageNote } from '../../config/settings';
-import type { Dependency, Manifest } from '../manifest';
+import { detectPackageManager, type Dependency, type Manifest } from '../manifest';
 import { getManyPackageInfo, type PackageInfo } from '../registry';
 import { cleanVersion, compareVersions, updateKind, type UpdateKind } from '../semver';
 
@@ -57,16 +57,25 @@ export const buildRows = (
   });
 
 /** Registry answers for every registry-backed dependency of a manifest. */
-export const fetchInfos = (
+export const fetchInfos = async (
   manifest: Manifest,
-  settings: Pick<FolderSettings, 'registry' | 'cacheHours'>,
+  settings: Pick<FolderSettings, 'registry' | 'cacheHours'> &
+    Pick<Partial<FolderSettings>, 'packageManager'>,
   {
     force = false,
     onProgress,
   }: { force?: boolean; onProgress?: (done: number, total: number) => void } = {},
-): Promise<Record<string, PackageInfo>> =>
-  getManyPackageInfo(
+): Promise<Record<string, PackageInfo>> => {
+  const manager = await detectPackageManager(manifest.dir, settings.packageManager);
+  return getManyPackageInfo(
     [...new Set(manifest.dependencies.filter((dep) => !dep.local).map((dep) => dep.name))],
-    { registry: settings.registry, maxAgeMs: settings.cacheHours * 3600_000, force },
+    {
+      registry: settings.registry,
+      maxAgeMs: settings.cacheHours * 3600_000,
+      force,
+      cwd: manifest.dir,
+      packageManager: manager.name,
+    },
     onProgress,
   );
+};

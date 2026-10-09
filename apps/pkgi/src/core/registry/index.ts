@@ -1,5 +1,7 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+
+import type { PackageManagerName } from '../../config/settings';
 
 import { pkgiCacheDir } from '../../config/paths';
 import { compareVersions, isPrerelease } from '../semver';
@@ -25,6 +27,9 @@ export interface PackageInfo {
 
 export interface RegistryOptions {
   registry: string;
+  /** Project directory for CLI registry/auth configuration and isolated fallback caching. */
+  cwd?: string;
+  packageManager?: PackageManagerName;
   /** Reuse a cached answer younger than this. */
   maxAgeMs: number;
   /** Ask the registry even when the cache is fresh. */
@@ -85,7 +90,7 @@ const pickNext = (tags: Record<string, string>, latest?: string) => {
  * managers use. It has every version, the dist-tags and the deprecation messages, and none of the
  * READMEs: for a package like `typescript` that is a few hundred KB instead of tens of MB.
  */
-export const getPackageInfo = async (
+const getHttpPackageInfo = async (
   name: string,
   { registry, maxAgeMs, force = false }: RegistryOptions,
 ): Promise<PackageInfo> => {
@@ -96,6 +101,7 @@ export const getPackageInfo = async (
 
   try {
     const response = await fetch(`${registry}/${encodeName(name)}`, {
+      signal: AbortSignal.timeout(10000),
       headers: { accept: 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8' },
     });
     if (!response.ok) {
@@ -149,6 +155,103 @@ export const getPackageInfo = async (
       error: (error as Error).message,
     };
   }
+};
+
+/** Read-only metadata query; never invokes a shell, installs packages, or prints credentials. */
+const runRegistryCommand = async (command: string[], cwd: string): Promise<unknown> => {
+  const child = Bun.spawn(command, {
+    cwd,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'ignore',
+    timeout: 15000,
+  });
+  const [output, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  if (code !== 0) return undefined;
+  try {
+    return JSON.parse(output);
+  } catch {
+    return undefined;
+  }
+};
+
+export const getCliPackageInfo = async (
+  name: string,
+  options: RegistryOptions,
+  run = runRegistryCommand,
+): Promise<PackageInfo | undefined> => {
+  // Package names, never arbitrary package specs or command options.
+  if (!/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i.test(name) || name.startsWith('-')) return;
+  const tools = options.packageManager === 'bun' ? ['bun', 'npm'] : ['npm', 'bun'];
+  for (const tool of tools) {
+    const command = [tool, tool === 'bun' ? 'info' : 'view', name, 'dist-tags', '--json'];
+    // Let project/user config choose the default registry; preserve an explicit pkgi override.
+    if (options.registry.replace(/\/$/, '') !== 'https://registry.npmjs.org')
+      command.push('--registry=' + options.registry);
+    if (tool === 'npm') command.push('--fetch-retries=0', '--fetch-timeout=10000');
+    if (options.force) command.push(tool === 'bun' ? '--no-cache' : '--prefer-online');
+    try {
+      const data = await run(command, options.cwd ?? process.cwd());
+      if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+      const distTags = Object.fromEntries(
+        Object.entries(data).filter(
+          ([, value]) =>
+            typeof value === 'string' &&
+            /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value),
+        ),
+      );
+      if (!distTags.latest) continue;
+      const next = pickNext(distTags, distTags.latest);
+      return {
+        name,
+        latest: distTags.latest,
+        next: next?.version,
+        nextTag: next?.tag,
+        distTags,
+        versions: [...new Set(Object.values(distTags))].sort(compareVersions),
+        deprecated: {},
+        fetchedAt: Date.now(),
+      };
+    } catch {
+      /* Missing CLI, timeout, or inaccessible registry: try the other tool. */
+    }
+  }
+};
+
+export const getPackageInfo = async (
+  name: string,
+  options: RegistryOptions,
+): Promise<PackageInfo> => {
+  const store = await loadCache();
+  const key =
+    'cli|' +
+    cacheKey(options.registry, name) +
+    '|' +
+    resolve(options.cwd ?? process.cwd()) +
+    '|' +
+    (options.packageManager ?? 'npm');
+  const cached = store[key];
+  if (
+    cached?.latest &&
+    !cached.error &&
+    !options.force &&
+    Date.now() - cached.fetchedAt < options.maxAgeMs
+  )
+    return cached;
+  const info = await getHttpPackageInfo(name, options);
+  if (info.latest && !info.error) return info;
+  const cli = await getCliPackageInfo(name, options);
+  if (!cli) return cached?.latest && !cached.error ? cached : info;
+  const result: PackageInfo = {
+    ...info,
+    ...cli,
+    deprecated: info.deprecated,
+    versions: [...new Set([...info.versions, ...cli.versions])].sort(compareVersions),
+  };
+  delete result.error;
+  store[key] = result;
+  dirty = true;
+  return result;
 };
 
 /**
