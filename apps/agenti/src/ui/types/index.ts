@@ -17,7 +17,7 @@ export interface Session {
   tab: string;
   selected: Record<string, string | undefined>;
   expanded: Set<string>;
-  /** The Agents tab shows file content (or a diff) only once asked to, and keeps showing it. */
+  /** The Agents tab shows file content (or a diff) until `v` hides it, and keeps that choice. */
   preview: boolean;
   /** Where Settings' IDE section had the keyboard: the list, or which link in the detail pane. */
   ideFocus: { pane: 'list' | 'detail'; link: number };
