@@ -2,6 +2,7 @@ import { useApp, useInput } from 'ink';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
+import useRepaintOnResize from '../../hooks/useRepaintOnResize';
 import useResizeFlash from '../../hooks/useResizeFlash';
 import useTerminalSize from '../../hooks/useTerminalSize';
 import TuiThemeProvider, { useResolvedTheme } from '../../providers/TuiThemeProvider';
@@ -162,6 +163,8 @@ export const AppShell = <Id extends string = string>({
   //? decide before there is a context to read.
   const { columns, rows } = useTerminalSize();
   const resizing = useResizeFlash(resolvedTheme.timings.resizeFlash);
+  //? Ink's incremental frames lose their place on a resize; this puts the whole frame back
+  useRepaintOnResize();
   const { app } = resolvedTheme.sizes;
 
   /**

@@ -30,7 +30,7 @@ export const renderDashboard = async (scope: Scope, initialTab?: TabId): Promise
     tab: initialTab ?? (hasOwnIde(settings, root) ? settings.lastTab : 'settings'),
     selected: {},
     expanded: new Set(['rules', 'skills', 'workflows']),
-    preview: false,
+    preview: true,
     ideFocus: { pane: 'list', link: 0 },
   };
   let cleared: string | undefined;

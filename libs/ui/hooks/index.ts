@@ -12,6 +12,7 @@ export {
   type RasterOverlayOptions,
   rasterPixelSize,
 } from './useRasterOverlay';
+export { default as useRepaintOnResize } from './useRepaintOnResize';
 export { default as useResizeFlash } from './useResizeFlash';
 export { default as useScrollWindow } from './useScrollWindow';
 export type { ThemeSetting, ThemeSettings } from './useThemeSettings';

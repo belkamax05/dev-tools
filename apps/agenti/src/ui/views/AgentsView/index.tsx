@@ -2,6 +2,7 @@ import { relative } from 'node:path';
 import { Text, useInput } from 'ink';
 import { useCallback, useState } from 'react';
 
+import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
@@ -780,9 +781,11 @@ export const AgentsView = ({
         })}
         {node.type === 'file' && !preview && own && (
           <Box marginTop={1}>
-            <Text color={colors.muted}>
-              [v] {diffing ? `shows ${ide.name}'s diff` : 'shows the file'} here
-            </Text>
+            <ActionButton
+              hotkey="v"
+              label={`${diffing ? `shows ${ide.name}'s diff` : 'shows the file'} here`}
+              onPress={togglePreview}
+            />
           </Box>
         )}
         {body !== undefined && previewLines(body, diffing)}
