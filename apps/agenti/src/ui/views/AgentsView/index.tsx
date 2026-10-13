@@ -37,6 +37,7 @@ import {
 } from '../../../core/instructions';
 import revealPath from '@/dev-tools/utils/system/revealPath';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
+import PreviewLines, { PREVIEW_SCROLL_HINT } from '../../PreviewLines';
 import type { ViewProps } from '../../types';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
@@ -660,6 +661,7 @@ export const AgentsView = ({
     { key: '←/→', label: 'fold' },
     { key: 'Space', label: 'link everywhere' },
     { key: 'v', label: 'preview', onPress: togglePreview },
+    ...(preview ? [PREVIEW_SCROLL_HINT] : []),
     ...(ides.length > 1 ? [{ key: '[ ]', label: `preview/adopt from ${ide.name}` }] : []),
     ...(focused?.canSwitchMode
       ? [{ key: 'm', label: `${focused.ide.name} mode: ${focused.mode}`, onPress: switchMode }]
@@ -693,30 +695,12 @@ export const AgentsView = ({
   );
 
   const previewLines = (body: string, diffing: boolean) => (
-    <Box flexDirection="column" marginTop={1}>
-      {body
-        .split('\n')
-        .slice(0, previewRows)
-        .map((line, index) => (
-          <Text
-            key={index}
-            wrap="truncate"
-            color={
-              !diffing
-                ? colors.text
-                : line.startsWith('+')
-                  ? colors.ok
-                  : line.startsWith('-')
-                    ? colors.error
-                    : line.startsWith('@@')
-                      ? colors.accent
-                      : colors.muted
-            }
-          >
-            {line || ' '}
-          </Text>
-        ))}
-    </Box>
+    <PreviewLines
+      text={body}
+      rows={previewRows}
+      diffing={diffing}
+      isActive={isActive && !prompt.isOpen}
+    />
   );
 
   const renderInstructions = () => (
