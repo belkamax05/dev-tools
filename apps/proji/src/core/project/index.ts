@@ -8,6 +8,8 @@ import { readScripts } from '../scripts';
  */
 export interface Override {
   name: string;
+  /** Other names it answers to - shown in the detail panel, never as rows of their own. */
+  aliases?: string[];
   description?: string;
   args?: string;
   hidden?: boolean;
@@ -29,6 +31,8 @@ export type CommandSource = 'override' | 'alias' | 'script';
 
 export interface ProjiCommand {
   name: string;
+  /** Other names it answers to; `resolveCommand` matches them too. */
+  aliases?: string[];
   source: CommandSource;
   description?: string;
   args?: string;
@@ -63,6 +67,7 @@ const fromOverride = (override: Override, root: string): ProjiCommand => {
   const argv = command && ((args: string[]) => [...command, ...args]);
   return {
     name: override.name,
+    aliases: override.aliases,
     source: 'override',
     description: override.description,
     args: override.args,
@@ -150,7 +155,10 @@ export const resolveCommand = (commands: ProjiCommand[], argv: string[]): Resolu
   let command: ProjiCommand | undefined;
   let depth = 0;
   while (depth < argv.length) {
-    const next = level.find((candidate) => candidate.name === argv[depth]);
+    const next = level.find(
+      (candidate) =>
+        candidate.name === argv[depth] || candidate.aliases?.includes(argv[depth]),
+    );
     if (!next) break;
     command = next;
     depth += 1;

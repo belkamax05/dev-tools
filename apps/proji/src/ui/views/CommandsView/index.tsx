@@ -62,6 +62,7 @@ const matches = (command: ProjiCommand, filter: string) => {
   const needle = filter.toLowerCase();
   return (
     command.name.toLowerCase().includes(needle) ||
+    (command.aliases ?? []).some((alias) => alias.toLowerCase().includes(needle)) ||
     (command.description ?? '').toLowerCase().includes(needle)
   );
 };
@@ -269,6 +270,16 @@ export const CommandsView = ({
                 <Text color={colors.text} wrap="wrap">
                   {command.description}
                 </Text>
+              ) : null}
+              {command.aliases?.length ? (
+                <Box marginTop={1} flexDirection="column">
+                  <Text color={colors.muted}>Aliases</Text>
+                  <Text color={colors.text} wrap="wrap">
+                    {command.aliases
+                      .map((alias) => [prefix, ...path, alias].join(' '))
+                      .join(' · ')}
+                  </Text>
+                </Box>
               ) : null}
               {line ? (
                 <Box marginTop={1} flexDirection="column">
