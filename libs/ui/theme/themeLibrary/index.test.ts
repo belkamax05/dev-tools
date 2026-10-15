@@ -28,7 +28,7 @@ describe('colour values', () => {
   test('nudges come back as hex and move the way they say', () => {
     const lighter = shiftLightness('#565f89', 0.1) as string;
     expect(lighter).toMatch(/^#[0-9a-f]{6}$/);
-    expect((parseColor(lighter) as number[])[2]).toBeGreaterThan(0x89);
+    expect((parseColor(lighter) as readonly number[])[2]).toBeGreaterThan(0x89);
     expect(rotateHue('#ff0000', 120)).toBe('#00ff00');
     expect(rotateHue('#808080', 90)).toBe('#808080');
   });

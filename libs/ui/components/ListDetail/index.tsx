@@ -26,7 +26,7 @@ type Viewport = ReturnType<typeof useViewport>;
 const listDetailContentRows = (
   viewport: Viewport,
   layout: 'list' | 'grid',
-  reservedChrome: string[],
+  reservedChrome: readonly string[],
 ): number =>
   viewport.contentRows(
     ['appShell', 'viewHints', ...(layout === 'grid' ? [] : ['panelFrame']), ...reservedChrome],
@@ -44,7 +44,10 @@ const stackedListRows = (contentRows: number): number =>
  * pane (a list that scrolls in it, a dialog) asks here instead: the same budget `ListDetail`
  * itself splits between the panes.
  */
-export const listDetailPaneRows = (viewport: Viewport, reservedChrome: string[] = []): number => {
+export const listDetailPaneRows = (
+  viewport: Viewport,
+  reservedChrome: readonly string[] = [],
+): number => {
   const contentRows = listDetailContentRows(viewport, 'list', reservedChrome);
   //? Stacked, the detail pane also has its own frame and title to pay for under the list
   return viewport.columns >= SIDE_BY_SIDE_COLUMNS
