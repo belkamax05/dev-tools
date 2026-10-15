@@ -49,6 +49,9 @@ cancel-unstaged = "!git giti cancel-unstaged"
 # Delete local branches already merged into the current one, after showing them and asking (--dry-run to preview, --yes to skip the prompt)
 cleanup = "!git giti cleanup"
 
+# Browse git-ignored files (caches, logs, build output, dependencies) as a tree; Space ticks, Enter deletes the ticked ones (--list to just print it)
+clear = "!git giti clear"
+
 # Commit with interactive TUI for message and flags; TUI is skipped when a message or any flag is provided
 commit = "!git giti commit"
 

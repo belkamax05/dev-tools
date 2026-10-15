@@ -70,6 +70,11 @@ const hintFor = ({ change, side }: Row) =>
  * or one hunk; commit from the same screen. Discards are confirmed and can be
  * undone from the status line straight after.
  */
+export interface StatusViewProps extends GitViewProps {
+  /** `I`: open the ignored-files tree in this view's place. Owned by Overview, which hosts both. */
+  onShowIgnored?: () => void;
+}
+
 export const StatusView = ({
   root,
   refreshKey,
@@ -79,7 +84,8 @@ export const StatusView = ({
   handoff,
   offerUndo,
   reservedChrome,
-}: GitViewProps) => {
+  onShowIgnored,
+}: StatusViewProps) => {
   const colors = useColors();
   const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
@@ -385,6 +391,8 @@ export const StatusView = ({
       : [{ key: 'C', label: 'commit empty', onPress: commitEmpty }]),
     { key: 'M', label: 'amend', onPress: () => void amend() },
     { key: 'W', label: 'wip' },
+    //? Last, so a narrow terminal drops it first — the key still works without the reminder
+    ...(onShowIgnored ? [{ key: 'I', label: 'ignored files', onPress: onShowIgnored }] : []),
   ];
 
   const header = prompt.line ?? (

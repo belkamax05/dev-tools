@@ -140,6 +140,14 @@ If you add an action, add both.
 - **Auto-refresh**: `useRepoWatch` watches the work tree recursively, falling back to `.git`
   alone, with a 300ms debounce; `r` still reloads by hand.
 - **The command picker** described below is the palette: `:` or Ctrl+P opens it over any tab.
+- **Ignored files** (`I` on Overview) swap the Status pane for `views/IgnoredView`, the same tree
+  `giti clear` opens full screen. `core/ignored` lists with `git status --ignored=matching
+  --untracked-files=normal` (never `ls-files --directory`, which also names untracked folders
+  that merely contain ignored files) and re-checks every path against git before `rm -rf`.
+  Nothing is pre-ticked and there is no undo — Enter is the confirmation. Its second pane is
+  `previewIgnored` (≤64 KB of a file, `.env`-style values masked; a folder's top level). Hide /
+  preselect rules come in as `IgnoredOptions` globs (`IgnoredView`'s `options` prop,
+  `applyIgnoredOptions`); nothing loads them from a config file yet.
 
 ## The command picker
 

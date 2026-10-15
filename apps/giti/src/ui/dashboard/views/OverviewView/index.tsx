@@ -1,4 +1,5 @@
 import { Text, useInput } from 'ink';
+import { useState } from 'react';
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
@@ -8,6 +9,7 @@ import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
 import type { GitViewProps } from '../../types';
 import SpinnerGlyph from '../../SpinnerGlyph';
 import type { LastFetch, RemoteSync } from '../../useRemoteSync';
+import IgnoredView from '../IgnoredView';
 import StatusView from '../StatusView';
 
 export interface OverviewViewProps extends GitViewProps {
@@ -185,11 +187,16 @@ export const OverviewView = ({
   isInputCaptured,
   ...viewProps
 }: OverviewViewProps) => {
+  //? The ignored-files tree takes Status's place rather than getting a tab of its own: it is a
+  //? rare cleanup over the same work tree, not somewhere anyone goes every day
+  const [showIgnored, setShowIgnored] = useState(false);
+
   useInput(
     (input, key) => {
       //? Ctrl+P arrives as input 'p' too, and it belongs to the command palette
       if (key.ctrl) return;
-      if (input === 'f') sync.fetch();
+      if (input === 'I') setShowIgnored(true);
+      else if (input === 'f') sync.fetch();
       else if (input === 'p') sync.pull();
       else if (input === 'P') sync.push();
       else if (input === '+' || input === '=') {
@@ -216,7 +223,24 @@ export const OverviewView = ({
         onToggleDetails={onToggleDetails}
       />
       {details && <Details snapshot={snapshot} />}
-      <StatusView {...viewProps} reservedChrome={reservedChrome} />
+      {showIgnored ? (
+        <IgnoredView
+          root={viewProps.root}
+          onClose={() => setShowIgnored(false)}
+          onCleared={(result) => {
+            viewProps.notify(result.message, result.ok ? 'ok' : 'error');
+            viewProps.reload();
+          }}
+          onCaptureInput={viewProps.onCaptureInput}
+          reservedChrome={['appShell', ...reservedChrome]}
+        />
+      ) : (
+        <StatusView
+          {...viewProps}
+          reservedChrome={reservedChrome}
+          onShowIgnored={() => setShowIgnored(true)}
+        />
+      )}
     </Box>
   );
 };
