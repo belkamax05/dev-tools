@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import exec from '@/dev-tools/utils/process/exec';
 
@@ -17,10 +17,8 @@ import {
 import { buildComparison, cellVersion, loadColumns, toAbsolute } from './core/compare';
 import type { SupportInfo } from './core/eol';
 import {
-  hashFile,
   isInstallCurrent,
   managerVersionMismatch,
-  stampPath,
   writeInstallStamp,
 } from './core/install';
 import {
@@ -30,26 +28,12 @@ import {
   detectPackageManager,
   findLockfile,
   installCommand,
-  lockfileOnlyCommand,
   readManifest,
   removeCommand,
   runScriptCommand,
   setVersionCommand,
   shellQuote,
 } from './core/manifest';
-import {
-  buildManifest,
-  buildNodeModules,
-  clearFailures,
-  failedBefore,
-  type NixManifest,
-  OWN_LIFECYCLE,
-  placeNodeModules,
-  prefetchAuthenticated,
-  pruneBuilds,
-  recordFailure,
-} from './core/nix';
-import { readNpmrcAuth } from './core/npmrc';
 import { buildRows, fetchInfos, isOutdated } from './core/packages';
 import { getManyPackageInfo } from './core/registry';
 import {
@@ -84,21 +68,14 @@ usage:
                                   their section and range style (^, ~, exact)
   pkgi update                     every package behind by a minor or patch (majors are
                                   left to you, one at a time)
-  pkgi install [--frozen | --nix] [--if-changed] [--print-watched] [--silent]
+  pkgi install [--frozen] [--if-changed] [--silent]
                                   install everything, with the package manager
                                   package.json's packageManager names (else the
                                   lockfile's), from the workspace root. --frozen
                                   installs exactly what the lockfile pins and fails
                                   rather than rewrite it (a missing lockfile is
                                   generated); --if-changed does nothing when
-                                  node_modules already matches the lockfile (with
-                                  --nix, also when the last build of it failed and
-                                  nothing it depends on changed);
-                                  --print-watched installs nothing and prints the
-                                  files whose change means installing again;
-                                  --nix builds node_modules in the Nix store from
-                                  the lockfile alone (any manager's) and copies it
-                                  in - same lockfile, same store path; --silent
+                                  node_modules already matches the lockfile; --silent
                                   prints nothing unless it fails
   pkgi add <pkg>[@version]... [--dev]
                                   without names: the dashboard's Add tab (registry search)
@@ -190,81 +167,6 @@ const runInteractive = async (dir: string, argv: string[]) => {
   } catch (error) {
     console.error(`pkgi: ${(error as Error).message}`);
     process.exitCode = 127;
-  }
-};
-
-/**
- * `pkgi install --nix`: node_modules as a Nix build of the lockfile (see core/nix and dev-tools'
- * nix/lib/node-modules.nix). Keyed by the lockfile's hash alone — whether `bun add`, a pull or a
- * checkout wrote it doesn't matter. Without a lockfile yet, the manager writes one first.
- */
-const installThroughNix = async (
-  root: string,
-  manager: Awaited<ReturnType<typeof detectPackageManager>>,
-  found: string | undefined,
-  ifChanged: boolean,
-  dryRun: boolean,
-) => {
-  let lockfile = found;
-  if (!lockfile) {
-    console.log(`No ${manager.name} lockfile in ${root} yet — writing one.`);
-    await runCommand(root, lockfileOnlyCommand(manager.name), dryRun);
-    lockfile = findLockfile(root, manager.name);
-    if (dryRun) return;
-    if (!lockfile) {
-      console.error(`pkgi: ${manager.name} wrote no lockfile in ${root}`);
-      process.exitCode = 1;
-      return;
-    }
-  }
-  if (ifChanged && (await isInstallCurrent(root, manager.name, lockfile, { fromNix: true })))
-    return;
-  const mismatch = await managerVersionMismatch(manager.name, manager.version);
-  if (mismatch) {
-    console.error(
-      `pkgi: package.json pins ${manager.name}@${manager.version}, but ${manager.name} on PATH is ${mismatch} — the build uses the one on PATH`,
-    );
-  }
-  const key = (await hashFile(lockfile)).slice(0, 32);
-  const auths = await readNpmrcAuth(root);
-  let manifest: NixManifest | undefined;
-  try {
-    manifest = await buildManifest(root, manager.name, lockfile, manager.version);
-    if (ifChanged && (await failedBefore(root, manifest, auths))) {
-      console.error(
-        `pkgi: the last Nix build for ${basename(lockfile)} ${key.slice(0, 12)} failed, and nothing it depends on has changed since — not retrying on its own; run \`pkgi install --nix\` to try again`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-    console.log(
-      `pkgi: node_modules for ${basename(lockfile)} ${key.slice(0, 12)} — ${manifest.tarballs.length} packages, built by Nix`,
-    );
-    if (dryRun) return;
-    const out = await buildNodeModules(
-      root,
-      await prefetchAuthenticated(root, manifest, auths),
-      key,
-    );
-    await placeNodeModules(root, out, manifest.workspaces);
-    await writeInstallStamp(root, manager.name, lockfile, out);
-    await clearFailures(root);
-    await pruneBuilds(root);
-    console.log(`pkgi: node_modules ← ${out}`);
-    for (const dir of manifest.workspaces) {
-      const at = join(root, dir);
-      const scripts =
-        ((await Bun.file(join(at, 'package.json')).json()) as { scripts?: Record<string, string> })
-          .scripts ?? {};
-      for (const name of OWN_LIFECYCLE) {
-        if (scripts[name]) await runCommand(at, [manager.name, 'run', name], false);
-      }
-    }
-  } catch (error) {
-    const message = (error as Error).message;
-    console.error(`pkgi: ${message}`);
-    if (manifest && !dryRun) await recordFailure(root, manifest, auths, message);
-    process.exitCode = 1;
   }
 };
 
@@ -534,14 +436,6 @@ export const run = async (...argv: string[]) => {
     const manager = await detectPackageManager(dir, settings.packageManager);
     const root = manager.root ?? dir;
     const lockfile = findLockfile(root, manager.name);
-    if (flags.has('--print-watched')) {
-      for (const path of [stampPath(root), ...(lockfile ? [lockfile] : [])]) console.log(path);
-      return;
-    }
-    if (flags.has('--nix')) {
-      await installThroughNix(root, manager, lockfile, flags.has('--if-changed'), dryRun);
-      return;
-    }
     if (flags.has('--if-changed') && (await isInstallCurrent(root, manager.name, lockfile))) return;
     const frozen = flags.has('--frozen') && lockfile !== undefined;
     if (flags.has('--frozen') && !frozen && !flags.has('--silent')) {

@@ -19,27 +19,10 @@ built on them, whose executables live in `bin/` — one shim per app, calling it
 | `convi` | file format converter — markdown to PDF, more to come ([README](apps/convi/README.md)) |
 | `proji` | a project's commands — package.json scripts plus aliases, in a dashboard; also a library ([README](apps/proji/README.md)) |
 
-Three ways to get them on `PATH`, all defined once in `nix/`:
+Two ways to get them on `PATH` (both need `bun` installed):
 
-- `.envrc`: direnv, only while you're inside the repo (run `direnv allow` once). With Nix
-  it's `use nix` (`shell.nix`); without Nix it only adds `bin/`.
-- `include`, sourced from your shell rc, puts them in every shell. With Nix it builds the same
-  environment as a profile under `.cache/nix/`, rebuilt only when `nix/` changes (see
-  `nix/lib/activate.sh`). Without Nix, or with `DEV_TOOLS_NIX=0`, it only adds `bin/`.
-- `nix-shell`, for a throwaway shell.
-
-The Nix side (`nix/packages/*.nix`: latest bun from nixos-unstable, git-subrepo) is also an *env module*
-(`nix/module.nix`). A repo that embeds dev-tools composes it with its own module through
-`nix/lib/mk-env.nix`, and the embedding repo's packages win on a name clash. See
-the embedding repo's own `nix/env.nix`.
-
-The Nix *shell* (`nix-shell`, direnv) also installs npm packages on entry: every folder an env
-module lists under `install` gets `pkgi install --nix --if-changed` — node_modules built in the Nix
-store from the lockfile of the manager `packageManager` names (`nix/lib/node-modules.nix`), so the
-same lockfile is always the same store path, and nothing at all happens while `node_modules` is
-already the build of the current one. dev-tools' own `env.nix` lists this repo; an embedding repo
-lists its own root. `include`'s global profile never installs. `DEV_TOOLS_AUTO_INSTALL=0` opts
-out.
+- `.envrc`: direnv, only while you're inside the repo (run `direnv allow` once).
+- `include`, sourced from your shell rc, puts them in every shell.
 
 ## Layout
 
@@ -222,5 +205,4 @@ bun test
 bunx tsc --noEmit
 bun run lint      # biome check .
 bun run format    # biome check --write --unsafe .
-bun run check:nix # evaluate + build nix/ against real Nix (skips without Nix)
 ```

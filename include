@@ -1,8 +1,6 @@
 #!/bin/sh
 # Source from your shell rc to get dev-tools' commands in every shell.
-# With Nix: the same environment shell.nix/.envrc give you inside the repo
-# (latest bun, git-subrepo, bin/), loaded globally - see nix/lib/activate.sh.
-# Without Nix (or DEV_TOOLS_NIX=0): just bin/ on PATH, bun from your system.
+# Needs bun on PATH - the bin/ shims run on it.
 
 get_this_file_directory() {
     __get_dirname_of_script() {
@@ -20,9 +18,5 @@ get_this_file_directory() {
 }
 
 _dev_tools_root=$(get_this_file_directory)
-# shellcheck disable=SC1091
-. "$_dev_tools_root/nix/lib/activate.sh"
-if ! dev_tools_nix_env "$_dev_tools_root" dev-tools; then
-    export PATH="$_dev_tools_root/bin:$PATH"
-fi
+export PATH="$_dev_tools_root/bin:$PATH"
 unset _dev_tools_root

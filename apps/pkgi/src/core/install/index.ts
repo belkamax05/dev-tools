@@ -15,8 +15,6 @@ export interface InstallStamp {
   manager: PackageManagerName;
   lockfile: string;
   hash: string;
-  /** The Nix build this node_modules was copied from, when `pkgi install --nix` put it there. */
-  store?: string;
 }
 
 export const stampPath = (dir: string) => join(dir, 'node_modules', '.pkgi-install.json');
@@ -34,20 +32,17 @@ const currentStamp = async (
 });
 
 /**
- * True when `node_modules` was last installed by pkgi from exactly this lockfile, by this manager
- * — with `fromNix`, only when it was copied from a Nix build of it that is still in the store.
+ * True when `node_modules` was last installed by pkgi from exactly this lockfile, by this manager.
  */
 export const isInstallCurrent = async (
   dir: string,
   manager: PackageManagerName,
   lockfile: string | undefined,
-  { fromNix = false }: { fromNix?: boolean } = {},
 ): Promise<boolean> => {
   if (!lockfile || !existsSync(stampPath(dir))) return false;
   try {
     const stamp = (await Bun.file(stampPath(dir)).json()) as Partial<InstallStamp>;
     const now = await currentStamp(manager, lockfile);
-    if (fromNix && !(stamp.store && existsSync(stamp.store))) return false;
     return (
       stamp.manager === now.manager && stamp.lockfile === now.lockfile && stamp.hash === now.hash
     );
@@ -60,12 +55,8 @@ export const writeInstallStamp = async (
   dir: string,
   manager: PackageManagerName,
   lockfile: string,
-  store?: string,
 ) => {
-  const stamp: InstallStamp = {
-    ...(await currentStamp(manager, lockfile)),
-    ...(store && { store }),
-  };
+  const stamp = await currentStamp(manager, lockfile);
   await mkdir(dirname(stampPath(dir)), { recursive: true });
   await writeFile(stampPath(dir), `${JSON.stringify(stamp)}\n`);
 };
