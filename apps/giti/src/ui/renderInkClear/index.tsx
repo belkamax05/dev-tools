@@ -5,22 +5,24 @@ import Box from '@/dev-tools/ui/components/Box';
 import { TuiThemeProvider } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
-import type { ClearIgnoredResult } from '../../core/ignored';
+import type { ClearIgnoredResult, IgnoredOptions } from '../../core/ignored';
 import gitiTheme from '../dashboard/theme';
 import { DEFAULT_REFRESH_SECONDS } from '../dashboard/views/SettingsView';
 import IgnoredView from '../dashboard/views/IgnoredView';
 
 const ClearApp = ({
   root,
+  options,
   onCleared,
 }: {
   root: string;
+  options?: IgnoredOptions;
   onCleared: (result: ClearIgnoredResult) => void;
 }) => {
   const { exit } = useApp();
   return (
     <Box flexDirection="column" flexGrow={1} paddingX={1}>
-      <IgnoredView root={root} onClose={exit} onCleared={onCleared} />
+      <IgnoredView root={root} options={options} onClose={exit} onCleared={onCleared} />
     </Box>
   );
 };
@@ -32,7 +34,7 @@ const ClearApp = ({
  * what is ignored or what Enter does. It stays open after a clear — the tree rescans, and Esc
  * leaves — and what was removed is printed once the terminal is back, where it stays readable.
  */
-const renderInkClear = async (root: string) => {
+const renderInkClear = async (root: string, options?: IgnoredOptions) => {
   //? Only for the palette: the same file the dashboard reads, so `giti clear` looks like it
   const config = await createConfigStore({
     appName: 'giti',
@@ -42,7 +44,7 @@ const renderInkClear = async (root: string) => {
   const results: ClearIgnoredResult[] = [];
   await runTuiApp(
     <TuiThemeProvider theme={gitiTheme} palette={config.theme}>
-      <ClearApp root={root} onCleared={(result) => results.push(result)} />
+      <ClearApp root={root} options={options} onCleared={(result) => results.push(result)} />
     </TuiThemeProvider>,
     { render, keepProcessAlive: true },
   );
