@@ -146,8 +146,11 @@ If you add an action, add both.
   that merely contain ignored files) and re-checks every path against git before `rm -rf`.
   Nothing is pre-ticked and there is no undo — Enter is the confirmation. Its second pane is
   `previewIgnored` (≤64 KB of a file, `.env`-style values masked; a folder's top level). Hide /
-  preselect rules come in as `IgnoredOptions` globs (`IgnoredView`'s `options` prop,
-  `applyIgnoredOptions`); nothing loads them from a config file yet.
+  preselect rules are `IgnoredOptions` globs, read by `src/config/project` from the nearest
+  `giti.config.ts` (`export default { clear: { hide, preselect } }`, or a function of `{ root }`)
+  merged with the file `GITI_CONFIG` names — how a wrapping CLI (dfs) brings its rules into
+  repositories it does not own. `giti clear --select=<glob> --hide=<glob>` stack on top; the
+  dashboard's `I` view reads the config itself.
 
 ## The command picker
 

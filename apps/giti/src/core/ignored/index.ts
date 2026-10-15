@@ -296,14 +296,24 @@ export const formatSize = (bytes: number | undefined): string => {
   return unit === 0 ? `${value} B` : `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unit]}`;
 };
 
-/** Plain-text tree, for `giti clear --list` and for output that is not a terminal. */
-export const printIgnoredTree = (nodes: IgnoredNode[]): string[] => {
+/**
+ * Plain-text tree, for `giti clear --list` and for output that is not a terminal. Paths in
+ * `preselected` are marked, so a config's rules can be checked without opening the TUI.
+ */
+export const printIgnoredTree = (
+  nodes: IgnoredNode[],
+  preselected: Set<string> = new Set(),
+): string[] => {
   const lines: string[] = [];
   const walk = (list: IgnoredNode[], prefix: string) => {
     for (const [at, node] of list.entries()) {
       const last = at === list.length - 1;
       const label = `${node.name}${node.isDir ? '/' : ''}`;
-      const notes = [formatSize(node.size), ...(node.sensitive ? ['may hold secrets'] : [])];
+      const notes = [
+        formatSize(node.size),
+        ...(node.ignored && preselected.has(node.path) ? ['preselected'] : []),
+        ...(node.sensitive ? ['may hold secrets'] : []),
+      ];
       lines.push(`${prefix}${last ? '└─ ' : '├─ '}${label}  (${notes.join(', ')})`);
       if (!node.ignored) walk(node.children, `${prefix}${last ? '   ' : '│  '}`);
     }

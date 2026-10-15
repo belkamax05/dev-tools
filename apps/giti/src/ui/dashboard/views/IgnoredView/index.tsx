@@ -24,6 +24,7 @@ import {
   measureIgnored,
   previewIgnored,
 } from '../../../../core/ignored';
+import { loadClearOptions } from '../../../../config/project';
 import SpinnerGlyph from '../../SpinnerGlyph';
 
 export interface IgnoredViewProps {
@@ -36,7 +37,10 @@ export interface IgnoredViewProps {
   onCaptureInput?: (captured: boolean) => void;
   /** Chrome drawn around this, by name in the theme's `chrome` table, for the row budget. */
   reservedChrome?: readonly string[];
-  /** Paths to leave out or start ticked — from a caller's own cleanup rules. */
+  /**
+   * Paths to leave out or start ticked. Left out, the repository's own `giti.config.ts` (and
+   * `GITI_CONFIG`) decide — what the dashboard does; `giti clear` passes them in, flags merged.
+   */
   options?: IgnoredOptions;
 }
 
@@ -191,7 +195,11 @@ export const IgnoredView = ({
   }, [onCaptureInput]);
 
   const { data: scanned, isLoading } = useLoader(
-    async () => applyIgnoredOptions(await getIgnored(root), options),
+    async () =>
+      applyIgnoredOptions(
+        await getIgnored(root),
+        options ?? (await loadClearOptions(root)).options,
+      ),
     [root, scan],
   );
   const entries = scanned?.entries;
