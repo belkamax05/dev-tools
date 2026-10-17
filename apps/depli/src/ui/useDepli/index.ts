@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { currentBranch, resolveSelection } from '../../core/branch';
+import { currentBranch, localBranches, resolveSelection } from '../../core/branch';
 import { type ChainStep, evaluateChain } from '../../core/chain';
 import { connectAll } from '../../core/connection';
 import { type EnvRow, evaluateEnvs } from '../../core/matrix';
@@ -13,7 +13,7 @@ import {
   type StepRun,
 } from '../../core/plugin';
 import { type Session, saveSession } from '../../core/session';
-import { type PlannedTrigger, planTrigger, sendTrigger } from '../../core/trigger';
+import { applyFix, type PlannedTrigger, planTrigger, sendTrigger } from '../../core/trigger';
 
 /** How often the checkout's branch is re-read — cheap, local, so often. */
 const BRANCH_POLL_MS = 3_000;
@@ -29,6 +29,10 @@ export interface DepliData {
   /** True while the chain is being (re)evaluated; steps fill in as they finish. */
   loading: boolean;
   branches?: BranchHead[];
+  /** The checkout's local branches, newest first — undefined while being read. */
+  localBranches?: BranchHead[];
+  /** Every branch the provider has, by name — what tells a pushed branch from a local-only one. */
+  pushedBranches?: ReadonlyMap<string, BranchHead>;
   allBranches: boolean;
   /** What every env runs now; undefined until asked for, or while being read. */
   envs?: EnvRow[];
@@ -42,8 +46,12 @@ export interface DepliData {
   loadBranches: (all: boolean) => void;
   loadEnvs: () => void;
   plan: (stepId: string) => Promise<PlannedTrigger>;
+  /** Whether a step can be triggered at all — its plugin plans it; observe-only steps do not. */
+  triggerable: (entry: ChainStep) => boolean;
   /** A run's log from a byte offset — read-only. */
   readLog: (entry: ChainStep, run: StepRun, start: number) => Promise<LogChunk>;
+  /** A plan's fix (an edit on the target), through the core's gate — call it once the user confirmed. */
+  applyFix: (planned: PlannedTrigger, fixId: string) => Promise<string>;
   /** Through the core's gate — refused unless triggers are on and the confirmation holds. */
   send: (planned: PlannedTrigger, protectedEnv?: string) => Promise<{ url?: string }>;
 }
@@ -72,6 +80,7 @@ export const useDepli = (
   const [chain, setChain] = useState<ChainStep[]>([]);
   const [loading, setLoading] = useState(true);
   const [allHeads, setAllHeads] = useState<BranchHead[]>();
+  const [localHeads, setLocalHeads] = useState<BranchHead[]>();
   const [allBranches, setAllBranches] = useState(false);
   const [envs, setEnvs] = useState<EnvRow[]>();
   const [tick, setTick] = useState(0);
@@ -155,6 +164,10 @@ export const useDepli = (
   const loadBranches = useCallback(
     (all: boolean) => {
       setAllBranches(all);
+      //? The checkout's own branches: cheap and local, read every time the list is asked for
+      const repoPath = project.config.repo?.path;
+      if (repoPath) localBranches(repoPath).then((heads) => setLocalHeads(heads ?? []));
+      else setLocalHeads([]);
       if (allHeads || !key) return;
       const provider = branchProvider();
       const connection = provider && connectionsRef.current[provider.name];
@@ -198,6 +211,8 @@ export const useDepli = (
     chain,
     loading,
     branches,
+    localBranches: localHeads,
+    pushedBranches: allHeads && new Map(allHeads.map((head) => [head.name, head])),
     allBranches,
     envs,
     selectBranch: (name) => {
@@ -229,8 +244,16 @@ export const useDepli = (
     loadEnvs,
     plan: (stepId) =>
       planTrigger(project, connectionsRef.current, env, chain, stepId, branch ?? '', targetEnv),
+    triggerable: (entry) =>
+      Boolean(
+        project.providers.find((item) => item.name === entry.step.provider)?.plugin.steps[
+          entry.step.kind
+        ]?.plan,
+      ),
     readLog: (entry, run, start) =>
       readLog(project, connectionsRef.current, env, entry, run, branch ?? '', targetEnv, start),
+    applyFix: (planned, fixId) =>
+      applyFix(project, connectionsRef.current, env, planned, fixId, true),
     send: (planned, protectedEnv) =>
       sendTrigger(project, connectionsRef.current, env, planned, {
         confirmed: true,

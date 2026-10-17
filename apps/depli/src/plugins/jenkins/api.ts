@@ -121,3 +121,35 @@ export const jenkinsLog = async (
 export const buildRevision = (build: JenkinsBuild, repo: string): string | undefined =>
   build.actions.find((action) => action?.remoteUrls?.some((url) => url.includes(repo)))
     ?.lastBuiltRevision?.SHA1;
+
+/** A job's config.xml — a read. */
+export const jenkinsConfigXml = async (options: JenkinsOptions, env: Env, job: string) => {
+  const auth = jenkinsAuth(options, env);
+  if (!auth) throw new JenkinsError(`set ${options.userEnv} and ${options.tokenEnv}`, 401);
+  const response = await fetch(`${options.url}${jobPath(job)}/config.xml`, {
+    headers: { authorization: auth },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok)
+    throw new JenkinsError(`Jenkins ${response.status} reading ${job} config`, response.status);
+  return response.text();
+};
+
+/** Replace a job's config.xml — a write; only ever reached through the core's fix gate. */
+export const saveJenkinsConfigXml = async (
+  options: JenkinsOptions,
+  env: Env,
+  job: string,
+  xml: string,
+) => {
+  const auth = jenkinsAuth(options, env);
+  if (!auth) throw new JenkinsError(`set ${options.userEnv} and ${options.tokenEnv}`, 401);
+  const response = await fetch(`${options.url}${jobPath(job)}/config.xml`, {
+    method: 'POST',
+    headers: { authorization: auth, 'content-type': 'application/xml' },
+    body: xml,
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok)
+    throw new JenkinsError(`Jenkins ${response.status} saving ${job} config`, response.status);
+};

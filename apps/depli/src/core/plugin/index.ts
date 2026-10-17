@@ -101,6 +101,14 @@ export interface StepRun {
   detail?: string;
 }
 
+/** A value a step produced, which later steps use. */
+export interface StepOutput {
+  label: string;
+  value: string;
+  /** Where it came from, e.g. "from its log" or "derived from the build number". */
+  note?: string;
+}
+
 /** A person behind a step. */
 export interface StepActor {
   login: string;
@@ -131,6 +139,8 @@ export interface StepStatus {
   runs?: StepRun[];
   /** Who did it: who pushed the head, who started the build. */
   actor?: StepActor;
+  /** What it produced for the steps after it — an image tag, an artifact — highlighted in the detail. */
+  outputs?: StepOutput[];
   /** Extra lines for the detail pane. */
   notes?: string[];
 }
@@ -147,6 +157,11 @@ export interface StepConfig {
   after?: string[];
   /** Only shown for these envs; every env when unset. */
   envs?: string[];
+  /**
+   * Shown under the reasons when the step cannot be triggered: where the thing that blocks it is
+   * defined, who to ask — project knowledge, so it lives in the project's config.
+   */
+  blockedHelp?: string;
   [option: string]: unknown;
 }
 
@@ -156,6 +171,18 @@ export interface StepInput {
   env: string;
   /** The finished statuses of `step.after`, by step id. */
   upstream: Record<string, StepStatus>;
+}
+
+/**
+ * A change on the target that would make it accept the request — e.g. adding a branch to a job's
+ * choice list. It edits shared configuration, so it is applied only through the core's gate, after
+ * an explicit confirmation (the UI's Apply button).
+ */
+export interface PlanFix {
+  id: string;
+  label: string;
+  /** What exactly changes, for whom, and for how long. */
+  detail: string;
 }
 
 /** The request a trigger would send — shown as the dry run, sent only when triggers are on. */
@@ -171,8 +198,15 @@ export interface TriggerPlan {
   shellAuth?: string;
   /** Derived values the user should double-check. */
   warnings?: string[];
+  /**
+   * Where each parameter's value comes from: an earlier step's id (it produced the value), or
+   * `branch`. Parameters not listed are the config's own values.
+   */
+  sources?: Record<string, string>;
   /** What the target would refuse — found while planning; the gate will not send it. */
   blockers?: string[];
+  /** Changes on the target that would lift a blocker — each one edits something shared. */
+  fixes?: PlanFix[];
 }
 
 export interface LatestRun {
@@ -203,6 +237,8 @@ export interface StepKind<Options = Record<string, unknown>> {
     run: StepRun,
     start: number,
   ) => Promise<LogChunk>;
+  /** Apply one of a plan's fixes. Only ever called through the core's gate. Returns what changed. */
+  fix?: (context: PluginContext<Options>, plan: TriggerPlan, fixId: string) => Promise<string>;
   /** Send a plan. Only ever called through the core's trigger gate. */
   send?: (context: PluginContext<Options>, plan: TriggerPlan) => Promise<{ url?: string }>;
 }

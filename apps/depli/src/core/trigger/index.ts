@@ -73,3 +73,30 @@ export const sendTrigger = async (
   if (!provider || !kind?.send) throw new Error(`${planned.step.label} cannot be triggered`);
   return kind.send(contextFor(project, provider, env, connections[provider.name]), planned.plan);
 };
+
+/**
+ * The only path to a provider's `fix`: a change on the target (a job's configuration) that lifts
+ * one of the plan's blockers. Refused unless triggers are enabled and the connection may write,
+ * and unless the caller confirmed it — the UI asks with an Apply button beside what changes.
+ */
+export const applyFix = async (
+  project: Project,
+  connections: Record<string, Connection>,
+  env: Env,
+  planned: PlannedTrigger,
+  fixId: string,
+  confirmed: boolean,
+): Promise<string> => {
+  const fix = planned.plan.fixes?.find((item) => item.id === fixId);
+  if (!fix) throw new Error(`no fix ${fixId} for ${planned.step.label}`);
+  if (!project.config.triggers?.enabled)
+    throw new Error('triggers are off (triggers.enabled in depli.config.ts)');
+  const provider = project.providers.find((item) => item.name === planned.step.provider);
+  const kind = provider?.plugin.steps[planned.step.kind];
+  const connection = provider && connections[provider.name];
+  if (!provider || !kind?.fix) throw new Error(`${planned.step.label} cannot be fixed from here`);
+  if (!connection?.capabilities.includes('trigger'))
+    throw new Error(`${provider.name}'s connection cannot write`);
+  if (!confirmed) throw new Error('not confirmed');
+  return kind.fix(contextFor(project, provider, env, connection), planned.plan, fixId);
+};

@@ -177,6 +177,8 @@ export const run = async (...argv: string[]) => {
     for (const warning of planned.plan.warnings ?? []) console.log(`  ! ${warning}`);
     if (planned.protected) console.log(`  ! ${targetEnv} is protected — confirm it by name`);
     for (const blocker of planned.blockers) console.log(`  ✗ ${blocker}`);
+    for (const fix of planned.plan.fixes ?? [])
+      console.log(`  ↳ fix in the dashboard: ${fix.label} — [A] or its button, then Apply`);
     if (first === 'plan') {
       console.log('\n(dry run — nothing was sent)');
       return;

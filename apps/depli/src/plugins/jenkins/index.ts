@@ -3,6 +3,7 @@ import {
   type Env,
   fillTemplate,
   type LatestRun,
+  type PlanFix,
   type StepActor,
   type StepInput,
   type StepRun,
@@ -20,12 +21,14 @@ import {
   jenkinsAuth,
   jenkinsGet,
   JOB_TREE,
+  jenkinsConfigXml,
   jenkinsLog,
+  saveJenkinsConfigXml,
   jobPath,
   buildCause,
 } from './api';
 import { logVersion } from './logVersion';
-import { checkParams, jenkinsErrorText, jobParameters } from './params';
+import { addChoice, checkParams, jenkinsErrorText, jobParameters } from './params';
 
 export type { JenkinsOptions };
 
@@ -247,7 +250,10 @@ const jobStatus = async (
     latest.building || data.inQueue
       ? 'running'
       : !ok
-        ? 'failed'
+        ? //? Never good for this branch: an aborted attempt is "not done yet", not a failure
+          latest.result === 'ABORTED' || builds.every((build) => build.result === 'ABORTED')
+          ? 'none'
+          : 'failed'
         : stale
           ? 'stale'
           : failedSince
@@ -264,6 +270,16 @@ const jobStatus = async (
       : `#${latest.number} ${latest.result?.toLowerCase() ?? 'running'}`,
     ref: ref || undefined,
     actor: actorOf(latest),
+    outputs:
+      ref && ref.version
+        ? [
+            {
+              label: 'version',
+              value: ref.version,
+              note: ref.versionSource === 'log' ? 'from its log' : 'derived from the build number',
+            },
+          ]
+        : undefined,
     notes: [
       ...(ref && ref.version
         ? [
@@ -287,17 +303,23 @@ const jobPlan = async (
   const step = jobOptions(input);
   const job = fillTemplate(step.job, input);
   const params: Record<string, string> = {};
+  const sources: Record<string, string> = {};
   const warnings: string[] = [];
   for (const [name, value] of Object.entries(step.params ?? {})) {
     const resolved = resolveParam(value, input);
     if (resolved === undefined) warnings.push(`${name} has no value`);
     else params[name] = String(resolved);
   }
-  if (step.branchParam) params[step.branchParam] = input.branch;
+  if (step.branchParam) {
+    params[step.branchParam] = input.branch;
+    sources[step.branchParam] = 'branch';
+  }
   for (const [param, stepId] of Object.entries(step.versions ?? {})) {
     const version = input.upstream[stepId]?.ref?.version;
-    if (version) params[param] = version;
-    else warnings.push(`${param}: ${stepId} has no successful build to deploy`);
+    if (version) {
+      params[param] = version;
+      sources[param] = stepId;
+    } else warnings.push(`${param}: ${stepId} has no successful build to deploy`);
   }
   //? Only a version worked out by a rule needs checking; one read from the build's log is what it pushed
   for (const [param, stepId] of Object.entries(step.versions ?? {})) {
@@ -307,11 +329,13 @@ const jobPlan = async (
   }
   //? Checked against the job as Jenkins defines it now (a read): a value its choice list refuses
   //? would come back as a 500 with nothing started
+  const fixes: PlanFix[] = [];
   const blockers: string[] = [];
   try {
     const checked = checkParams(params, await jobParameters(options, env, job), job);
     blockers.push(...checked.blockers);
     warnings.push(...checked.warnings);
+    fixes.push(...checked.fixes);
   } catch (error) {
     warnings.push(`could not read ${job}'s parameters to check them: ${(error as Error).message}`);
   }
@@ -320,8 +344,10 @@ const jobPlan = async (
     method: 'POST',
     url: `${options.url}${jobPath(job)}/buildWithParameters`,
     params,
+    sources,
     warnings,
     blockers,
+    fixes,
     shellAuth: `-u "\$${options.userEnv}:\$${options.tokenEnv}"`,
   };
 };
@@ -390,6 +416,22 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
       logs: async ({ options, env }, input, run, start) => {
         const job = fillTemplate(jobOptions(input).job, input);
         return jenkinsLog(options, env, `${jobPath(job)}/${encodeURIComponent(run.id)}`, start);
+      },
+      fix: async ({ options, env }, plan, fixId) => {
+        //? add-choice:<param> — the plan's value for it goes into the job's choice list
+        const param = fixId.startsWith('add-choice:') ? fixId.slice(11) : undefined;
+        const value = param ? plan.params[param] : undefined;
+        if (!param || value === undefined) throw new Error(`unknown fix ${fixId}`);
+        //? Read fresh, right before writing: someone may have changed the job since the plan
+        const xml = await jenkinsConfigXml(options, env, plan.target);
+        const next = addChoice(xml, param, value);
+        if (next === undefined) throw new Error(`${plan.target} has no choice parameter ${param}`);
+        if (next === xml) return `${value} is already one of ${plan.target}'s ${param} choices`;
+        await saveJenkinsConfigXml(options, env, plan.target, next);
+        const after = await jobParameters(options, env, plan.target);
+        if (!after.find((item) => item.name === param)?.choices?.includes(value))
+          throw new Error(`${plan.target} was saved, but ${param} still lacks ${value}`);
+        return `added ${value} to ${plan.target}'s ${param}`;
       },
       send: async ({ options, env }, plan) => {
         const auth = jenkinsAuth(options, env);

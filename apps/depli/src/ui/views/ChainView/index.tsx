@@ -1,5 +1,5 @@
 import { type DOMElement, Text, useInput } from 'ink';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
@@ -19,7 +19,7 @@ import openUrl from '@/dev-tools/utils/system/openUrl';
 import type { ChainStep } from '../../../core/chain';
 import { planToCurl } from '../../../core/curl';
 import { layoutGraph } from '../../../core/graph';
-import { fillTemplate, type StepRun, type StepState } from '../../../core/plugin';
+import { fillTemplate, type PlanFix, type StepRun, type StepState } from '../../../core/plugin';
 import type { PlannedTrigger } from '../../../core/trigger';
 import Avatar from '../../graphics/Avatar';
 import ChainGraph, { ago } from '../../graphics/ChainGraph';
@@ -54,6 +54,25 @@ const RUN_ICON: Record<StepRun['state'], string> = {
   other: '·',
 };
 
+/**
+ * A label and its value side by side, the value wrapping in its own column. Not one Text with
+ * both in it: Ink re-wraps such a line badly on resize when the value is a long unbreakable
+ * word (a branch name), leaving cells of the line above behind.
+ */
+const Field = ({ label, children }: { label: string; children: ReactNode }) => {
+  const colors = useColors();
+  return (
+    <Box flexDirection="row" flexShrink={0}>
+      <Box width={10} flexShrink={0}>
+        <Text color={colors.muted}>{label}</Text>
+      </Box>
+      <Box flexShrink={1} flexGrow={1}>
+        {children}
+      </Box>
+    </Box>
+  );
+};
+
 const minutes = (ms?: number) =>
   !ms || ms <= 0 ? '' : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
 const stamp = (at: number) => new Date(at).toISOString().slice(0, 16).replace('T', ' ');
@@ -81,9 +100,14 @@ export const ChainView = ({
   const rootRef = useRef<DOMElement>(null);
   const chipsRef = useRef<DOMElement>(null);
   const [plans, setPlans] = useState<Record<string, PlannedTrigger | string>>({});
+  //? Plans are made for the selected step on their own, to know up front whether it can be
+  //? triggered; the request itself is shown only once asked for (Enter, c, T)
+  const [shownPlans, setShownPlans] = useState<Record<string, boolean>>({});
   const [selectedId, setSelectedId] = useState(session.selected.chain);
   const [picking, setPicking] = useState<number | undefined>(undefined);
   const [confirming, setConfirming] = useState<PlannedTrigger>();
+  //? A fix being confirmed: the red popover describing exactly what it changes
+  const [fixing, setFixing] = useState<{ entry: ChainStep; fix: PlanFix }>();
   //? Logs per step: what the user chose with [l], else open while the step is running
   const [logChoice, setLogChoice] = useState<Record<string, boolean>>({});
   const [runPick, setRunPick] = useState<Record<string, number>>({});
@@ -181,8 +205,10 @@ export const ChainView = ({
     select(recommended[(at + 1) % recommended.length]?.step.id);
   };
 
-  const showPlan = (entry: ChainStep) =>
-    data
+  /** Plan a step (a dry run: reads only). `reveal` also shows the request in the detail. */
+  const showPlan = (entry: ChainStep, reveal = true) => {
+    if (reveal) setShownPlans((was) => ({ ...was, [entry.step.id]: true }));
+    return data
       .plan(entry.step.id)
       .then((planned) => {
         setPlans((was) => ({ ...was, [entry.step.id]: planned }));
@@ -192,6 +218,14 @@ export const ChainView = ({
         setPlans((was) => ({ ...was, [entry.step.id]: error.message }));
         return undefined;
       });
+  };
+
+  //? Whether the selected step can be triggered is known before T is pressed: its plan is made
+  //? (a dry run — reads only) whenever the selection or the chain changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the step id and the chain are the triggers
+  useEffect(() => {
+    if (selected && data.triggerable(selected)) showPlan(selected, false);
+  }, [selected?.step.id, data.chain]);
 
   const openStep = (entry: ChainStep | undefined) => {
     if (entry?.status.url) openUrl(entry.status.url);
@@ -208,6 +242,39 @@ export const ChainView = ({
     if (!planned) return notify(`${entry.step.label} has no trigger to copy`, 'warn');
     copyToClipboard(planToCurl(planned.plan));
     notify('Copied the request as curl — variable names only, nothing was sent', 'ok');
+  };
+
+  /** The fixes the selected step's plan offers for what the target refuses. */
+  const fixesOf = (entry: ChainStep): PlanFix[] => {
+    const planned = plans[entry.step.id];
+    return typeof planned === 'object' ? (planned.plan.fixes ?? []) : [];
+  };
+
+  /**
+   * A fix (an edit on the target, shared by everyone): the red popover says exactly what changes,
+   * and nothing is written until the thing being edited is typed by name. The step is planned
+   * again afterwards, so the Trigger button shows whether it can now be sent.
+   */
+  const startFix = (entry: ChainStep, fix: PlanFix) => {
+    if (typeof plans[entry.step.id] !== 'object') return;
+    setFixing({ entry, fix });
+  };
+
+  /** The popover's Apply (or Enter): the change is made, the step planned again. */
+  const applyFixing = () => {
+    if (!fixing) return;
+    const { entry, fix } = fixing;
+    const planned = plans[entry.step.id];
+    setFixing(undefined);
+    if (typeof planned !== 'object') return;
+    notify(`${fix.label}…`, 'info');
+    data
+      .applyFix(planned, fix.id)
+      .then((done) => {
+        notify(`${done} — check the plan, then trigger`, 'ok');
+        showPlan(entry, false);
+      })
+      .catch((error: Error) => notify(`Not changed: ${error.message}`, 'error'));
   };
 
   /** The trigger: plan, show it in the popover, then confirm — by name for a protected env. */
@@ -239,6 +306,12 @@ export const ChainView = ({
   const pickerOpen = picking !== undefined;
   useInput(
     (input, key) => {
+      //? The fix popover owns the keyboard while open: Enter applies, Esc cancels, nothing else
+      if (fixing) {
+        if (key.return) applyFixing();
+        else if (key.escape) setFixing(undefined);
+        return;
+      }
       if (pickerOpen) {
         if (key.escape) setPicking(undefined);
         else if (key.upArrow) setPicking((at) => Math.max(0, (at ?? 0) - 1));
@@ -269,6 +342,11 @@ export const ChainView = ({
         setLogChoice((was) => ({ ...was, [selected.step.id]: !logsOpen }));
       //? Bound only with the gate open: while triggers are off no key can start one
       else if (input === 'T' && triggersEnabled) startTrigger(selected);
+      //? The first fix of a refused step — still behind its own typed confirmation
+      else if (input === 'A' && triggersEnabled && selected) {
+        const fix = fixesOf(selected)[0];
+        if (fix) startFix(selected, fix);
+      }
     },
     { isActive: !prompt.isOpen },
   );
@@ -282,8 +360,9 @@ export const ChainView = ({
       : undefined,
   }));
 
-  const renderPlan = (planned: PlannedTrigger | string | undefined) => {
-    if (!planned) return <Text color={colors.muted}>[Enter] dry run · [c] copy as curl</Text>;
+  const renderPlan = (planned: PlannedTrigger | string | undefined, shown: boolean) => {
+    if (!planned || !shown)
+      return <Text color={colors.muted}>[Enter] dry run · [c] copy as curl</Text>;
     if (typeof planned === 'string') return <Text color={colors.muted}>{planned}</Text>;
     return (
       <Box flexDirection="column">
@@ -316,30 +395,83 @@ export const ChainView = ({
     );
   };
 
-  /** The Trigger button: live only with the gate open; otherwise it explains what blocks it. */
-  const triggerButton = (entry: ChainStep) => {
+  /**
+   * Whether the step can be triggered, known before T is pressed (its plan is made on selection):
+   * still checking, blocked — with every reason — or ready.
+   */
+  const triggerState = (entry: ChainStep) => {
     const planned = plans[entry.step.id];
-    const blockers =
-      typeof planned === 'object'
-        ? planned.blockers
-        : triggersEnabled
-          ? []
-          : ['triggers are off (triggers.enabled in depli.config.ts)'];
+    if (!triggersEnabled)
+      return { ready: false, reasons: ['triggers are off (triggers.enabled in depli.config.ts)'] };
+    if (planned === undefined) return { ready: false, reasons: [], checking: true };
+    if (typeof planned === 'string') return { ready: false, reasons: [planned] };
+    return {
+      ready: !planned.blockers.length,
+      reasons: planned.blockers,
+      //? The target itself would refuse it (not the gate) — what `blockedHelp` explains
+      refused: Boolean(planned.plan.blockers?.length),
+    };
+  };
+
+  /**
+   * The Trigger button and, when it cannot be sent, why — in the warning colour, under it, so
+   * what will happen is visible before any key is pressed. The step's `blockedHelp` (project
+   * config: where the thing that blocks it is defined) follows the reasons.
+   */
+  const triggerButton = (entry: ChainStep) => {
+    const { ready, reasons, checking, refused } = triggerState(entry);
     const explain = () =>
       notify(
-        blockers.length ? `Trigger blocked: ${blockers.join('; ')}` : 'Press T to trigger',
-        'info',
+        ready ? 'Press T to trigger' : `Trigger blocked: ${reasons.join('; ') || 'checking…'}`,
+        ready ? 'info' : 'warn',
       );
+    const help =
+      typeof entry.step.blockedHelp === 'string' ? fill(entry.step.blockedHelp) : undefined;
     return (
-      <ActionButton
-        hotkey={triggersEnabled ? 'T' : undefined}
-        label={blockers.length ? 'Trigger (blocked)' : 'Trigger…'}
-        color={blockers.length ? colors.muted : entry.protected ? colors.error : colors.accent}
-        onPress={() => (blockers.length || !triggersEnabled ? explain() : startTrigger(entry))}
-        onHover={(hovered) => {
-          if (hovered) explain();
-        }}
-      />
+      <Box flexDirection="column">
+        <ActionButton
+          hotkey={ready ? 'T' : undefined}
+          label={checking ? 'Trigger… (checking)' : ready ? 'Trigger…' : 'Trigger — blocked'}
+          color={
+            checking
+              ? colors.muted
+              : !ready
+                ? colors.warn
+                : entry.protected
+                  ? colors.error
+                  : colors.accent
+          }
+          onPress={() => (ready ? startTrigger(entry) : explain())}
+          onHover={(hovered) => {
+            if (hovered) explain();
+          }}
+        />
+        {!ready &&
+          reasons.map((reason) => (
+            <Text key={reason} color={colors.warn} wrap="wrap">
+              ✗ {reason}
+            </Text>
+          ))}
+        {refused && help && (
+          <Text color={colors.muted} wrap="wrap">
+            {help}
+          </Text>
+        )}
+        {/*? What would lift it — in red: each one edits shared configuration on the target */}
+        {refused &&
+          fixesOf(entry).map((fix, index) => (
+            <ActionButton
+              key={fix.id}
+              hotkey={index === 0 && triggersEnabled ? 'A' : undefined}
+              label={`${fix.label}… (edits shared config)`}
+              color={colors.error}
+              onPress={() => startFix(entry, fix)}
+              onHover={(hovered) => {
+                if (hovered) notify(fix.detail, 'warn');
+              }}
+            />
+          ))}
+      </Box>
     );
   };
 
@@ -359,10 +491,13 @@ export const ChainView = ({
   const detail = (entry: ChainStep) => {
     const { status } = entry;
     const finished = status.ref?.finishedAt;
-    const whenLabel = entry.step.kind === 'branch' ? 'pushed' : 'last good';
+    //? A step that counts builds has a last good one; any other (a push) has a latest
+    const whenLabel = status.ref?.buildNumber !== undefined ? 'last good' : 'latest';
     return (
-      <Box flexDirection="column">
-        {entry.step.kind !== 'branch' && triggerButton(entry)}
+      //? Never shrunk: a detail taller than its pane is cut at the bottom by the pane, instead of
+      //? Yoga squeezing its one-row boxes (the Trigger button) to nothing
+      <Box flexDirection="column" flexShrink={0}>
+        {data.triggerable(entry) && triggerButton(entry)}
         <Toolbar actions={actions(entry)} />
         <Box flexDirection="row">
           {status.actor && (
@@ -380,10 +515,9 @@ export const ChainView = ({
               {entry.recommended ? ' · recommended next' : ''}
             </Text>
             {/*? The time is the thing to read first: when this step last did its job */}
-            <Text wrap="wrap">
-              <Text color={colors.muted}>{whenLabel.padEnd(10)}</Text>
+            <Field label={whenLabel}>
               {finished ? (
-                <>
+                <Text wrap="wrap">
                   <Text color={colors.accent} bold>
                     {ago(finished)}
                   </Text>
@@ -392,27 +526,28 @@ export const ChainView = ({
                     {stamp(finished)}
                     {status.ref?.buildNumber !== undefined ? `  #${status.ref.buildNumber}` : ''}
                   </Text>
-                </>
+                </Text>
               ) : (
-                <Text color={colors.warn} bold>
-                  {`never for ${data.branch}`}
+                <Text color={colors.warn} bold wrap="wrap">
+                  never on this branch
                 </Text>
               )}
-            </Text>
+            </Field>
             {status.actor && (
-              <Text wrap="wrap">
-                <Text color={colors.muted}>{'by'.padEnd(10)}</Text>
-                <Text color={colors.text} bold>
-                  {status.actor.login}
+              <Field label="by">
+                <Text wrap="wrap">
+                  <Text color={colors.text} bold>
+                    {status.actor.login}
+                  </Text>
+                  <Text color={colors.muted}>
+                    {status.actor.name && status.actor.name !== status.actor.login
+                      ? ` (${status.actor.name})`
+                      : ''}
+                    {status.actor.action ? ` · ${status.actor.action.replaceAll('_', ' ')}` : ''}
+                    {status.actor.at ? ` · ${ago(status.actor.at)}` : ''}
+                  </Text>
                 </Text>
-                <Text color={colors.muted}>
-                  {status.actor.name && status.actor.name !== status.actor.login
-                    ? ` (${status.actor.name})`
-                    : ''}
-                  {status.actor.action ? ` · ${status.actor.action.replaceAll('_', ' ')}` : ''}
-                  {status.actor.at ? ` · ${ago(status.actor.at)}` : ''}
-                </Text>
-              </Text>
+              </Field>
             )}
             <Text color={colors.text} wrap="wrap">
               {status.summary}
@@ -446,7 +581,7 @@ export const ChainView = ({
           </Box>
         ) : null}
         <Text> </Text>
-        {renderPlan(plans[entry.step.id])}
+        {renderPlan(plans[entry.step.id], Boolean(shownPlans[entry.step.id]))}
       </Box>
     );
   };
@@ -534,6 +669,13 @@ export const ChainView = ({
         <HintBar
           hints={[
             { key: '↑↓←→', label: 'move' },
+            ...(logsOpen
+              ? [
+                  { key: 'j/k · wheel', label: 'scroll' },
+                  { key: 'Space/PgUp', label: 'page' },
+                  { key: 'g/G', label: 'top / follow' },
+                ]
+              : []),
             { key: 'Enter', label: 'dry run', onPress: () => selected && showPlan(selected) },
             { key: 'n', label: 'next', onPress: jumpToNext },
             { key: 'E', label: `env: ${data.targetEnv}`, onPress: openPicker },
@@ -571,6 +713,27 @@ export const ChainView = ({
               setPicking(undefined);
             }}
           />
+        </Popover>
+      )}
+      {fixing && (
+        <Popover anchorRef={chipsRef} containerRef={rootRef} width="container">
+          <Box flexDirection="column" borderStyle="round" borderColor={colors.error} paddingX={1}>
+            <Text color={colors.error} bold>
+              {fixing.fix.label} — edits shared config, for everyone
+            </Text>
+            <Text color={colors.text} wrap="wrap">
+              {fixing.fix.detail}
+            </Text>
+            <Box flexDirection="row" marginTop={1}>
+              <ActionButton
+                hotkey="Enter"
+                label="Apply"
+                color={colors.error}
+                onPress={applyFixing}
+              />
+              <ActionButton hotkey="Esc" label="Cancel" onPress={() => setFixing(undefined)} />
+            </Box>
+          </Box>
         </Popover>
       )}
       {confirming && (

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { checkParams, jenkinsErrorText, type ParamDefinition } from './params';
+import { addChoice, checkParams, jenkinsErrorText, type ParamDefinition } from './params';
 
 const BUILD_FE_NODEJS: ParamDefinition[] = [
   {
@@ -28,6 +28,20 @@ describe('checkParams', () => {
     expect(warnings).toEqual([]);
   });
 
+  test('a refused choice offers a fix', () => {
+    const { fixes } = checkParams(
+      { CODE_BRANCH: 'fix/a' },
+      BUILD_FE_NODEJS.slice(1),
+      'build_fe-nodejs',
+    );
+    expect(fixes).toMatchObject([
+      {
+        id: 'add-choice:CODE_BRANCH',
+        label: "Add fix/a to build_fe-nodejs's CODE_BRANCH",
+      },
+    ]);
+  });
+
   test('values in the lists pass', () => {
     expect(
       checkParams(
@@ -35,7 +49,7 @@ describe('checkParams', () => {
         BUILD_FE_NODEJS,
         'build_fe-nodejs',
       ),
-    ).toEqual({ blockers: [], warnings: [] });
+    ).toEqual({ blockers: [], warnings: [], fixes: [] });
   });
 
   test('an unknown parameter and a missing one are warnings, with the default named', () => {
@@ -87,5 +101,52 @@ describe('jenkinsErrorText', () => {
 
   test('nothing recognisable is undefined', () => {
     expect(jenkinsErrorText('<html><body>Oops</body></html>')).toBeUndefined();
+  });
+});
+
+const CONFIG = `<flow-definition>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.ChoiceParameterDefinition>
+          <name>BUILD_AND_DEPLOY_BRANCH</name>
+          <choices class="java.util.Arrays$ArrayList">
+            <a class="string-array">
+              <string>develop-9115</string>
+            </a>
+          </choices>
+        </hudson.model.ChoiceParameterDefinition>
+        <hudson.model.ChoiceParameterDefinition>
+          <name>CODE_BRANCH</name>
+          <description>Gitlab code branch</description>
+          <choices class="java.util.Arrays$ArrayList">
+            <a class="string-array">
+              <string>release-sprint-26.14</string>
+              <string>master</string>
+            </a>
+          </choices>
+        </hudson.model.ChoiceParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+</flow-definition>`;
+
+describe('addChoice', () => {
+  test("adds the value to that parameter's list only, in its indentation", () => {
+    const next = addChoice(CONFIG, 'CODE_BRANCH', 'fix/dfs2-1/a&b');
+    expect(next).toContain(
+      '              <string>master</string>\n              <string>fix/dfs2-1/a&amp;b</string>\n            </a>',
+    );
+    //? The other parameter is untouched
+    expect(next?.match(/<string>/g)?.length).toBe(4);
+    expect(next?.indexOf('develop-9115')).toBe(CONFIG.indexOf('develop-9115'));
+  });
+
+  test('a value already listed leaves the text as it was', () => {
+    expect(addChoice(CONFIG, 'CODE_BRANCH', 'master')).toBe(CONFIG);
+  });
+
+  test('no such choice parameter is undefined', () => {
+    expect(addChoice(CONFIG, 'FE_CODE_BRANCH', 'master')).toBeUndefined();
   });
 });

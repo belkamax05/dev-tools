@@ -1,4 +1,4 @@
-import type { Env } from '../../core/plugin';
+import type { Env, PlanFix } from '../../core/plugin';
 import { type JenkinsOptions, jenkinsGet, jobPath } from './api';
 
 export interface ParamDefinition {
@@ -36,8 +36,9 @@ export const checkParams = (
   params: Record<string, string>,
   definitions: readonly ParamDefinition[],
   job: string,
-): { blockers: string[]; warnings: string[] } => {
+): { blockers: string[]; warnings: string[]; fixes: PlanFix[] } => {
   const blockers: string[] = [];
+  const fixes: PlanFix[] = [];
   const warnings: string[] = [];
   const byName = new Map(definitions.map((definition) => [definition.name, definition]));
   for (const [name, value] of Object.entries(params)) {
@@ -50,6 +51,11 @@ export const checkParams = (
       blockers.push(
         `${name}=${value} is not one of ${job}'s choices (${definition.choices.join(', ')}) — Jenkins refuses it`,
       );
+      fixes.push({
+        id: `add-choice:${name}`,
+        label: `Add ${value} to ${job}'s ${name}`,
+        detail: `Edits ${job} on Jenkins, for everyone: ${name} gets ${value} beside ${definition.choices.join(', ')}. A pipeline that defines its own parameters rewrites the list when it next runs, so the addition may last one build.`,
+      });
     }
   }
   for (const definition of definitions) {
@@ -59,7 +65,7 @@ export const checkParams = (
       `${definition.name} is not sent — Jenkins uses its default${fallback === undefined || fallback === '' ? '' : ` (${String(fallback)})`}`,
     );
   }
-  return { blockers, warnings };
+  return { blockers, warnings, fixes };
 };
 
 /**
@@ -84,4 +90,29 @@ export const jenkinsErrorText = (body: string): string | undefined => {
       /illegal choice|not a valid|is not allowed|nothing is submitted/i.test(line),
     ) ?? lines.find((line) => /\b\w+(Exception|Error):\s*\S/.test(line));
   return reason?.replace(/^[\w.$]+(Exception|Error):\s*/, '').slice(0, 300);
+};
+
+const escapeXml = (text: string) =>
+  text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
+/**
+ * A job's config.xml with `value` added to the choice parameter `param`'s list — or undefined
+ * when there is no such choice parameter, and the same text when the value is already listed.
+ * Only that parameter's `<a class="string-array">` is touched.
+ */
+export const addChoice = (xml: string, param: string, value: string): string | undefined => {
+  const block = new RegExp(
+    `(<hudson\\.model\\.ChoiceParameterDefinition>\\s*<name>${param.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</name>[\\s\\S]*?<a class="string-array">)([\\s\\S]*?)(\\s*</a>)`,
+  );
+  const match = block.exec(xml);
+  if (!match) return undefined;
+  const [, head = '', list = '', tail = ''] = match;
+  if (list.includes(`<string>${escapeXml(value)}</string>`)) return xml;
+  const indent = list.match(/\n(\s*)<string>/)?.[1] ?? '              ';
+  return xml.replace(block, `${head}${list}\n${indent}<string>${escapeXml(value)}</string>${tail}`);
 };

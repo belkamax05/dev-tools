@@ -7,6 +7,7 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
+import { orderBranches } from '../../../core/branch';
 import { fuzzyFilter } from '../../../core/fuzzy';
 import type { BranchHead } from '../../../core/plugin';
 import type { Session } from '../../types';
@@ -44,7 +45,7 @@ export const BranchesView = ({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once connections land
   useEffect(() => {
-    if (!branches) loadBranches(allBranches);
+    if (!branches || !data.localBranches) loadBranches(allBranches);
   }, [data.connections, branches === undefined]);
 
   const changeFilter = (value: string) => {
@@ -74,14 +75,47 @@ export const BranchesView = ({
     { isActive: !prompt.isOpen },
   );
 
-  const shown = fuzzyFilter(branches ?? [], filter, (head) => head.name);
-  const items: PickItem<BranchHead>[] = shown.map((head) => ({
+  //? Checked out first, then the other local branches, then the provider's (watched or all)
+  const ordered = orderBranches(
+    data.current,
+    data.localBranches ?? [],
+    branches ?? [],
+    data.pushedBranches,
+  );
+  const row = (head: (typeof ordered)[number]): PickItem<BranchHead> => ({
     id: head.name,
     label: `${head.name === data.branch ? '✓' : ' '} ${head.name}`,
-    hint: head.name === data.current ? 'checked out' : (head.committedAt ?? '').slice(0, 10),
-    hintColor: head.name === data.current ? colors.accent : colors.muted,
+    hint:
+      head.section === 'current'
+        ? head.localOnly
+          ? 'checked out · local only'
+          : 'checked out'
+        : head.localOnly
+          ? 'local only'
+          : (head.committedAt ?? '').slice(0, 10),
+    hintColor: head.localOnly
+      ? colors.warn
+      : head.section === 'current'
+        ? colors.accent
+        : colors.muted,
     value: head,
-  }));
+  });
+  const sectionTitle = {
+    current: 'Checked out',
+    local: 'Local branches',
+    remote: allBranches ? 'All branches' : 'Watched',
+  } as const;
+  //? Filtering ranks across everything; unfiltered, the sections keep their headings
+  const items: PickItem<BranchHead>[] = filter
+    ? fuzzyFilter(ordered, filter, (head) => head.name).map(row)
+    : ordered.flatMap((head, index) =>
+        index === 0 || ordered[index - 1]?.section !== head.section
+          ? [
+              { id: `header-${head.section}`, label: sectionTitle[head.section], isHeader: true },
+              row(head),
+            ]
+          : [row(head)],
+      );
   const scope = allBranches
     ? `All branches (${branches?.length ?? '…'})`
     : `Watched: ${watch.join(' ')}`;
@@ -101,7 +135,7 @@ export const BranchesView = ({
         key={`branches-${filter}-${allBranches}`}
         title={scope}
         items={items}
-        emptyText={branches ? 'No branch matches' : 'Reading branches…'}
+        emptyText={branches || data.localBranches ? 'No branch matches' : 'Reading branches…'}
         detailTitle="Branch"
         reservedChrome={['viewHeader']}
         activateLabel="use this branch"
