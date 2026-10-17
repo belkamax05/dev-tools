@@ -114,7 +114,7 @@ export const SettingsView = ({
         <Text color={colors.text}>{setting.path}</Text>
         <Text color={colors.muted} wrap="wrap">
           {setting.path === stateStore.path
-            ? 'Last tab, and each project’s selected branch and environment. Reloaded after editing.'
+            ? 'Last tab, and each project’s selected branch, environment, timings panel and other-branch preview preferences. Reloaded after editing.'
             : setting.path === configPath
               ? 'Plain JSON, safe to keep in dotfiles.'
               : 'The targets this project deploys to and their options — secrets stay in the environment.'}

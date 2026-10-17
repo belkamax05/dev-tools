@@ -63,3 +63,74 @@ test('scrolling reaches the last row without moving the panel or footer', async 
     app.unmount();
   }
 });
+
+test('the scrollbar drags outside its track, consumes the release and supports track clicks', async () => {
+  const { emitMouseEvent, isMouseReporting, setMouseReporting } = await import(
+    '@/dev-tools/ui/terminal/mouse'
+  );
+  const { default: ActionButton } = await import('@/dev-tools/ui/components/ActionButton');
+  const stdout = Object.assign(new PassThrough(), { columns: 50, rows: 20, isTTY: true });
+  const stdin = Object.assign(new PassThrough(), {
+    isTTY: true,
+    setRawMode: () => {},
+    ref: () => {},
+    unref: () => {},
+  });
+  let output = '';
+  let clicks = 0;
+  stdout.on('data', (chunk) => {
+    output += chunk;
+  });
+  const app = render(
+    <Box height={8} width={40}>
+      <StepPanel isActive>
+        <Box flexDirection="column" flexShrink={0}>
+          {Array.from({ length: 29 }, (_, row) => (
+            <Text key={row}>ROW-{row}</Text>
+          ))}
+          <ActionButton
+            label="LAST-ACTION"
+            onPress={() => {
+              clicks++;
+            }}
+          />
+        </Box>
+      </StepPanel>
+    </Box>,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      debug: true,
+      exitOnCtrlC: false,
+    },
+  );
+  const reporting = isMouseReporting();
+  const event = (type: 'press' | 'move' | 'release', column: number, row: number) =>
+    emitMouseEvent({ type, button: 'left', column, row, ctrl: false, alt: false, shift: false });
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
+  try {
+    setMouseReporting(true);
+    await settle();
+    output = '';
+    event('press', 40, 2);
+    await settle();
+    expect(Bun.stripANSI(output)).not.toContain('LAST-ACTION');
+    event('move', 5, 20);
+    await settle();
+    expect(Bun.stripANSI(output)).toContain('LAST-ACTION');
+    event('release', 3, 8);
+    await settle();
+    expect(clicks).toBe(0);
+    event('release', 3, 8);
+    await settle();
+    expect(clicks).toBe(1);
+    output = '';
+    event('press', 40, 1);
+    event('release', 40, 1);
+    await settle();
+    expect(Bun.stripANSI(output)).toContain('ROW-0');
+  } finally {
+    setMouseReporting(reporting);
+    app.unmount();
+  }
+});

@@ -12,6 +12,8 @@ export interface DepliConfig {
 
 /** What one project (keyed by its folder) remembers: the env and the branch pick. */
 export interface ProjectState extends BranchSelection {
+  timingsExpanded?: boolean;
+  otherRunsExpanded?: Record<string, boolean>;
   env?: string;
 }
 

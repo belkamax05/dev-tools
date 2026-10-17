@@ -9,10 +9,12 @@ import {
   type BranchHead,
   type Connection,
   type LogChunk,
+  type RunTimings,
   matchesPatterns,
   type StepRun,
 } from '../../core/plugin';
 import { type Session, saveSession } from '../../core/session';
+import { contextFor } from '../../core/registry';
 import { applyFix, type PlannedTrigger, planTrigger, sendTrigger } from '../../core/trigger';
 
 /** How often the checkout's branch is re-read — cheap, local, so often. */
@@ -51,6 +53,14 @@ export interface DepliData {
   providerOf: (entry: ChainStep) => { id: string; label: string };
   /** A run's log from a byte offset — read-only. */
   readLog: (entry: ChainStep, run: StepRun, start: number) => Promise<LogChunk>;
+  otherRunsExpanded: Record<string, boolean>;
+  setOtherRunExpanded: (key: string, expanded: boolean) => void;
+  hasActiveRuns: (entry: ChainStep) => boolean;
+  readActiveRuns: (entry: ChainStep) => Promise<StepRun[]>;
+  timingsExpanded: boolean;
+  setTimingsExpanded: (expanded: boolean) => void;
+  hasTimings: (entry: ChainStep) => boolean;
+  readTimings: (entry: ChainStep, run: StepRun) => Promise<RunTimings>;
   /** A plan's fix (an edit on the target), through the core's gate — call it once the user confirmed. */
   applyFix: (planned: PlannedTrigger, fixId: string) => Promise<string>;
   /** Through the core's gate — refused unless triggers are on and the confirmation holds. */
@@ -76,6 +86,8 @@ export const useDepli = (
   const { project, env } = session;
   const [branch, setBranch] = useState(session.branch);
   const [current, setCurrent] = useState(session.current);
+  const [otherRunsExpanded, setOtherRunsExpanded] = useState(session.state.otherRunsExpanded ?? {});
+  const [timingsExpanded, setTimingsExpanded] = useState(session.state.timingsExpanded === true);
   const [targetEnv, setTargetEnv] = useState(session.targetEnv);
   const [connections, setConnections] = useState<Record<string, Connection>>({});
   const [chain, setChain] = useState<ChainStep[]>([]);
@@ -131,7 +143,7 @@ export const useDepli = (
       currentRef.current = now;
       setCurrent(now);
       const resolved = resolveSelection(state.current, now);
-      state.current = { ...resolved.selection, env: state.current.env };
+      state.current = { ...state.current, ...resolved.selection };
       persist();
       setBranch(resolved.branch);
       if (resolved.reset) notify(`Checkout switched to ${now} — now showing it`, 'info');
@@ -204,7 +216,9 @@ export const useDepli = (
   const watch = project.config.branches?.watch ?? [];
   const branches =
     allHeads &&
-    (allBranches ? allHeads : allHeads.filter((head) => matchesPatterns(head.name, watch)));
+    (allBranches
+      ? allHeads
+      : allHeads.filter((head) => head.name === branch || matchesPatterns(head.name, watch)));
 
   return {
     branch,
@@ -257,6 +271,51 @@ export const useDepli = (
           entry.step.kind
         ]?.plan,
       ),
+    otherRunsExpanded,
+    setOtherRunExpanded: (key, expanded) => {
+      const next = { ...state.current.otherRunsExpanded, [key]: expanded };
+      state.current = { ...state.current, otherRunsExpanded: next };
+      persist();
+      setOtherRunsExpanded(next);
+    },
+    hasActiveRuns: (entry) =>
+      Boolean(
+        project.providers.find((provider) => provider.name === entry.step.provider)?.plugin.steps[
+          entry.step.kind
+        ]?.activeRuns,
+      ),
+    readActiveRuns: (entry) => {
+      const provider = project.providers.find((item) => item.name === entry.step.provider);
+      const kind = provider?.plugin.steps[entry.step.kind];
+      if (!provider || !kind?.activeRuns) return Promise.resolve([]);
+      return kind.activeRuns(
+        contextFor(project, provider, env, connectionsRef.current[provider.name]),
+        { step: entry.step, branch: branch ?? '', env: targetEnv, upstream: {} },
+      );
+    },
+    timingsExpanded,
+    setTimingsExpanded: (expanded) => {
+      state.current = { ...state.current, timingsExpanded: expanded };
+      persist();
+      setTimingsExpanded(expanded);
+    },
+    hasTimings: (entry) =>
+      Boolean(
+        project.providers.find((provider) => provider.name === entry.step.provider)?.plugin.steps[
+          entry.step.kind
+        ]?.timings,
+      ),
+    readTimings: (entry, run) => {
+      const provider = project.providers.find((item) => item.name === entry.step.provider);
+      const kind = provider?.plugin.steps[entry.step.kind];
+      if (!provider || !kind?.timings)
+        return Promise.resolve({ stages: [], previousRuns: [], more: false });
+      return kind.timings(
+        contextFor(project, provider, env, connectionsRef.current[provider.name]),
+        { step: entry.step, branch: branch ?? '', env: targetEnv, upstream: {} },
+        run,
+      );
+    },
     readLog: (entry, run, start) =>
       readLog(project, connectionsRef.current, env, entry, run, branch ?? '', targetEnv, start),
     applyFix: (planned, fixId) =>

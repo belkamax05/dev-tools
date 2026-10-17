@@ -23,9 +23,12 @@ import { fillTemplate, type PlanFix, type StepRun, type StepState } from '../../
 import type { PlannedTrigger } from '../../../core/trigger';
 import Avatar from '../../graphics/Avatar';
 import ChainGraph, { ago } from '../../graphics/ChainGraph';
+import { StatusText, TRIGGER_ICON, TRIGGER_LABEL } from '../../graphics/StatusIcon';
 import HistoryStrip from '../../graphics/HistoryStrip';
 import LogPanel from '../LogPanel';
 import StepPanel from '../StepPanel';
+import StageTimings from '../StageTimings';
+import OtherRuns from '../OtherRuns';
 import type { Session, Tone } from '../../types';
 import type { DepliData } from '../../useDepli';
 
@@ -123,7 +126,9 @@ export const ChainView = ({
   const logRun = runs[runIndex];
   //? Open while the step runs, unless [l] said otherwise for it; closed otherwise
   const logsOpen = Boolean(
-    selected && (logChoice[selected.step.id] ?? selected.status.state === 'running'),
+    selected &&
+      (logChoice[selected.step.id] ??
+        (selected.status.state === 'running' && !data.hasTimings(selected))),
   );
   const readSelectedLog = useCallback(
     (run: StepRun, start: number) =>
@@ -439,7 +444,7 @@ export const ChainView = ({
           borderTop={false}
           borderBottom={false}
           borderRight={false}
-          borderColor={ready ? colors.accent : colors.warn}
+          borderColor={ready ? colors.accent : checking ? colors.muted : colors.error}
           paddingLeft={1}
           flexShrink={0}
         >
@@ -452,13 +457,20 @@ export const ChainView = ({
             />
           ) : (
             <Text color={checking ? colors.muted : colors.warn} bold wrap="wrap">
-              {checking ? 'Checking trigger…' : '⊘ Trigger blocked'}
+              <StatusText text={checking ? '… Checking' : '⊘ Blocked'} />
             </Text>
           )}
           {!ready &&
             reasons.map((reason) => (
               <Text key={reason} color={colors.warn} wrap="wrap">
                 ✗ {reason}
+              </Text>
+            ))}
+          {!ready &&
+            typeof planned === 'object' &&
+            planned.plan.warnings?.map((warning) => (
+              <Text key={warning} color={colors.warn} wrap="wrap">
+                {warning}
               </Text>
             ))}
           {refused && fixesOf(entry).length > 0 && (
@@ -536,7 +548,43 @@ export const ChainView = ({
       //? Never shrunk: the scroll viewport moves the complete detail vertically instead of
       //? Yoga squeezing its one-row boxes (the Trigger button) to nothing
       <Box flexDirection="column" flexShrink={0}>
+        {status.state === 'blocked' && (
+          <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+            <StatusText text="⊘ Blocked" />
+            {(status.notes?.length
+              ? status.notes
+              : [status.summary || 'An earlier step has no usable result for this branch.']
+            ).map((reason) => (
+              <Text key={reason} color={colors.error} wrap="wrap">
+                {reason}
+              </Text>
+            ))}
+          </Box>
+        )}
         {data.triggerable(entry) && triggerButton(entry)}
+        {data.hasActiveRuns(entry) && (
+          <OtherRuns
+            key={`${entry.step.id}:${data.branch}:${data.targetEnv}`}
+            initial={status.activeRuns ?? []}
+            read={() => data.readActiveRuns(entry)}
+            readTimings={(run) => data.readTimings(entry, run)}
+            scope={`${entry.step.id}:${data.targetEnv}`}
+            expanded={data.otherRunsExpanded}
+            onExpandedChange={data.setOtherRunExpanded}
+            isActive={!prompt.isOpen && !pickerOpen && !fixing}
+          />
+        )}
+        {data.hasTimings(entry) && logRun && (!logRun.branch || logRun.branch === data.branch) && (
+          <StageTimings
+            run={logRun}
+            runKey={`${entry.step.id}:${logRun.id}:${data.branch}:${data.targetEnv}`}
+            read={(run) => data.readTimings(entry, run)}
+            stale={status.state === 'stale' || entry.recommended}
+            expanded={data.timingsExpanded}
+            onExpandedChange={data.setTimingsExpanded}
+            isActive={!prompt.isOpen && !pickerOpen && !fixing}
+          />
+        )}
         <Toolbar actions={actions(entry)} />
         <Box flexDirection="row">
           {status.actor && (
@@ -550,8 +598,11 @@ export const ChainView = ({
           )}
           <Box flexDirection="column" flexGrow={1}>
             <Text color={stateColor(status.state)} bold wrap="wrap">
-              {fill(entry.step.label)} — {status.state.toUpperCase()}
-              {entry.recommended ? ' · recommended next' : ''}
+              {fill(entry.step.label)} —{' '}
+              <StatusText
+                text={`${TRIGGER_ICON[status.state === 'none' ? 'neverrun' : status.state === 'done' ? 'complete' : status.state]} ${TRIGGER_LABEL[status.state === 'none' ? 'neverrun' : status.state === 'done' ? 'complete' : status.state]}`}
+              />
+              {entry.recommended && <StatusText text=" · ➜ Next" />}
             </Text>
             {/*? The time is the thing to read first: when this step last did its job */}
             <Field label={whenLabel}>
@@ -568,7 +619,7 @@ export const ChainView = ({
                 </Text>
               ) : (
                 <Text color={colors.warn} bold wrap="wrap">
-                  never on this branch
+                  <StatusText text="○ Never run" /> on this branch
                 </Text>
               )}
             </Field>
@@ -604,7 +655,7 @@ export const ChainView = ({
             </Text>
           </Field>
         ))}
-        {(status.notes ?? []).map((note) => (
+        {(status.state === 'blocked' ? [] : (status.notes ?? [])).map((note) => (
           <Text key={note} color={colors.muted} wrap="wrap">
             {note}
           </Text>

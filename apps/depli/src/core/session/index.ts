@@ -41,7 +41,12 @@ export const openSession = async (env: Env = process.env): Promise<Session> => {
     branch,
     reset,
     targetEnv,
-    state: { ...selection, env: targetEnv },
+    state: {
+      ...selection,
+      env: targetEnv,
+      timingsExpanded: saved.timingsExpanded === true,
+      otherRunsExpanded: saved.otherRunsExpanded ?? {},
+    },
   };
 };
 

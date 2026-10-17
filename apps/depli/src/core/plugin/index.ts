@@ -91,6 +91,7 @@ export interface StepRef {
 }
 
 export interface StepRun {
+  branch?: string;
   id: string;
   label: string;
   state: 'success' | 'failure' | 'running' | 'aborted' | 'queued' | 'other';
@@ -99,6 +100,26 @@ export interface StepRun {
   durationMs?: number;
   url?: string;
   detail?: string;
+}
+
+/** Provider-neutral stage timings for one run and a historical comparison. */
+export interface StageTiming {
+  id: string;
+  label: string;
+  state: 'pending' | 'running' | 'paused' | 'success' | 'failure' | 'aborted' | 'skipped' | 'other';
+  durationMs?: number;
+  averageMs?: number;
+  samples: number;
+}
+export interface RunTimings {
+  state?: StepRun['state'];
+  elapsedMs?: number;
+  estimatedTotalMs?: number;
+  stages: StageTiming[];
+  /** Build ids used for comparison, from the same job, earlier successful builds only. */
+  previousRuns: string[];
+  more: boolean;
+  unavailable?: string;
 }
 
 /** A value a step produced, which later steps use. */
@@ -131,6 +152,7 @@ export interface LogChunk {
 }
 
 export interface StepStatus {
+  activeRuns?: StepRun[];
   state: StepState;
   summary: string;
   ref?: StepRef;
@@ -237,6 +259,12 @@ export interface StepKind<Options = Record<string, unknown>> {
     run: StepRun,
     start: number,
   ) => Promise<LogChunk>;
+  activeRuns?: (context: PluginContext<Options>, input: StepInput) => Promise<StepRun[]>;
+  timings?: (
+    context: PluginContext<Options>,
+    input: StepInput,
+    run: StepRun,
+  ) => Promise<RunTimings>;
   /** Apply one of a plan's fixes. Only ever called through the core's gate. Returns what changed. */
   fix?: (context: PluginContext<Options>, plan: TriggerPlan, fixId: string) => Promise<string>;
   /** Send a plan. Only ever called through the core's trigger gate. */

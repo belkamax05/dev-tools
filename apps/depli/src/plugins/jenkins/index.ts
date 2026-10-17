@@ -1,3 +1,5 @@
+import { otherActiveRuns, readOtherActiveRuns } from './activeRuns';
+import { readJenkinsTimings } from './timings';
 import {
   definePlugin,
   type Env,
@@ -160,10 +162,17 @@ const jobStatus = async (
   const builds = step.branchParam
     ? data.builds.filter((build) => buildParam(build, step.branchParam as string) === input.branch)
     : data.builds;
-  const runs = builds.slice(0, 6).map(runOf);
+  const runs = builds.slice(0, 6).map((build) => ({
+    ...runOf(build),
+    branch: step.branchParam ? buildParam(build, step.branchParam) : undefined,
+  }));
   const latest = builds[0];
   const ok = builds.find((build) => build.result === 'SUCCESS');
-  const base = { url: data.url, runs };
+  const base = {
+    url: data.url,
+    runs,
+    activeRuns: otherActiveRuns(data.builds, step.branchParam, input.branch),
+  };
   if (!latest) {
     //? Jenkins keeps a limited history per job — say how much was looked through, and show the
     //? job's own recent runs (labelled with their branch) instead of an empty list
@@ -173,6 +182,7 @@ const jobStatus = async (
       ...base,
       runs: data.builds.slice(0, 6).map((build) => ({
         ...runOf(build),
+        branch: step.branchParam ? buildParam(build, step.branchParam) : undefined,
         detail: step.branchParam ? buildParam(build, step.branchParam) : undefined,
       })),
       state: data.inQueue ? 'running' : 'none',
@@ -406,6 +416,18 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
       status: ({ options, env }, input) => jobStatus(options, env, input),
       plan: async ({ options, env }, input) => jobPlan(options, env, input),
       latest: ({ options, env }, input) => jobLatest(options, env, input),
+      activeRuns: ({ options, env }, input) => {
+        const step = jobOptions(input);
+        return readOtherActiveRuns(
+          options,
+          env,
+          fillTemplate(step.job, input),
+          step.branchParam,
+          input.branch,
+        );
+      },
+      timings: ({ options, env }, input, run) =>
+        readJenkinsTimings(options, env, fillTemplate(jobOptions(input).job, input), run.id),
       logs: async ({ options, env }, input, run, start) => {
         const job = fillTemplate(jobOptions(input).job, input);
         return jenkinsLog(options, env, `${jobPath(job)}/${encodeURIComponent(run.id)}`, start);

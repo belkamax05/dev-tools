@@ -31,3 +31,23 @@ test('a split uses each outgoing build on its side of the push junction', () => 
   expect(connectorOwner(15, push, builds)?.id).toBe('nginx');
   expect(connectorOwner(25, push, builds)?.id).toBe('nodejs');
 });
+
+test('the horizontal path to a dot on the left build keeps the upper action color', () => {
+  const push = levels[0]!.nodes;
+  const builds = levels[1]!.nodes;
+  const dot = builds[0]!.center;
+  for (let column = dot + 1; column <= push[0]!.center; column++) {
+    expect(connectorOwner(column, push, builds, [dot])?.id).toBe('push');
+  }
+  expect(connectorOwner(25, push, builds, [dot])?.id).toBe('nodejs');
+});
+
+test('the same boundary coloring applies when the remaining build is on the right', () => {
+  const push = levels[0]!.nodes;
+  const builds = levels[1]!.nodes;
+  const dot = builds[1]!.center;
+  for (let column = push[0]!.center; column < dot; column++) {
+    expect(connectorOwner(column, push, builds, [dot])?.id).toBe('push');
+  }
+  expect(connectorOwner(15, push, builds, [dot])?.id).toBe('nginx');
+});

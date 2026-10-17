@@ -275,7 +275,7 @@ export const App = ({
               id: 'state',
               label: 'State',
               store: stateStore,
-              detail: 'last tab, branch picks, envs',
+              detail: 'last tab, branch picks, envs, timings panel',
             },
           ]}
           onCleared={(results) => {

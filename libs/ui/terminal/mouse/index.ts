@@ -195,6 +195,7 @@ export const POINTER_POP = `${ESC}]22;<${ESC}\\`;
 
 type Listener = (event: TerminalMouseEvent) => void;
 const listeners = new Set<Listener>();
+const captureListeners = new Set<(event: TerminalMouseEvent) => boolean>();
 
 /**
  * Whether the terminal has been asked to report the mouse at all.
@@ -208,7 +209,18 @@ let reporting = false;
 /** Feed a parsed event to the UI. Called by the stdin filter. */
 export const emitMouseEvent = (event: TerminalMouseEvent): void => {
   if (!reporting) return;
+  for (const capture of captureListeners) if (capture(event)) return;
   for (const listener of listeners) listener(event);
+};
+
+/** Captured gestures run before ordinary hit-testing; true consumes the event. */
+export const onMouseEventCapture = (
+  listener: (event: TerminalMouseEvent) => boolean,
+): (() => void) => {
+  captureListeners.add(listener);
+  return () => {
+    captureListeners.delete(listener);
+  };
 };
 
 export const onMouseEvent = (listener: Listener): (() => void) => {

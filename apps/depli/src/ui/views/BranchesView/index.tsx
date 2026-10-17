@@ -14,7 +14,18 @@ import type { Session } from '../../types';
 import type { DepliData } from '../../useDepli';
 
 export interface BranchesViewProps {
-  data: DepliData;
+  data: Pick<
+    DepliData,
+    | 'branch'
+    | 'current'
+    | 'branches'
+    | 'localBranches'
+    | 'pushedBranches'
+    | 'connections'
+    | 'allBranches'
+    | 'loadBranches'
+    | 'selectBranch'
+  >;
   watch: string[];
   session: Session;
   /** Arrived here with `b` from the chain: open the filter at once. */
@@ -132,14 +143,14 @@ export const BranchesView = ({
         )}
       </Box>
       <ListDetail
-        key={`branches-${filter}-${allBranches}`}
+        key={`branches-${filter}-${allBranches}-${data.branch}-${items.some((item) => item.id === data.branch)}`}
         title={scope}
         items={items}
         emptyText={branches || data.localBranches ? 'No branch matches' : 'Reading branches…'}
         detailTitle="Branch"
         reservedChrome={['viewHeader']}
         activateLabel="use this branch"
-        initialSelectedId={filter ? items[0]?.id : (session.selected.branches ?? data.branch)}
+        initialSelectedId={filter ? items[0]?.id : (data.branch ?? session.selected.branches)}
         isInputActive={!prompt.isOpen}
         hints={[
           { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
+import useScrollbarDrag from '@/dev-tools/ui/hooks/useScrollbarDrag';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import { appendLog, classifyLine, type LineTone } from '../../../core/logs';
@@ -109,6 +110,7 @@ export const LogPanel = ({
 
   //? The wheel over the panel scrolls it, three lines a notch, as most terminals do
   const rootRef = useRef<DOMElement>(null);
+  const trackRef = useRef<DOMElement>(null);
   useClickable(rootRef, {
     onWheel: (event) => scrollBy(event.wheel === 'up' ? 3 : -3),
     isActive,
@@ -138,6 +140,15 @@ export const LogPanel = ({
     all.length > body
       ? Math.round(((maxScroll - offset) / Math.max(1, maxScroll)) * (body - thumb))
       : 0;
+
+  useScrollbarDrag(trackRef, {
+    thumbTop,
+    thumbSize: thumb,
+    rows: body,
+    maxOffset: maxScroll,
+    onChange: (top) => setScroll(maxScroll - top),
+    isActive,
+  });
 
   const tone: Record<LineTone, string> = {
     error: colors.error,
@@ -191,7 +202,7 @@ export const LogPanel = ({
           })}
         </Box>
         {all.length > body && (
-          <Box flexDirection="column" width={1} flexShrink={0} marginLeft={1}>
+          <Box ref={trackRef} flexDirection="column" width={1} flexShrink={0} marginLeft={1}>
             {Array.from({ length: Math.min(body, shown.length) }, (_, row) => (
               <Text
                 key={`bar-${row}`}

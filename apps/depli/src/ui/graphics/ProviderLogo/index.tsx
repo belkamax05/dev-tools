@@ -24,10 +24,12 @@ export const ProviderLogo = ({
   provider,
   overlayId,
   rows,
+  onReady,
 }: {
   provider: string;
   overlayId: number;
   rows: number;
+  onReady?: (ready: boolean) => void;
 }) => {
   const [image, setImage] = useState<DecodedImage>();
   useEffect(() => {
@@ -49,6 +51,9 @@ export const ProviderLogo = ({
       live = false;
     };
   }, [provider]);
+  useEffect(() => {
+    onReady?.(Boolean(image) && hasProviderLogo(provider));
+  }, [image, provider, onReady]);
   if (!image || !hasProviderLogo(provider)) return null;
   return (
     <PixelPanel

@@ -1,5 +1,5 @@
 import { type DOMElement, Text } from 'ink';
-import { type ReactNode, useRef } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import { bestTechnique, graphicsSupport } from '@/dev-tools/terminal-canvas';
@@ -15,7 +15,13 @@ import { progressColumns } from './progress';
 import { connectorOwner } from './connectors';
 import ProgressMarker from '../ProgressMarker';
 
-import StatusIcon, { type TriggerBadge } from '../StatusIcon';
+import StatusIcon, {
+  badgeColor,
+  StatusText,
+  TRIGGER_ICON,
+  TRIGGER_LABEL,
+  type TriggerBadge,
+} from '../StatusIcon';
 import JobFrame, { supportsJobFrame } from '../JobFrame';
 export { type TriggerBadge, TRIGGER_ICON } from '../StatusIcon';
 
@@ -99,6 +105,7 @@ const Node = ({
   overlayId,
 }: NodeProps) => {
   const colors = useColors();
+  const [logoReady, setLogoReady] = useState(false);
   const ref = useRef<DOMElement>(null);
   const { isHovered } = useClickable(ref, { onClick });
   const { status } = entry;
@@ -129,7 +136,17 @@ const Node = ({
   const inner = node.width - 4;
   const logo = inner >= 12 && hasProviderLogo(provider.id);
   const providerWidth = inner - (logo ? 5 : 0);
-  const providerText = `${triggerBadge ? '    ' : ''}${triggerBadge === 'running' ? 'Running · ' : ''}${provider.label}`;
+  const badge =
+    status.state === 'blocked'
+      ? 'blocked'
+      : (triggerBadge ??
+        (status.state === 'none'
+          ? 'neverrun'
+          : status.state === 'done'
+            ? 'complete'
+            : status.state));
+  const statusLabel = TRIGGER_LABEL[badge];
+  const providerText = `${badge ? '    ' : ''}${statusLabel}${status.state === 'stale' && statusLabel !== 'Stale' ? ' · ↻ Stale' : ''}${logo && logoReady ? '' : ` · ${provider.label}`}`;
 
   const ref_ = status.ref;
   const what =
@@ -138,10 +155,12 @@ const Node = ({
       : ref_?.sha
         ? ref_.sha.slice(0, 7)
         : status.state === 'none'
-          ? 'never run'
-          : status.state;
+          ? '○ Never run'
+          : status.state === 'blocked'
+            ? '⊘ Blocked'
+            : `${TRIGGER_ICON[status.state === 'done' ? 'complete' : status.state]} ${TRIGGER_LABEL[status.state === 'done' ? 'complete' : status.state]}`;
   const when = ago(ref_?.finishedAt);
-  const marker = entry.recommended ? ' ← next' : entry.protected ? ' !' : '';
+  const marker = entry.recommended ? ' · ➜ Next' : entry.protected ? ' !' : '';
   const title = `${STATE_ICON[status.state]} ${label}`;
   //? One line: the time when there is one, else what it is (never run…), then the marker
   const full = ` ${when || what}${marker}`;
@@ -149,7 +168,7 @@ const Node = ({
   const tail =
     providerWidth - full.length >= Math.min(label.length + 2, 14)
       ? full
-      : ` ${when ? when.replace(' ago', '') : '–'}${entry.recommended ? ' ←' : ''}`;
+      : ` ${when ? when.replace(' ago', '') : '–'}${entry.recommended ? ' ➜ Next' : ''}`;
 
   return (
     <Box ref={ref} flexDirection="column" width={node.width} flexShrink={0}>
@@ -162,7 +181,7 @@ const Node = ({
             {clip(title, Math.max(1, providerWidth - tail.length))}
           </Text>
           <Text color={when ? colors.accent : colors.muted} bold={Boolean(when)}>
-            {tail}
+            <StatusText text={tail} />
           </Text>
           {logo && <Text>{' '.repeat(5)}</Text>}
         </Row>
@@ -176,7 +195,9 @@ const Node = ({
           </Row>
           <Row side={side} border={border} background={tint}>
             <Text color={when ? colors.accent : colors.muted} bold={Boolean(when)}>
-              {clip(`${what}${when ? ` · ${when}` : ''}${marker}`, providerWidth)}
+              <StatusText
+                text={clip(`${what}${when ? ` · ${when}` : ''}${marker}`, providerWidth)}
+              />
             </Text>
             {logo && <Text>{' '.repeat(5)}</Text>}
           </Row>
@@ -185,14 +206,14 @@ const Node = ({
       <Row side={side} border={border} background={tint}>
         <Text
           color={
-            triggerBadge === 'blocked'
-              ? colors.warn
-              : triggerBadge === 'next'
-                ? colors.accent
+            badge
+              ? badgeColor(badge, colors)
+              : status.state === 'stale'
+                ? colors.warn
                 : colors.muted
           }
         >
-          {clip(providerText, providerWidth)}
+          <StatusText text={clip(providerText, providerWidth)} />
         </Text>
         {logo && <Text>{' '.repeat(5)}</Text>}
       </Row>
@@ -207,14 +228,19 @@ const Node = ({
           joinBottom={joinBottom}
         />
       )}
-      {triggerBadge && (
+      {badge && (
         <Box position="absolute" left={2} bottom={1} width={3} height={1} backgroundColor={tint}>
-          <StatusIcon status={triggerBadge} overlayId={overlayId + 0x3000} />
+          <StatusIcon status={badge} overlayId={overlayId + 0x3000} />
         </Box>
       )}
       {logo && (
         <Box position="absolute" right={2} bottom={1} width={4} height={2} backgroundColor={tint}>
-          <ProviderLogo provider={provider.id} overlayId={overlayId} rows={2} />
+          <ProviderLogo
+            provider={provider.id}
+            overlayId={overlayId}
+            rows={2}
+            onReady={setLogoReady}
+          />
         </Box>
       )}
       <Text color={border} wrap="truncate">
@@ -282,8 +308,13 @@ export const ChainGraph = ({
       })}
     </Text>
   );
-  const connectorColor = (column: number, above: GraphNode[], below: GraphNode[]) => {
-    const owner = connectorOwner(column, above, below);
+  const connectorColor = (
+    column: number,
+    above: GraphNode[],
+    below: GraphNode[],
+    progress: Iterable<number>,
+  ) => {
+    const owner = connectorOwner(column, above, below, progress);
     return owner ? nodeColor(owner) : colors.muted;
   };
 
@@ -335,7 +366,10 @@ export const ChainGraph = ({
                           {rasterProgress ? ' ' : '●'}
                         </Text>
                       ) : (
-                        <Text key={column} color={connectorColor(column, level.nodes, next.nodes)}>
+                        <Text
+                          key={column}
+                          color={connectorColor(column, level.nodes, next.nodes, progress)}
+                        >
                           {cell}
                         </Text>
                       ),

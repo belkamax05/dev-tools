@@ -4,7 +4,7 @@ import { renderToString } from 'ink';
 import type { ChainStep } from '../../../core/chain';
 import ChainGraph, { type TriggerBadge, TRIGGER_ICON } from '.';
 
-test('provider badges render inside job boxes in full and compact graphs', () => {
+test('explicit status labels and provider fallbacks render in full and compact graphs', () => {
   const chain: ChainStep[] = ['readonly', 'blocked', 'next'].map((id, at) => ({
     step: {
       id,
@@ -29,9 +29,9 @@ test('provider badges render inside job boxes in full and compact graphs', () =>
         triggerBadgeOf={(entry) => entry.step.id as TriggerBadge}
       />,
     );
-    expect(output).toContain(`${TRIGGER_ICON.readonly}   github`);
-    expect(output).toContain(`${TRIGGER_ICON.blocked}   jenkins`);
-    expect(output).toContain(`${TRIGGER_ICON.next}   jenkins`);
+    expect(output).toContain(`${TRIGGER_ICON.readonly}   Read-only · github`);
+    expect(output).toContain(`${TRIGGER_ICON.blocked}   Blocked · jenkins`);
+    expect(output).toContain(`${TRIGGER_ICON.next}   Next · jenkins`);
   }
 });
 
@@ -90,4 +90,135 @@ test('a running job shows its spinner and Running status beside the provider', (
   );
   expect(output).toContain('Running · jenkins');
   expect(output).toContain('◐');
+});
+
+test('stale items keep their trigger badge and label freshness beside the provider', () => {
+  for (const badge of ['blocked', 'next'] as const) {
+    const entry: ChainStep = {
+      step: { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job' },
+      status: { state: 'stale', summary: 'behind' },
+      recommended: true,
+      protected: false,
+    };
+    const output = renderToString(
+      <ChainGraph
+        chain={[entry]}
+        width={50}
+        rows={10}
+        labelOf={(item) => item.step.label}
+        onSelect={() => {}}
+        providerOf={(item) => ({ id: 'jenkins', label: item.step.provider })}
+        triggerBadgeOf={() => badge}
+      />,
+    );
+    expect(output).toContain('Stale · jenkins');
+    expect(output).toContain(TRIGGER_ICON[badge]);
+  }
+});
+
+test('never-run jobs show their own status icon and label', () => {
+  const entry: ChainStep = {
+    step: { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job' },
+    status: { state: 'none', summary: '' },
+    recommended: false,
+    protected: false,
+  };
+  const output = renderToString(
+    <ChainGraph
+      chain={[entry]}
+      width={50}
+      rows={10}
+      labelOf={(item) => item.step.label}
+      onSelect={() => {}}
+      providerOf={() => ({ id: 'jenkins', label: 'jenkins' })}
+      triggerBadgeOf={() => undefined}
+    />,
+  );
+  expect(output).toContain('Never run · jenkins');
+  expect(output).toContain(TRIGGER_ICON.neverrun);
+  expect(TRIGGER_ICON.neverrun).not.toBe(TRIGGER_ICON.next);
+});
+
+test('never-run and next metadata retain icons even when the trigger badge is blocked', () => {
+  const entry: ChainStep = {
+    step: { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job' },
+    status: { state: 'none', summary: '' },
+    recommended: true,
+    protected: false,
+  };
+  for (const rows of [4, 30]) {
+    const output = renderToString(
+      <ChainGraph
+        chain={[entry]}
+        width={70}
+        rows={rows}
+        labelOf={(item) => item.step.label}
+        onSelect={() => {}}
+        providerOf={() => ({ id: 'jenkins', label: 'jenkins' })}
+        triggerBadgeOf={() => 'blocked'}
+      />,
+    );
+    expect(output).toContain('○ Never run');
+    expect(output).toContain('➜ Next');
+    expect(output).toContain('Blocked');
+  }
+});
+
+test('chain dependency blocking stays explicit even when the trigger itself is ready', () => {
+  const entry: ChainStep = {
+    step: { id: 'propagate', label: 'Propagate', provider: 'jenkins', kind: 'job' },
+    status: {
+      state: 'blocked',
+      summary: 'previous build',
+      notes: ['Waiting on deploy: never run'],
+    },
+    recommended: false,
+    protected: false,
+  };
+  const output = renderToString(
+    <ChainGraph
+      chain={[entry]}
+      width={70}
+      rows={30}
+      labelOf={(item) => item.step.label}
+      onSelect={() => {}}
+      providerOf={() => ({ id: 'jenkins', label: 'jenkins' })}
+      triggerBadgeOf={() => undefined}
+    />,
+  );
+  expect(output).toContain('⊘ Blocked');
+  expect(output).toContain('Blocked · jenkins');
+  expect(output).not.toContain('blocked');
+});
+
+test('every job state has an explicit icon and status label in its footer', () => {
+  const states = {
+    done: ['✓', 'Complete'],
+    stale: ['↻', 'Stale'],
+    failed: ['✗', 'Failed'],
+    offline: ['⊘', 'Offline'],
+    missing: ['?', 'Missing'],
+    error: ['!', 'Error'],
+  } as const;
+  for (const [state, [icon, label]] of Object.entries(states)) {
+    const entry: ChainStep = {
+      step: { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job' },
+      status: { state: state as ChainStep['status']['state'], summary: '' },
+      recommended: false,
+      protected: false,
+    };
+    const output = renderToString(
+      <ChainGraph
+        chain={[entry]}
+        width={70}
+        rows={30}
+        labelOf={(item) => item.step.label}
+        onSelect={() => {}}
+        providerOf={() => ({ id: 'jenkins', label: 'jenkins' })}
+        triggerBadgeOf={() => undefined}
+      />,
+    );
+    expect(output).toContain(`${icon} ${label}`);
+    expect(output).toContain(`${label} · jenkins`);
+  }
 });

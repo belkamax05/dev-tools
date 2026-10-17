@@ -69,7 +69,13 @@ export const evaluateChain = async (
         status = {
           ...status,
           state: 'blocked',
-          notes: [`waiting on ${waiting.map(([id]) => id).join(', ')}`, ...(status.notes ?? [])],
+          notes: [
+            ...waiting.map(
+              ([id, upstreamStatus]) =>
+                `Waiting on ${id}: ${upstreamStatus.summary || upstreamStatus.state} (no usable result for this branch)`,
+            ),
+            ...(status.notes ?? []),
+          ],
         };
     }
     done[step.id] = status;
@@ -92,8 +98,8 @@ export const STATE_ICON: Record<StepState, string> = {
   stale: '↻',
   running: '◐',
   failed: '✗',
-  none: '·',
-  blocked: '…',
+  none: '○',
+  blocked: '⊘',
   offline: '⊘',
   missing: '?',
   error: '!',
