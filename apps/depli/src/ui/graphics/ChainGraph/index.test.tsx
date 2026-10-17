@@ -34,3 +34,38 @@ test('provider badges render inside job boxes in full and compact graphs', () =>
     expect(output).toContain(`${TRIGGER_ICON.next} jenkins`);
   }
 });
+
+test('the progress dot has separate incoming and outgoing connector rows', () => {
+  const chain: ChainStep[] = [
+    {
+      step: { id: 'push', label: 'Push', provider: 'github', kind: 'branch' },
+      status: { state: 'done', summary: '' },
+      recommended: false,
+      protected: false,
+    },
+    {
+      step: { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job', after: ['push'] },
+      status: { state: 'stale', summary: '' },
+      recommended: true,
+      protected: false,
+    },
+  ];
+  const output = renderToString(
+    <ChainGraph
+      chain={chain}
+      width={30}
+      rows={30}
+      labelOf={(entry) => entry.step.label}
+      onSelect={() => {}}
+      providerOf={(entry) => ({ id: entry.step.provider, label: entry.step.provider })}
+      triggerBadgeOf={() => undefined}
+    />,
+  );
+  const lines = Bun.stripANSI(output).split('\n');
+  const marker = lines.findIndex((line) => line.includes('●'));
+  expect(marker).toBeGreaterThan(0);
+  expect(lines[marker - 1]?.trim()).toBe('│');
+  expect(lines[marker + 1]?.trim()).toBe('│');
+  expect(lines[marker - 1]?.indexOf('│')).toBe(lines[marker]?.indexOf('●'));
+  expect(lines[marker + 1]?.indexOf('│')).toBe(lines[marker]?.indexOf('●'));
+});

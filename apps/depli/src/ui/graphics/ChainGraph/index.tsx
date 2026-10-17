@@ -11,6 +11,7 @@ import { borderRow, busRow, type GraphNode, layoutGraph } from '../../../core/gr
 import type { StepState } from '../../../core/plugin';
 import ProviderLogo, { hasProviderLogo } from '../ProviderLogo';
 import { progressColumns } from './progress';
+import { connectorOwner } from './connectors';
 import ProgressMarker from '../ProgressMarker';
 
 export type TriggerBadge = 'blocked' | 'readonly' | 'next' | 'checking';
@@ -20,6 +21,15 @@ export const TRIGGER_ICON: Record<TriggerBadge, string> = {
   next: '➜',
   checking: '…',
 };
+
+const stateColor = (state: StepState, colors: ReturnType<typeof useColors>) =>
+  state === 'done'
+    ? colors.ok
+    : state === 'running'
+      ? colors.accent
+      : state === 'stale' || state === 'none' || state === 'blocked'
+        ? colors.warn
+        : colors.error;
 
 export const ago = (at?: number) => {
   if (!at) return '';
@@ -81,15 +91,11 @@ const Node = ({
   const ref = useRef<DOMElement>(null);
   const { isHovered } = useClickable(ref, { onClick });
   const { status } = entry;
-  const tone = (state: StepState) =>
-    state === 'done'
-      ? colors.ok
-      : state === 'running'
-        ? colors.accent
-        : state === 'stale' || state === 'none' || state === 'blocked'
-          ? colors.warn
-          : colors.error;
-  const border = selected ? colors.accent : isHovered ? colors.highlight : tone(status.state);
+  const border = selected
+    ? colors.accent
+    : isHovered
+      ? colors.highlight
+      : stateColor(status.state, colors);
   const tee = node.center - node.x;
   const [side, line] = selected ? ['║', '═'] : ['│', '─'];
   const top = borderRow(
@@ -222,9 +228,34 @@ export const ChainGraph = ({
     chain.map((entry) => ({ id: entry.step.id, after: entry.step.after })),
     width,
   );
-  const compact = heightFor(levels.length, 5) > rows;
+  const progressRows = levels.reduce((count, level, index) => {
+    const next = levels[index + 1];
+    return count + (next && progressColumns(chain, level.nodes, next.nodes).length ? 2 : 0);
+  }, 0);
+  const compact = heightFor(levels.length, 5) + progressRows > rows;
   const byId = new Map(chain.map((entry) => [entry.step.id, entry]));
   const rasterProgress = bestTechnique(graphicsSupport()).kind === 'raster';
+
+  const nodeColor = (node: GraphNode) => {
+    const entry = byId.get(node.id);
+    return entry ? stateColor(entry.status.state, colors) : colors.muted;
+  };
+  const renderStems = (nodes: GraphNode[]) => (
+    <Text wrap="truncate">
+      {Array.from({ length: width }, (_, column) => {
+        const node = nodes.find((item) => item.center === column);
+        return (
+          <Text key={column} color={node ? nodeColor(node) : colors.muted}>
+            {node ? '│' : ' '}
+          </Text>
+        );
+      })}
+    </Text>
+  );
+  const connectorColor = (column: number, above: GraphNode[], below: GraphNode[]) => {
+    const owner = connectorOwner(column, above, below);
+    return owner ? nodeColor(owner) : colors.muted;
+  };
 
   return (
     <Box flexDirection="column" flexShrink={0}>
@@ -264,31 +295,37 @@ export const ChainGraph = ({
               })}
             </Box>
             {next && (
-              <Box height={1} flexShrink={0}>
-                <Text color={colors.muted} wrap="truncate">
-                  {Array.from(connector).map((cell, column) =>
-                    progress.has(column) ? (
-                      <Text key={column} color={colors.ok} bold>
-                        {rasterProgress ? ' ' : '●'}
-                      </Text>
-                    ) : (
-                      <Text key={column}>{cell}</Text>
-                    ),
-                  )}
-                </Text>
-                {rasterProgress &&
-                  [...progress].map((column) => (
-                    <Box
-                      key={column}
-                      position="absolute"
-                      left={column - 1}
-                      top={0}
-                      width={3}
-                      height={1}
-                    >
-                      <ProgressMarker overlayId={0x7000 + index * width + column} />
-                    </Box>
-                  ))}
+              <Box height={progress.size ? 3 : 1} flexDirection="column" flexShrink={0}>
+                {progress.size > 0 && renderStems(level.nodes)}
+                <Box height={1} flexShrink={0}>
+                  <Text color={colors.muted} wrap="truncate">
+                    {Array.from(connector).map((cell, column) =>
+                      progress.has(column) ? (
+                        <Text key={column} color={colors.ok} bold>
+                          {rasterProgress ? ' ' : '●'}
+                        </Text>
+                      ) : (
+                        <Text key={column} color={connectorColor(column, level.nodes, next.nodes)}>
+                          {cell}
+                        </Text>
+                      ),
+                    )}
+                  </Text>
+                  {rasterProgress &&
+                    [...progress].map((column) => (
+                      <Box
+                        key={column}
+                        position="absolute"
+                        left={column - 1}
+                        top={0}
+                        width={3}
+                        height={1}
+                      >
+                        <ProgressMarker overlayId={0x7000 + index * width + column} />
+                      </Box>
+                    ))}
+                </Box>
+                {progress.size > 0 && renderStems(next.nodes)}
               </Box>
             )}
           </Box>
