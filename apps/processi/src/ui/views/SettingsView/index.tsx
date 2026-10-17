@@ -1,3 +1,4 @@
+import { stateStore } from '../../../config/settings';
 import { Text, useInput } from 'ink';
 import { type ReactNode, useState } from 'react';
 
@@ -25,7 +26,7 @@ export interface SettingsViewProps {
   configPath: string;
   session: Session;
   onConfigChange: (config: ProcessiConfig) => void;
-  onEditConfig: () => void;
+  onEditConfig: (path?: string) => void;
   onCaptureInput: (captured: boolean) => void;
   /** The files the Clear dialog offers — processi's config and state stores. */
   clearTargets: ClearTarget[];
@@ -36,6 +37,7 @@ export interface SettingsViewProps {
 type Setting =
   | ThemeSetting
   | RefreshSetting
+  | { kind: 'state' }
   | { kind: 'file' }
   | { kind: 'clear' };
 
@@ -63,6 +65,7 @@ export const SettingsView = ({
     if (themes.owns(setting)) themes.activate(setting);
     else if (setting.kind === 'refresh')
       onConfigChange({ ...config, refreshSeconds: setting.seconds });
+    else if (setting.kind === 'state') onEditConfig(stateStore.path);
     else if (setting.kind === 'clear') setClearing(true);
     else onEditConfig();
   };
@@ -70,7 +73,7 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'e') onEditConfig();
+      else if (input === 'e') onEditConfig(current?.kind === 'state' ? stateStore.path : undefined);
       else if (input === 'X') setClearing(true);
     },
     { isActive: !clearing },
@@ -79,8 +82,9 @@ export const SettingsView = ({
   const items: PickItem<Setting>[] = [
     ...themes.items,
     ...refreshRows(REFRESH_CHOICES, config.refreshSeconds, DEFAULT_REFRESH_SECONDS, colors.accent),
-    { id: 'header-file', label: 'Config file', isHeader: true },
-    { id: 'file', label: 'Open in $EDITOR', value: { kind: 'file' as const } },
+    { id: 'header-file', label: 'Files', isHeader: true },
+    { id: 'file', label: 'Settings in $EDITOR', value: { kind: 'file' as const } },
+    { id: 'state-file', label: 'State in $EDITOR', value: { kind: 'state' } },
     { id: 'header-reset', label: 'Reset', isHeader: true },
     {
       id: 'clear',
@@ -116,6 +120,15 @@ export const SettingsView = ({
         </Text>
       );
     }
+    if (setting.kind === 'state')
+      return (
+        <Box flexDirection="column">
+          <Text color={colors.text}>{stateStore.path}</Text>
+          <Text color={colors.muted} wrap="wrap">
+            Last tab, process sort order and scope. Reloaded after editing.
+          </Text>
+        </Box>
+      );
     if (setting.kind === 'clear') {
       return (
         <Text color={colors.muted} wrap="wrap">
@@ -144,7 +157,11 @@ export const SettingsView = ({
       activateLabel="apply"
       initialSelectedId={session.selected.settings}
       hints={[
-        { key: 'e', label: 'edit file', onPress: onEditConfig },
+        {
+          key: 'e',
+          label: 'edit file',
+          onPress: () => onEditConfig(current?.kind === 'state' ? stateStore.path : undefined),
+        },
         { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
       ]}
       onActivate={(item) => apply(item.value)}

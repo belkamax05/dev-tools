@@ -10,11 +10,7 @@ import ClearDataDialog, {
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
-import {
-  type RefreshSetting,
-  refreshLabel,
-  refreshRows,
-} from '@/dev-tools/ui/utils/choiceRows';
+import { type RefreshSetting, refreshLabel, refreshRows } from '@/dev-tools/ui/utils/choiceRows';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 /** Seconds between background re-reads of the repository; 0 switches them off. */
@@ -30,6 +26,8 @@ export const DEFAULT_REFRESH_SECONDS = 5;
 
 export interface SettingsViewProps {
   refreshSeconds: number;
+  files?: { path: string; label: string; detail: string }[];
+  onEditFile?: (path: string) => void;
   onRefreshChange: (seconds: number) => void;
   /** The files the Clear dialog offers — giti's config and state. Without them, no Clear row. */
   clearTargets?: ClearTarget[];
@@ -41,6 +39,7 @@ export interface SettingsViewProps {
 type Setting =
   | ThemeSetting
   | RefreshSetting
+  | { kind: 'file'; path: string; detail: string }
   | { kind: 'clear' };
 
 /**
@@ -49,6 +48,8 @@ type Setting =
  */
 export const SettingsView = ({
   refreshSeconds,
+  files = [],
+  onEditFile,
   onRefreshChange,
   clearTargets,
   onCleared,
@@ -64,6 +65,7 @@ export const SettingsView = ({
     if (!setting) return;
     if (themes.owns(setting)) themes.activate(setting);
     else if (setting.kind === 'refresh') onRefreshChange(setting.seconds);
+    else if (setting.kind === 'file') onEditFile?.(setting.path);
     else setClearing(true);
   };
 
@@ -79,6 +81,16 @@ export const SettingsView = ({
   const items: PickItem<Setting>[] = [
     ...themes.items,
     ...refreshRows(REFRESH_CHOICES, refreshSeconds, DEFAULT_REFRESH_SECONDS, colors.accent),
+    ...(onEditFile && files.length
+      ? [
+          { id: 'header-files', label: 'Files', isHeader: true },
+          ...files.map((file) => ({
+            id: file.path,
+            label: file.label + ' in $EDITOR',
+            value: { kind: 'file' as const, path: file.path, detail: file.detail },
+          })),
+        ]
+      : []),
     ...(canClear
       ? [
           { id: 'header-reset', label: 'Reset', isHeader: true },
@@ -109,6 +121,15 @@ export const SettingsView = ({
     const setting = item?.value;
     if (!setting) return null;
     if (themes.owns(setting)) return themes.renderDetail(setting);
+    if (setting.kind === 'file')
+      return (
+        <Box flexDirection="column">
+          <Text color={colors.text}>{setting.path}</Text>
+          <Text color={colors.muted} wrap="wrap">
+            {setting.detail} Reloaded after editing.
+          </Text>
+        </Box>
+      );
     if (setting.kind === 'clear') {
       return (
         <Text color={colors.muted} wrap="wrap">
@@ -138,7 +159,13 @@ export const SettingsView = ({
       items={items}
       emptyText="Nothing to set."
       detailTitle={
-        current?.kind === 'refresh' ? 'Auto refresh' : current?.kind === 'clear' ? 'Reset' : 'Theme'
+        current?.kind === 'refresh'
+          ? 'Auto refresh'
+          : current?.kind === 'clear'
+            ? 'Reset'
+            : current?.kind === 'file'
+              ? 'File'
+              : 'Theme'
       }
       activateLabel="apply"
       onActivate={(item) => apply(item.value)}

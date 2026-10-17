@@ -1,3 +1,4 @@
+import { stateStore } from '../../../config/settings';
 import { Text, useInput } from 'ink';
 import { useState } from 'react';
 
@@ -34,6 +35,7 @@ type Setting =
   | { kind: 'addPattern' }
   | { kind: 'hook'; shell: 'zsh' | 'bash' | 'fish' }
   | ThemeSetting
+  | { kind: 'state' }
   | { kind: 'file' }
   | { kind: 'clear' };
 
@@ -97,6 +99,7 @@ export const SettingsView = ({
     else if (setting.kind === 'pattern') removePattern(setting.pattern);
     else if (setting.kind === 'addPattern') addPattern();
     else if (setting.kind === 'hook') copyHook(setting.shell);
+    else if (setting.kind === 'state') onEdit(stateStore.path);
     else if (setting.kind === 'clear') setClearing(true);
     else onEdit(configPath);
   };
@@ -104,7 +107,7 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'e') onEdit(configPath);
+      else if (input === 'e') onEdit(current?.kind === 'state' ? stateStore.path : configPath);
       else if (input === 'X') setClearing(true);
       else if (current?.kind === 'pattern' && (input === 'x' || input === 'd'))
         removePattern(current.pattern);
@@ -157,8 +160,9 @@ export const SettingsView = ({
       value: { kind: 'hook' as const, shell },
     })),
     ...themes.items,
-    { id: 'header-file', label: 'Config file', isHeader: true },
-    { id: 'file', label: 'Open in $EDITOR', value: { kind: 'file' } },
+    { id: 'header-file', label: 'Files', isHeader: true },
+    { id: 'file', label: 'Settings in $EDITOR', value: { kind: 'file' } },
+    { id: 'state-file', label: 'State in $EDITOR', value: { kind: 'state' } },
     { id: 'header-reset', label: 'Reset', isHeader: true },
     {
       id: 'clear',
@@ -231,6 +235,15 @@ export const SettingsView = ({
             </Text>
           </Box>
         );
+      case 'state':
+        return (
+          <Box flexDirection="column">
+            <Text color={colors.text}>{stateStore.path}</Text>
+            <Text color={colors.muted} wrap="wrap">
+              Last selected tab. Reloaded after editing.
+            </Text>
+          </Box>
+        );
       case 'file':
         return (
           <Box flexDirection="column">
@@ -282,7 +295,11 @@ export const SettingsView = ({
         initialSelectedId={session.selected.settings}
         isInputActive={!prompt.isOpen}
         hints={[
-          { key: 'e', label: 'edit file', onPress: () => onEdit(configPath) },
+          {
+            key: 'e',
+            label: 'edit file',
+            onPress: () => onEdit(current?.kind === 'state' ? stateStore.path : configPath),
+          },
           { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
         ]}
         onActivate={(item) => apply(item.value)}

@@ -26,13 +26,14 @@ export const onFrame = (listener: Listener): (() => void) => {
 let erasures = 0;
 
 /** Erases that take images with them: whole lines, the whole screen, or the screen itself. */
-const ERASING = /\u001B\[2K|\u001B\[2J|\u001B\[\?1049[hl]/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: match terminal ANSI erase sequences
+const ERASING = /\u001B\[(?:[012]?[KJ]|\?1049[hl])/;
 
 /**
  * The screen, or lines of it, were erased — and with them, on xterm.js, the images there. An
  * overlay that sends its picture only when it has to compares this count with the one it painted
- * at. Ink rewrites changed lines by writing over them (see `runTuiApp`), so this moves only when it
- * clears its whole frame, on a resize, and on an overlay's own wipe.
+ * at. Ink also erases the remainder of changed lines during incremental rendering. Those erases
+ * can remove image cells too, so every erase mode invalidates the cached placement.
  */
 export const noteScreenErased = (): void => {
   erasures += 1;
@@ -46,8 +47,17 @@ export const screenErasures = (): number => erasures;
  */
 export const watchForErasures = (stream: NodeJS.WriteStream) => {
   const write = stream.write;
+  let pendingEscape = '';
   stream.write = ((chunk: unknown, ...rest: unknown[]) => {
-    if (typeof chunk === 'string' && ERASING.test(chunk)) noteScreenErased();
+    const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString() : '';
+    if (text) {
+      const combined = pendingEscape + text;
+      if (ERASING.test(combined)) noteScreenErased();
+      // A stream may split a CSI sequence between writes.
+      const tail = combined.slice(combined.lastIndexOf('\u001B'));
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: retain a split ANSI escape sequence
+      pendingEscape = /^\u001B(?:\[[0-9;?]*)?$/.test(tail) ? tail : '';
+    }
     return (write as (...args: unknown[]) => boolean).call(stream, chunk, ...rest);
   }) as typeof stream.write;
   stream.on('resize', noteScreenErased);

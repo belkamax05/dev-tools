@@ -58,6 +58,7 @@ export const TABS: readonly TabDefinition<TabId>[] = [
 ];
 
 export interface AppProps {
+  settingsFiles?: { path: string; label: string; detail: string }[];
   /** Directory the user ran `giti` from — the repository everything is read out of. */
   cwd: string;
   /** The command tree, for the command palette. */
@@ -88,7 +89,6 @@ export interface AppProps {
   onCleared?: (results: ClearResult[]) => void;
 }
 
-
 /** The strip across the top while a rebase, merge, cherry-pick or revert waits on you. */
 const OperationBanner = ({
   op,
@@ -108,7 +108,9 @@ const OperationBanner = ({
     <Box flexDirection="row" flexShrink={0}>
       <Text color={colors.warn} bold>
         {`${op.kind[0]?.toUpperCase()}${op.kind.slice(1)} in progress`}
-        {conflicts ? ` · ${conflicts} conflicted — resolve them on Overview` : ' · ready to continue'}
+        {conflicts
+          ? ` · ${conflicts} conflicted — resolve them on Overview`
+          : ' · ready to continue'}
         {'  '}
       </Text>
       <ActionButton hotkey="^N" label="Continue" color={colors.accent} onPress={onContinue} />
@@ -129,6 +131,7 @@ const OperationBanner = ({
  * command menu that used to be a tab is a palette (`:` or Ctrl+P).
  */
 export const App = ({
+  settingsFiles,
   cwd,
   commands,
   onRunCommand,
@@ -357,6 +360,11 @@ export const App = ({
       ) : activeTab === 'settings' ? (
         //? Before the repository checks: settings mean the same outside a repository
         <SettingsView
+          files={settingsFiles}
+          onEditFile={(path) => {
+            onHandoff({ type: 'edit', path });
+            exit();
+          }}
           refreshSeconds={refreshSeconds}
           onRefreshChange={changeRefresh}
           clearTargets={clearTargets}
@@ -399,12 +407,7 @@ export const App = ({
           {activeTab === 'branches' && <BranchesView {...viewProps} sync={sync} />}
           {activeTab === 'stash' && <StashView {...viewProps} />}
           {activeTab === 'remotes' && (
-            <RemotesView
-              {...viewProps}
-              sync={sync}
-              snapshot={snapshot}
-              onRunCommand={runCommand}
-            />
+            <RemotesView {...viewProps} sync={sync} snapshot={snapshot} onRunCommand={runCommand} />
           )}
         </>
       )}

@@ -38,3 +38,5 @@ started spinning as nearly idle. macOS's `ps` already reports a recent average a
 
 `~/.config/processi/config.json` — theme and refresh rate. The last tab, sort and scope are state,
 in `~/.local/state/processi/state.json`.
+
+In Settings, the Files section exposes both **Settings in $EDITOR** and **State in $EDITOR**. Select a file to see its path and contents description; Enter opens it. Edits are reloaded when the dashboard returns.

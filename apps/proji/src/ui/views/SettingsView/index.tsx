@@ -1,3 +1,4 @@
+import { stateStore } from '../../../config/settings';
 import { Text, useInput } from 'ink';
 import { type ReactNode, useState } from 'react';
 
@@ -17,7 +18,7 @@ import type { Session } from '../../types';
 export interface SettingsViewProps {
   configPath: string;
   session: Session;
-  onEditConfig: () => void;
+  onEditConfig: (path?: string) => void;
   onCaptureInput: (captured: boolean) => void;
   /** The files the Clear dialog offers — proji's config and state stores. */
   clearTargets: ClearTarget[];
@@ -25,7 +26,7 @@ export interface SettingsViewProps {
   onCleared: (results: ClearResult[]) => void;
 }
 
-type Setting = ThemeSetting | { kind: 'file' } | { kind: 'clear' };
+type Setting = ThemeSetting | { kind: 'state' } | { kind: 'file' } | { kind: 'clear' };
 
 /**
  * The theme, saved to `config.json` as it is picked. The show filter is not here: it is chosen
@@ -47,6 +48,7 @@ export const SettingsView = ({
   const apply = (setting: Setting | undefined) => {
     if (!setting) return;
     if (themes.owns(setting)) themes.activate(setting);
+    else if (setting.kind === 'state') onEditConfig(stateStore.path);
     else if (setting.kind === 'clear') setClearing(true);
     else onEditConfig();
   };
@@ -54,7 +56,7 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'e') onEditConfig();
+      else if (input === 'e') onEditConfig(current?.kind === 'state' ? stateStore.path : undefined);
       else if (input === 'X') setClearing(true);
     },
     { isActive: !clearing },
@@ -62,8 +64,9 @@ export const SettingsView = ({
 
   const items: PickItem<Setting>[] = [
     ...themes.items,
-    { id: 'header-file', label: 'Config file', isHeader: true },
-    { id: 'file', label: 'Open in $EDITOR', value: { kind: 'file' as const } },
+    { id: 'header-file', label: 'Files', isHeader: true },
+    { id: 'file', label: 'Settings in $EDITOR', value: { kind: 'file' as const } },
+    { id: 'state-file', label: 'State in $EDITOR', value: { kind: 'state' } },
     { id: 'header-reset', label: 'Reset', isHeader: true },
     {
       id: 'clear',
@@ -90,6 +93,15 @@ export const SettingsView = ({
     const setting = item?.value;
     if (!setting) return null;
     if (themes.owns(setting)) return themes.renderDetail(setting);
+    if (setting.kind === 'state')
+      return (
+        <Box flexDirection="column">
+          <Text color={colors.text}>{stateStore.path}</Text>
+          <Text color={colors.muted} wrap="wrap">
+            Last tab and command show filter. Reloaded after editing.
+          </Text>
+        </Box>
+      );
     if (setting.kind === 'clear') {
       return (
         <Text color={colors.muted} wrap="wrap">
@@ -118,7 +130,11 @@ export const SettingsView = ({
       activateLabel="apply"
       initialSelectedId={session.selected.settings}
       hints={[
-        { key: 'e', label: 'edit file', onPress: onEditConfig },
+        {
+          key: 'e',
+          label: 'edit file',
+          onPress: () => onEditConfig(current?.kind === 'state' ? stateStore.path : undefined),
+        },
         { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
       ]}
       onActivate={(item) => apply(item.value)}

@@ -69,7 +69,12 @@ export const renderDashboard = async ({
     {
       render,
       //? A command may well have changed what there is to run (a new script, a renamed one)
-      afterHandoff: async () => {
+      afterHandoff: async (intent) => {
+        if (intent.type === 'edit' && intent.path === stateStore.path) {
+          state = await stateStore.load();
+          session.tab = state.tab;
+          session.show = state.show;
+        }
         [settings, commands] = await Promise.all([configStore.load(), collectCommands(options)]);
       },
       describe: (intent) =>

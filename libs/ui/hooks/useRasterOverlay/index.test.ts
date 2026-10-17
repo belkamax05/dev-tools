@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import { Box, type DOMElement, render } from 'ink';
 import { createElement, useRef, useState } from 'react';
 
-import { noteScreenErased } from '../../terminal/frames';
+import { emitFrame, noteScreenErased, watchForErasures } from '../../terminal/frames';
 import { isFullyVisible, useRasterOverlay } from '.';
 
 /** Just enough of an Ink node for `measureElement`: a Yoga box, a style, a parent. */
@@ -27,7 +27,10 @@ const screen = { columns: 100, rows: 30 };
 
 describe('isFullyVisible', () => {
   //? A framed, clipping panel at (10, 5), 40 × 12: its inside is rows 6–15
-  const panel = node({ left: 10, top: 5, width: 40, height: 12 }, { overflow: 'hidden', borderStyle: 'round' });
+  const panel = node(
+    { left: 10, top: 5, width: 40, height: 12 },
+    { overflow: 'hidden', borderStyle: 'round' },
+  );
   const image = node({ left: 2, top: 2, width: 20, height: 6 }, {}, panel);
 
   test('an image inside its panel is drawn', () => {
@@ -117,6 +120,52 @@ describe('painting on a terminal that keeps images in its cells', () => {
 
   test('a kitty terminal, which replaces by id, is still sent it every time', async () => {
     expect(await sends(false)).toBeGreaterThan(5);
+  });
+
+  test('an incremental erase repaints every still overlay after another panel changes', async () => {
+    const stdout = Object.assign(new PassThrough(), { columns: 80, rows: 24, isTTY: true });
+    let written = '';
+    stdout.on('data', (chunk: Buffer) => {
+      written += chunk.toString();
+    });
+    const Card = ({ id }: { id: number }) => {
+      const ref = useRef(null);
+      useRasterOverlay({
+        technique,
+        subject,
+        time: 0,
+        animating: false,
+        target: ref,
+        cellWidth: 10,
+        cellHeight: 20,
+        imagesInCells: true,
+        imageId: id,
+      });
+      return createElement(Box, { ref, width: 4, height: 2 });
+    };
+    const app = render(
+      createElement(Box, {}, createElement(Card, { id: 1 }), createElement(Card, { id: 2 })),
+      {
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        patchConsole: false,
+      },
+    );
+    await wait(100);
+    const stop = watchForErasures(stdout as unknown as NodeJS.WriteStream);
+    try {
+      written = '';
+      stdout.write('\u001B[K');
+      emitFrame();
+      await wait(100);
+      expect(written.split(IMAGE).length - 1).toBe(2);
+      written = '';
+      emitFrame();
+      await wait(100);
+      expect(written).not.toContain(IMAGE);
+    } finally {
+      stop();
+      app.unmount();
+    }
   });
 
   test('a picture that moves is cleared by leaving the alternate screen and coming back', async () => {

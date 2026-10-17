@@ -53,7 +53,11 @@ export const renderDashboard = async (
     ),
     {
       render,
-      afterHandoff: async () => {
+      afterHandoff: async (intent) => {
+        if (intent.type === 'edit' && intent.path === stateStore.path) {
+          state = await stateStore.load();
+          session.tab = state.tab;
+        }
         config = await configStore.load();
       },
       describe: (intent) =>

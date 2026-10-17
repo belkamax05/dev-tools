@@ -67,3 +67,5 @@ them. On a port both lists name, the project's label wins — it knows what runs
 `ss -tlnp` on Linux (fast enough to refresh every second), `lsof -iTCP -sTCP:LISTEN` elsewhere,
 joined with one `ps` read of the process table. A socket another user owns is listed without a
 process unless porti runs as root — the port still shows as taken.
+
+In Settings, the Files section exposes both **Settings in $EDITOR** and **State in $EDITOR**. Select a file to see its path and contents description; Enter opens it. Edits are reloaded when the dashboard returns.

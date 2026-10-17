@@ -47,8 +47,6 @@ export interface AppProps {
   onCleared: (results: ClearResult[]) => void;
 }
 
-
-
 /**
  * porti's dashboard: the watched ports, every listening port, and the settings that decide which
  * ports are watched.
@@ -89,7 +87,6 @@ export const App = ({
     const id = setInterval(reload, config.refreshSeconds * 1000);
     return () => clearInterval(id);
   }, [config.refreshSeconds, paused, isInputCaptured, reload]);
-
 
   const updateConfig = (next: PortiConfig) => {
     setConfig(next);
@@ -166,8 +163,8 @@ export const App = ({
           notify={notify}
           onConfigChange={updateConfig}
           onCaptureInput={setIsInputCaptured}
-          onEditConfig={() => {
-            onHandoff({ type: 'edit', path: configPath });
+          onEditConfig={(path = configPath) => {
+            onHandoff({ type: 'edit', path });
             exit();
           }}
           clearTargets={[

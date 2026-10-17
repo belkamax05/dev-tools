@@ -14,6 +14,7 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import {
   configStore,
   type DepliConfig,
+  flushState,
   stateStore,
   TAB_IDS,
   type TabId,
@@ -262,7 +263,8 @@ export const App = ({
           configPath={configPath}
           projectPath={depli.path}
           session={session}
-          onEditFile={(path) => {
+          onEditFile={async (path) => {
+            await flushState();
             onHandoff({ type: 'edit', path });
             exit();
           }}

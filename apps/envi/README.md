@@ -128,3 +128,5 @@ Bun loads `.env` files into `process.env` on its own. To avoid that, `bin/envi` 
 `--no-env-file`, and on Linux envi reads the environment it was launched with from
 `/proc/self/environ`. Without both, the project's `.env` values would look as if the shell had
 exported them.
+
+In Settings, the Files section exposes both **Settings in $EDITOR** and **State in $EDITOR**. Select a file to see its path and contents description; Enter opens it. Edits are reloaded when the dashboard returns.

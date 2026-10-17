@@ -86,6 +86,10 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
         onRunCommand={(command) => {
           picked = command;
         }}
+        settingsFiles={[
+          { path: configStore.path, label: 'Settings', detail: 'Theme and refresh rate.' },
+          { path: stateStore.path, label: 'State', detail: 'Last tab and Overview details.' },
+        ]}
         clearTargets={[
           { id: 'config', label: 'Settings', store: configStore, detail: 'theme, refresh rate' },
           { id: 'state', label: 'State', store: stateStore, detail: 'last tab, Overview details' },
@@ -97,6 +101,15 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
     ),
     {
       render,
+      afterHandoff: async (intent) => {
+        if (intent.type !== 'edit') return;
+        if (intent.path === configStore.path) Object.assign(config, await configStore.load());
+        if (intent.path === stateStore.path) {
+          Object.assign(state, await stateStore.load());
+          const restored = state.tab === 'vendored' ? 'remotes' : state.tab;
+          tab = TABS.some((item) => item.id === restored) ? (restored as TabId) : 'overview';
+        }
+      },
       describe: (intent) =>
         intent.type === 'edit'
           ? `Back from editing ${relative(cwd, intent.path)}`

@@ -1,3 +1,4 @@
+import { stateStore } from '../../../config/settings';
 import { Text, useInput } from 'ink';
 import { useState } from 'react';
 
@@ -34,7 +35,7 @@ export interface SettingsViewProps {
   notify: (text: string, tone?: Tone) => void;
   onConfigChange: (config: PortiConfig) => void;
   onCaptureInput: (captured: boolean) => void;
-  onEditConfig: () => void;
+  onEditConfig: (path?: string) => void;
   /** The files the Clear dialog offers — porti's config and state stores. */
   clearTargets: ClearTarget[];
   /** Called once the dialog has cleared files; the app quits so nothing writes them back. */
@@ -47,6 +48,7 @@ type Setting =
   | { kind: 'defaults' }
   | ThemeSetting
   | RefreshSetting
+  | { kind: 'state' }
   | { kind: 'file' }
   | { kind: 'clear' };
 
@@ -131,6 +133,7 @@ export const SettingsView = ({
     else if (setting.kind === 'defaults') restoreDefaults();
     else if (setting.kind === 'refresh')
       onConfigChange({ ...config, refreshSeconds: setting.seconds });
+    else if (setting.kind === 'state') onEditConfig(stateStore.path);
     else if (setting.kind === 'clear') setClearing(true);
     else onEditConfig();
   };
@@ -139,7 +142,7 @@ export const SettingsView = ({
     (input) => {
       if (input === ' ') apply(current);
       else if (input === 'a') addPort();
-      else if (input === 'e') onEditConfig();
+      else if (input === 'e') onEditConfig(current?.kind === 'state' ? stateStore.path : undefined);
       else if (input === 'X') setClearing(true);
       else if (current?.kind === 'port' && (input === 'x' || input === 'd')) remove(current.entry);
       else if (current?.kind === 'port' && input === 'n') rename(current.entry);
@@ -168,8 +171,9 @@ export const SettingsView = ({
         ]),
     ...themes.items,
     ...refreshRows(REFRESH_CHOICES, config.refreshSeconds, DEFAULT_REFRESH_SECONDS, colors.accent),
-    { id: 'header-file', label: 'Config file', isHeader: true },
-    { id: 'file', label: 'Open in $EDITOR', value: { kind: 'file' as const } },
+    { id: 'header-file', label: 'Files', isHeader: true },
+    { id: 'file', label: 'Settings in $EDITOR', value: { kind: 'file' as const } },
+    { id: 'state-file', label: 'State in $EDITOR', value: { kind: 'state' } },
     { id: 'header-reset', label: 'Reset', isHeader: true },
     {
       id: 'clear',
@@ -237,6 +241,15 @@ export const SettingsView = ({
             defaults next time.
           </Text>
         );
+      case 'state':
+        return (
+          <Box flexDirection="column">
+            <Text color={colors.text}>{stateStore.path}</Text>
+            <Text color={colors.muted} wrap="wrap">
+              Last selected tab. Reloaded after editing.
+            </Text>
+          </Box>
+        );
       case 'file':
         return (
           <Box flexDirection="column">
@@ -282,7 +295,11 @@ export const SettingsView = ({
         isInputActive={!prompt.isOpen}
         hints={[
           { key: 'a', label: 'watch port', onPress: addPort },
-          { key: 'e', label: 'edit file', onPress: onEditConfig },
+          {
+            key: 'e',
+            label: 'edit file',
+            onPress: () => onEditConfig(current?.kind === 'state' ? stateStore.path : undefined),
+          },
           { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
         ]}
         onActivate={(item) => apply(item.value)}

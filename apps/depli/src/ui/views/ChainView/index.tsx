@@ -429,71 +429,87 @@ export const ChainView = ({
   const triggerButton = (entry: ChainStep) => {
     const { ready, reasons, checking, refused } = triggerState(entry);
     const planned = plans[entry.step.id];
-    const explain = () =>
-      notify(
-        ready ? 'Press T to trigger' : `Trigger blocked: ${reasons.join('; ') || 'checking…'}`,
-        ready ? 'info' : 'warn',
-      );
     const help =
       typeof entry.step.blockedHelp === 'string' ? fill(entry.step.blockedHelp) : undefined;
     return (
       <Box flexDirection="column">
-        <ActionButton
-          hotkey={ready ? 'T' : undefined}
-          label={checking ? 'Trigger… (checking)' : ready ? 'Trigger…' : 'Trigger — blocked'}
-          color={
-            checking
-              ? colors.muted
-              : !ready
-                ? colors.warn
-                : entry.protected
-                  ? colors.error
-                  : colors.accent
-          }
-          onPress={() => (ready ? startTrigger(entry) : explain())}
-          onHover={(hovered) => {
-            if (hovered) explain();
-          }}
-        />
-        {typeof planned === 'object' &&
-          Object.entries(planned.plan.params).map(([name, value]) => {
-            const source = planned.plan.sources?.[name];
-            const fromStep = source !== undefined && source !== 'branch';
-            return (
-              <Text key={name} wrap="wrap">
-                <Text color={colors.muted}>{name}=</Text>
-                <Text color={fromStep ? colors.accent : colors.text} bold={fromStep}>
-                  {value}
-                </Text>
-                <Text color={colors.muted}> ← {source ?? 'config'}</Text>
-              </Text>
-            );
-          })}
-        {!ready &&
-          reasons.map((reason) => (
-            <Text key={reason} color={colors.warn} wrap="wrap">
-              ✗ {reason}
-            </Text>
-          ))}
-        {refused && help && (
-          <Text color={colors.muted} wrap="wrap">
-            {help}
-          </Text>
-        )}
-        {/*? What would lift it — in red: each one edits shared configuration on the target */}
-        {refused &&
-          fixesOf(entry).map((fix, index) => (
+        <Box
+          flexDirection="column"
+          borderStyle="single"
+          borderTop={false}
+          borderBottom={false}
+          borderRight={false}
+          borderColor={ready ? colors.accent : colors.warn}
+          paddingLeft={1}
+          flexShrink={0}
+        >
+          {ready ? (
             <ActionButton
-              key={fix.id}
-              hotkey={index === 0 && triggersEnabled ? 'A' : undefined}
-              label={`${fix.label}… (edits shared config)`}
-              color={colors.error}
-              onPress={() => startFix(entry, fix)}
-              onHover={(hovered) => {
-                if (hovered) notify(fix.detail, 'warn');
-              }}
+              hotkey="T"
+              label="Trigger…"
+              color={entry.protected ? colors.error : colors.accent}
+              onPress={() => startTrigger(entry)}
             />
-          ))}
+          ) : (
+            <Text color={checking ? colors.muted : colors.warn} bold wrap="wrap">
+              {checking ? 'Checking trigger…' : '⊘ Trigger blocked'}
+            </Text>
+          )}
+          {!ready &&
+            reasons.map((reason) => (
+              <Text key={reason} color={colors.warn} wrap="wrap">
+                ✗ {reason}
+              </Text>
+            ))}
+          {refused && fixesOf(entry).length > 0 && (
+            <Box marginTop={1}>
+              <Text color={colors.heading}>Resolve before triggering:</Text>
+            </Box>
+          )}
+          {refused &&
+            fixesOf(entry).map((fix, index) => (
+              <ActionButton
+                key={fix.id}
+                hotkey={index === 0 && triggersEnabled ? 'A' : undefined}
+                label={`${fix.label}…`}
+                color={colors.accent}
+                disabled={!triggersEnabled}
+                onPress={() => startFix(entry, fix)}
+                onHover={(hovered) => {
+                  if (hovered) notify(fix.detail, 'warn');
+                }}
+              />
+            ))}
+          {refused && fixesOf(entry).length > 0 && (
+            <Text color={colors.muted} wrap="wrap">
+              Updates shared job configuration. Review and apply, then trigger separately.
+            </Text>
+          )}
+          {refused && help && (
+            <Text color={colors.muted} wrap="wrap">
+              {help}
+            </Text>
+          )}
+        </Box>
+        <Box flexDirection="column" marginTop={1} flexShrink={0}>
+          {typeof planned === 'object' && Object.keys(planned.plan.params).length > 0 && (
+            <Text color={colors.heading}>Parameters</Text>
+          )}
+          {typeof planned === 'object' &&
+            Object.entries(planned.plan.params).map(([name, value]) => {
+              const source = planned.plan.sources?.[name];
+              const fromStep = source !== undefined && source !== 'branch';
+              return (
+                <Text key={name} wrap="wrap">
+                  <Text color={colors.muted}>{name}=</Text>
+                  <Text color={fromStep ? colors.accent : colors.text} bold={fromStep}>
+                    {value}
+                  </Text>
+                  <Text color={colors.muted}> ← {source ?? 'config'}</Text>
+                </Text>
+              );
+            })}
+        </Box>
       </Box>
     );
   };

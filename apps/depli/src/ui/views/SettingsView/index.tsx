@@ -1,3 +1,4 @@
+import { stateStore } from '../../../config/settings';
 import { Text, useInput } from 'ink';
 import { type ReactNode, useState } from 'react';
 
@@ -54,7 +55,7 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'e') onEditFile(configPath);
+      else if (input === 'e') onEditFile(current?.kind === 'file' ? current.path : configPath);
       else if (input === 'X') setClearing(true);
     },
     { isActive: !clearing },
@@ -64,6 +65,7 @@ export const SettingsView = ({
     ...themes.items,
     { id: 'header-file', label: 'Files', isHeader: true },
     { id: 'file', label: 'Settings in $EDITOR', value: { kind: 'file', path: configPath } },
+    { id: 'state-file', label: 'State in $EDITOR', value: { kind: 'file', path: stateStore.path } },
     ...(projectPath
       ? [
           {
@@ -111,9 +113,11 @@ export const SettingsView = ({
       <Box flexDirection="column">
         <Text color={colors.text}>{setting.path}</Text>
         <Text color={colors.muted} wrap="wrap">
-          {setting.path === configPath
-            ? 'Plain JSON, safe to keep in dotfiles.'
-            : 'The targets this project deploys to and their options — secrets stay in the environment.'}
+          {setting.path === stateStore.path
+            ? 'Last tab, and each project’s selected branch and environment. Reloaded after editing.'
+            : setting.path === configPath
+              ? 'Plain JSON, safe to keep in dotfiles.'
+              : 'The targets this project deploys to and their options — secrets stay in the environment.'}
         </Text>
       </Box>
     );
@@ -127,7 +131,11 @@ export const SettingsView = ({
       activateLabel="apply"
       initialSelectedId={session.selected.settings}
       hints={[
-        { key: 'e', label: 'edit file', onPress: () => onEditFile(configPath) },
+        {
+          key: 'e',
+          label: 'edit file',
+          onPress: () => onEditFile(current?.kind === 'file' ? current.path : configPath),
+        },
         { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
       ]}
       onActivate={(item) => apply(item.value)}

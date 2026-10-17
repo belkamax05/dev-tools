@@ -124,8 +124,8 @@ export const App = ({
         <SettingsView
           configPath={configPath}
           session={session}
-          onEditConfig={() => {
-            onHandoff({ type: 'edit', path: configPath });
+          onEditConfig={(path = configPath) => {
+            onHandoff({ type: 'edit', path });
             exit();
           }}
           onCaptureInput={setIsInputCaptured}

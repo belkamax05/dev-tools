@@ -2,6 +2,7 @@ import { type DOMElement, Text } from 'ink';
 import { type ReactNode, useRef } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
+import { bestTechnique, graphicsSupport } from '@/dev-tools/terminal-canvas';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
@@ -10,6 +11,7 @@ import { borderRow, busRow, type GraphNode, layoutGraph } from '../../../core/gr
 import type { StepState } from '../../../core/plugin';
 import ProviderLogo, { hasProviderLogo } from '../ProviderLogo';
 import { progressColumns } from './progress';
+import ProgressMarker from '../ProgressMarker';
 
 export type TriggerBadge = 'blocked' | 'readonly' | 'next' | 'checking';
 export const TRIGGER_ICON: Record<TriggerBadge, string> = {
@@ -222,6 +224,7 @@ export const ChainGraph = ({
   );
   const compact = heightFor(levels.length, 5) > rows;
   const byId = new Map(chain.map((entry) => [entry.step.id, entry]));
+  const rasterProgress = bestTechnique(graphicsSupport()).kind === 'raster';
 
   return (
     <Box flexDirection="column" flexShrink={0}>
@@ -261,17 +264,32 @@ export const ChainGraph = ({
               })}
             </Box>
             {next && (
-              <Text color={colors.muted} wrap="truncate">
-                {Array.from(connector).map((cell, column) =>
-                  progress.has(column) ? (
-                    <Text key={column} color={colors.ok} bold>
-                      ●
-                    </Text>
-                  ) : (
-                    <Text key={column}>{cell}</Text>
-                  ),
-                )}
-              </Text>
+              <Box height={1} flexShrink={0}>
+                <Text color={colors.muted} wrap="truncate">
+                  {Array.from(connector).map((cell, column) =>
+                    progress.has(column) ? (
+                      <Text key={column} color={colors.ok} bold>
+                        {rasterProgress ? ' ' : '●'}
+                      </Text>
+                    ) : (
+                      <Text key={column}>{cell}</Text>
+                    ),
+                  )}
+                </Text>
+                {rasterProgress &&
+                  [...progress].map((column) => (
+                    <Box
+                      key={column}
+                      position="absolute"
+                      left={column - 1}
+                      top={0}
+                      width={3}
+                      height={1}
+                    >
+                      <ProgressMarker overlayId={0x7000 + index * width + column} />
+                    </Box>
+                  ))}
+              </Box>
             )}
           </Box>
         );

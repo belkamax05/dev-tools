@@ -78,3 +78,5 @@ it: picked there, a command gets the whole terminal and the dashboard comes back
 
 Theme in `~/.config/proji/config.json`; the last tab and show filter in
 `~/.local/state/proji/state.json`.
+
+In Settings, the Files section exposes both **Settings in $EDITOR** and **State in $EDITOR**. Select a file to see its path and contents description; Enter opens it. Edits are reloaded when the dashboard returns.

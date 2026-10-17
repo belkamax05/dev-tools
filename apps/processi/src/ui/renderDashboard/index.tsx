@@ -53,7 +53,13 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
     ),
     {
       render,
-      afterHandoff: async () => {
+      afterHandoff: async (intent) => {
+        if (intent.type === 'edit' && intent.path === stateStore.path) {
+          state = await stateStore.load();
+          session.tab = state.tab;
+          session.scope = state.scope;
+          session.sort = state.sort;
+        }
         config = await configStore.load();
       },
       describe: (intent) =>

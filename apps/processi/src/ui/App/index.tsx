@@ -42,7 +42,6 @@ export interface AppProps {
   onCleared: (results: ClearResult[]) => void;
 }
 
-
 /**
  * processi's dashboard: the process table as a list and as a tree, the way btop shows it, with
  * the ways to stop what is in it.
@@ -67,7 +66,6 @@ export const App = ({
   const { status, notify, setStatus } = useStatus(notice);
   const [paused, setPaused] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-
 
   const updateConfig = (next: ProcessiConfig) => {
     setConfig(next);
@@ -140,8 +138,8 @@ export const App = ({
           configPath={configPath}
           session={session}
           onConfigChange={updateConfig}
-          onEditConfig={() => {
-            onHandoff({ type: 'edit', path: configPath });
+          onEditConfig={(path = configPath) => {
+            onHandoff({ type: 'edit', path });
             exit();
           }}
           onCaptureInput={setIsInputCaptured}
