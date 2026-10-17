@@ -30,7 +30,8 @@ test('explicit status labels and provider fallbacks render in full and compact g
       />,
     );
     expect(output).toContain(`${TRIGGER_ICON.readonly}   Read-only · github`);
-    expect(output).toContain(`${TRIGGER_ICON.blocked}   Blocked · jenkins`);
+    //? Done but refused a re-run: still Complete (fresh, usable further), and Blocked too
+    expect(output).toContain(`${TRIGGER_ICON.complete}   Complete · ⊘ Blocked`);
     expect(output).toContain(`${TRIGGER_ICON.next}   Next · jenkins`);
   }
 });
@@ -220,5 +221,67 @@ test('every job state has an explicit icon and status label in its footer', () =
     );
     expect(output).toContain(`${icon} ${label}`);
     expect(output).toContain(`${label} · jenkins`);
+  }
+});
+
+test('a done step behind a stale one keeps Complete and adds Stale', () => {
+  const chain: ChainStep[] = [
+    {
+      step: { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job' },
+      status: { state: 'stale', summary: '' },
+      recommended: true,
+      protected: false,
+    },
+    {
+      step: { id: 'deploy', label: 'Deploy', provider: 'jenkins', kind: 'job', after: ['build'] },
+      status: { state: 'done', summary: '' },
+      recommended: false,
+      protected: false,
+      behind: true,
+    },
+  ];
+  const output = renderToString(
+    <ChainGraph
+      chain={chain}
+      width={70}
+      rows={30}
+      labelOf={(entry) => entry.step.label}
+      onSelect={() => {}}
+      providerOf={() => ({ id: 'jenkins', label: 'jenkins' })}
+      triggerBadgeOf={(entry) => (entry.step.id === 'deploy' ? 'blocked' : undefined)}
+    />,
+  );
+  expect(output).toContain(`${TRIGGER_ICON.complete}   Complete · ↻ Stale · ⊘ Blocked`);
+});
+
+test('a running step shows the build in progress, not its last good one', () => {
+  const entry: ChainStep = {
+    step: { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job' },
+    status: {
+      state: 'running',
+      summary: '',
+      ref: { buildNumber: 41, finishedAt: Date.now() - 3_600_000 },
+      runs: [
+        { id: '42', label: '#42', state: 'running', at: Date.now() - 5 * 60_000 },
+        { id: '41', label: '#41', state: 'success', at: Date.now() - 3_600_000 },
+      ],
+    },
+    recommended: false,
+    protected: false,
+  };
+  for (const rows of [12, 30]) {
+    const output = renderToString(
+      <ChainGraph
+        chain={[entry]}
+        width={70}
+        rows={rows}
+        labelOf={(item) => item.step.label}
+        onSelect={() => {}}
+        providerOf={() => ({ id: 'jenkins', label: 'jenkins' })}
+        triggerBadgeOf={() => 'running'}
+      />,
+    );
+    expect(output).toContain('#42 · running 5m');
+    expect(output).not.toContain('#41');
   }
 });

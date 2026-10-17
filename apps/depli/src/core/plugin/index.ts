@@ -269,6 +269,11 @@ export interface StepKind<Options = Record<string, unknown>> {
   fix?: (context: PluginContext<Options>, plan: TriggerPlan, fixId: string) => Promise<string>;
   /** Send a plan. Only ever called through the core's trigger gate. */
   send?: (context: PluginContext<Options>, plan: TriggerPlan) => Promise<{ url?: string }>;
+  /**
+   * Stop (abort) a running run. Only ever called through the core's stop gate, which has made
+   * sure it is running and confirmed. Returns what was done.
+   */
+  stop?: (context: PluginContext<Options>, input: StepInput, run: StepRun) => Promise<string>;
 }
 
 export interface ProviderPlugin<Options = Record<string, unknown>> {

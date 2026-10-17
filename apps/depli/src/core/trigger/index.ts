@@ -1,4 +1,4 @@
-import type { Connection, Env, StepConfig, TriggerPlan } from '../plugin';
+import type { Connection, Env, StepConfig, StepRun, TriggerPlan } from '../plugin';
 import type { ChainStep } from '../chain';
 import { contextFor, type Project } from '../registry';
 
@@ -99,4 +99,37 @@ export const applyFix = async (
     throw new Error(`${provider.name}'s connection cannot write`);
   if (!confirmed) throw new Error('not confirmed');
   return kind.fix(contextFor(project, provider, env, connection), planned.plan, fixId);
+};
+
+/**
+ * The only path to a provider's `stop`: aborts a run that is running now. Refused unless
+ * triggers are enabled, the connection may write, the run is running and the caller confirmed —
+ * and in a protected env, confirmed by typing its name, as a trigger is.
+ */
+export const stopRun = async (
+  project: Project,
+  connections: Record<string, Connection>,
+  env: Env,
+  entry: ChainStep,
+  run: StepRun,
+  input: { branch: string; targetEnv: string },
+  confirmation: { confirmed: boolean; protectedEnv?: string },
+): Promise<string> => {
+  if (!project.config.triggers?.enabled)
+    throw new Error('triggers are off (triggers.enabled in depli.config.ts)');
+  const provider = project.providers.find((item) => item.name === entry.step.provider);
+  const kind = provider?.plugin.steps[entry.step.kind];
+  const connection = provider && connections[provider.name];
+  if (!provider || !kind?.stop) throw new Error(`${entry.step.label} cannot be stopped from here`);
+  if (!connection?.capabilities.includes('trigger'))
+    throw new Error(`${provider.name}'s connection cannot write`);
+  if (run.state !== 'running') throw new Error(`${run.label} is not running`);
+  if (!confirmation.confirmed) throw new Error('not confirmed');
+  if (entry.protected && confirmation.protectedEnv !== input.targetEnv)
+    throw new Error(`${input.targetEnv} is protected: confirm by typing its name`);
+  return kind.stop(
+    contextFor(project, provider, env, connection),
+    { step: entry.step, branch: input.branch, env: input.targetEnv, upstream: {} },
+    run,
+  );
 };

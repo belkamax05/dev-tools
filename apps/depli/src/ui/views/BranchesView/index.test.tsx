@@ -11,9 +11,7 @@ const dataFor = (loaded: boolean): BranchesViewProps['data'] => ({
   branch: remote.name,
   current: local.name,
   branches: loaded ? [remote] : undefined,
-  localBranches: [local],
   allBranches: false,
-  pushedBranches: loaded ? new Map([[remote.name, remote]]) : undefined,
   connections: {},
   loadBranches: () => {},
   selectBranch: () => {},
@@ -48,7 +46,8 @@ for (const delayed of [false, true])
     try {
       await new Promise((resolve) => setTimeout(resolve, 80));
       if (delayed) {
-        expect(session.selected.branches).toBe(local.name);
+        //? Nothing listed yet: the checkout's branch is never offered in the meantime
+        expect(session.selected.branches).not.toBe(remote.name);
         app.rerender(view(true));
         await new Promise((resolve) => setTimeout(resolve, 80));
       }

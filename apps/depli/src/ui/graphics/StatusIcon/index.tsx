@@ -9,6 +9,7 @@ import { parseColor } from '@/dev-tools/ui/theme';
 
 export type TriggerBadge =
   | 'blocked'
+  | 'auto'
   | 'readonly'
   | 'next'
   | 'checking'
@@ -29,6 +30,7 @@ export const TRIGGER_ICON: Record<TriggerBadge, string> = {
   error: '!',
   neverrun: '○',
   blocked: '⊘',
+  auto: '↯',
   readonly: '👁',
   next: '➜',
   checking: '…',
@@ -42,6 +44,7 @@ export const TRIGGER_LABEL: Record<TriggerBadge, string> = {
   missing: 'Missing',
   error: 'Error',
   blocked: 'Blocked',
+  auto: 'Auto',
   readonly: 'Read-only',
   next: 'Next',
   neverrun: 'Never run',
@@ -65,7 +68,7 @@ export const StatusIcon = ({ status, overlayId }: { status: TriggerBadge; overla
   const time = useAnimationClock(running, 10);
   const color = badgeColor(status, colors);
   if (
-    ['complete', 'stale', 'failed', 'offline', 'missing', 'error'].includes(status) ||
+    ['complete', 'stale', 'failed', 'offline', 'missing', 'error', 'auto'].includes(status) ||
     bestTechnique(graphicsSupport()).kind !== 'raster'
   ) {
     return (
@@ -130,7 +133,7 @@ export const StatusText = ({ text }: { text: string }) => {
     <Text>
       {text
         .split(
-          /(○ Never run|➜ Next|⊘ Blocked|👁 Read-only|… Checking|◐ Running|✓ Complete|↻ Stale|✗ Failed|⊘ Offline|\? Missing|! Error)/g,
+          /(○ Never run|➜ Next|↯ Auto|⊘ Blocked|👁 Read-only|… Checking|◐ Running|✓ Complete|↻ Stale|✗ Failed|⊘ Offline|\? Missing|! Error)/g,
         )
         .map((part, index) => {
           const status = labels.find(

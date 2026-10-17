@@ -67,6 +67,13 @@ export interface JobStepOptions {
   version?: (input: StepInput & { buildNumber: number }) => string | undefined;
   /** Every other parameter a trigger sends — all of them explicitly, defaults are not trusted. */
   params?: Record<string, ParamValue>;
+  /**
+   * Other jobs that also do this step's work — e.g. a full environment deploy that deploys the
+   * frontend too (`deploy_environment_{env}`). Their successful builds, read with the same
+   * `branchParam` and `versions` params, count as this step's result when newer than its own;
+   * triggers, runs and logs stay on `job`. A job missing on the server is skipped.
+   */
+  alsoDeployedBy?: string[];
 }
 
 /** Who started the build: a user by id and name, else what did (a timer, an upstream job). */
@@ -109,6 +116,39 @@ const readJob = async (options: JenkinsOptions, env: Env, job: string) => {
   }
 };
 
+/** A build of one of `alsoDeployedBy`'s jobs, with the job it belongs to. */
+interface ElsewhereBuild {
+  job: string;
+  build: JenkinsBuild;
+}
+
+/**
+ * The successful builds of the step's `alsoDeployedBy` jobs, newest first — only those for
+ * `branch` when given (and the step has a `branchParam`).
+ */
+const deployedElsewhere = async (
+  options: JenkinsOptions,
+  env: Env,
+  input: StepInput,
+  branch?: string,
+): Promise<ElsewhereBuild[]> => {
+  const step = jobOptions(input);
+  const jobs = (step.alsoDeployedBy ?? []).map((job) => fillTemplate(job, input));
+  const read = await Promise.all(
+    jobs.map(async (job) => {
+      const data = await readJob(options, env, job).catch(() => undefined);
+      return (data?.builds ?? [])
+        .filter(
+          (build) =>
+            build.result === 'SUCCESS' &&
+            (!branch || !step.branchParam || buildParam(build, step.branchParam) === branch),
+        )
+        .map((build) => ({ job, build }));
+    }),
+  );
+  return read.flat().sort((a, b) => b.build.timestamp - a.build.timestamp);
+};
+
 /** What the job last did on its env, whichever branch it was for. */
 const jobLatest = async (
   options: JenkinsOptions,
@@ -120,18 +160,29 @@ const jobLatest = async (
   const data = await readJob(options, env, job);
   if (!data) return { state: 'missing', summary: `no job ${job}` };
   const newest = data.builds[0];
-  const ok = data.builds.find((build) => build.result === 'SUCCESS');
-  if (!newest) return { state: 'none', summary: 'never ran', url: data.url };
-  const shown = ok ?? newest;
+  const own = data.builds.find((build) => build.result === 'SUCCESS');
+  //? Another job (a full environment deploy) may have put something newer on the env
+  const [other] = await deployedElsewhere(options, env, input);
+  const elsewhere = other && (!own || other.build.timestamp > own.timestamp) ? other : undefined;
+  const ok = elsewhere?.build ?? own;
+  if (!newest && !elsewhere) return { state: 'none', summary: 'never ran', url: data.url };
+  const shown = (ok ?? newest) as JenkinsBuild;
   const versions = Object.fromEntries(
     Object.keys(step.versions ?? {})
       .map((param) => [param, buildParam(shown, param)] as const)
       .filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
   return {
-    state: newest.building || data.inQueue ? 'running' : ok === newest ? 'done' : 'failed',
+    state:
+      newest?.building || data.inQueue
+        ? 'running'
+        : ok === newest || (elsewhere && (!newest || elsewhere.build.timestamp > newest.timestamp))
+          ? 'done'
+          : 'failed',
     branch: step.branchParam ? buildParam(shown, step.branchParam) : undefined,
-    summary: `#${shown.number}${newest !== shown ? ` (#${newest.number} ${newest.result?.toLowerCase() ?? 'running'})` : ''}`,
+    summary: elsewhere
+      ? `${elsewhere.job} #${shown.number}`
+      : `#${shown.number}${newest && newest !== shown ? ` (#${newest.number} ${newest.result?.toLowerCase() ?? 'running'})` : ''}`,
     ref: { buildNumber: shown.number, finishedAt: shown.timestamp + shown.duration },
     versions,
     at: shown.timestamp + shown.duration,
@@ -167,13 +218,19 @@ const jobStatus = async (
     branch: step.branchParam ? buildParam(build, step.branchParam) : undefined,
   }));
   const latest = builds[0];
-  const ok = builds.find((build) => build.result === 'SUCCESS');
+  const own = builds.find((build) => build.result === 'SUCCESS');
+  //? Done for this branch by another job (a full environment deploy) more recently than its own
+  const [other] = step.alsoDeployedBy?.length
+    ? await deployedElsewhere(options, env, input, input.branch)
+    : [];
+  const elsewhere = other && (!own || other.build.timestamp > own.timestamp) ? other : undefined;
+  const ok = elsewhere?.build ?? own;
   const base = {
     url: data.url,
     runs,
     activeRuns: otherActiveRuns(data.builds, step.branchParam, input.branch),
   };
-  if (!latest) {
+  if (!latest && !elsewhere) {
     //? Jenkins keeps a limited history per job — say how much was looked through, and show the
     //? job's own recent runs (labelled with their branch) instead of an empty list
     const newest = data.builds[0];
@@ -200,7 +257,7 @@ const jobStatus = async (
 
   //? The version: what the build's own log says it pushed, else the config's rule
   const logged =
-    ok && step.versionFromLog
+    ok && ok === own && step.versionFromLog
       ? await logVersion(options, env, job, ok.number, step.versionFromLog).catch(() => undefined)
       : undefined;
   const derived = ok && !logged ? step.version?.({ ...input, buildNumber: ok.number }) : undefined;
@@ -215,6 +272,10 @@ const jobStatus = async (
   let stale = false;
   //? A deploy job is per env, not per branch: say when the env now runs someone else's branch
   const newest = data.builds[0];
+  if (elsewhere)
+    notes.push(
+      `deployed by ${elsewhere.job} #${elsewhere.build.number} — newer than ${job}'s own runs`,
+    );
   if (step.branchParam && step.job.includes('{env}') && newest && newest !== latest) {
     notes.push(
       `latest run #${newest.number} was for ${buildParam(newest, step.branchParam) ?? '?'}`,
@@ -255,13 +316,20 @@ const jobStatus = async (
     }
   }
 
-  const failedSince = !latest.building && latest !== ok && latest.result !== 'ABORTED';
+  //? A failure of its own job is not "since" when another job deployed it successfully after
+  const failedSince = Boolean(
+    latest &&
+      !latest.building &&
+      latest !== ok &&
+      latest.result !== 'ABORTED' &&
+      !(elsewhere && elsewhere.build.timestamp > latest.timestamp),
+  );
   const state: StepStatus['state'] =
-    latest.building || data.inQueue
+    latest?.building || data.inQueue
       ? 'running'
       : !ok
         ? //? Never good for this branch: an aborted attempt is "not done yet", not a failure
-          latest.result === 'ABORTED' || builds.every((build) => build.result === 'ABORTED')
+          latest?.result === 'ABORTED' || builds.every((build) => build.result === 'ABORTED')
           ? 'none'
           : 'failed'
         : stale
@@ -276,10 +344,14 @@ const jobStatus = async (
     ...base,
     state,
     summary: ok
-      ? `#${ok.number} ok ${when}${ref?.sha ? ` · ${ref.sha.slice(0, 8)}` : ''}${failedSince ? ` · #${latest.number} ${latest.result?.toLowerCase()}` : ''}`
-      : `#${latest.number} ${latest.result?.toLowerCase() ?? 'running'}`,
+      ? `${elsewhere ? `${elsewhere.job} ` : ''}#${ok.number} ok ${when}${ref?.sha ? ` · ${ref.sha.slice(0, 8)}` : ''}${failedSince && latest ? ` · #${latest.number} ${latest.result?.toLowerCase()}` : ''}`
+      : `#${latest?.number} ${latest?.result?.toLowerCase() ?? 'running'}`,
     ref: ref || undefined,
-    actor: actorOf(latest),
+    actor: actorOf(
+      elsewhere && (!latest || elsewhere.build.timestamp > latest.timestamp)
+        ? elsewhere.build
+        : (latest as JenkinsBuild),
+    ),
     outputs:
       ref && ref.version
         ? [
@@ -447,6 +519,25 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
         if (!after.find((item) => item.name === param)?.choices?.includes(value))
           throw new Error(`${plan.target} was saved, but ${param} still lacks ${value}`);
         return `added ${value} to ${plan.target}'s ${param}`;
+      },
+      stop: async ({ options, env }, _input, run) => {
+        const auth = jenkinsAuth(options, env);
+        if (!auth) throw new Error('no Jenkins credentials');
+        if (!run.url) throw new Error(`${run.label} has no build URL to stop`);
+        //? Jenkins answers a stop with a redirect to the build page: that is success, not followed
+        const response = await fetch(`${run.url.replace(/\/?$/, '/')}stop`, {
+          method: 'POST',
+          headers: { authorization: auth },
+          redirect: 'manual',
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok && (response.status < 300 || response.status >= 400)) {
+          const reason = jenkinsErrorText(await response.text().catch(() => ''));
+          throw new Error(
+            `Jenkins ${response.status} stopping ${run.label}${reason ? `: ${reason}` : ''}`,
+          );
+        }
+        return `asked Jenkins to stop ${run.label}`;
       },
       send: async ({ options, env }, plan) => {
         const auth = jenkinsAuth(options, env);

@@ -3,7 +3,7 @@ import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 import type { BranchSelection } from '../../core/branch';
 
 /** The dashboard's tabs, in order — also what `tab` in the state file may hold. */
-export const TAB_IDS = ['chain', 'envs', 'branches', 'connections', 'settings'] as const;
+export const TAB_IDS = ['chain', 'connections', 'settings'] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
 export interface DepliConfig {

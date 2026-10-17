@@ -5,7 +5,7 @@ import { type DepliState, flushState, stateStore, updateState } from '.';
 
 test('a branch pick survives the simultaneous tab change and reopening', async () => {
   let stored: DepliState = {
-    tab: 'branches',
+    tab: 'connections',
     projects: { project: { selected: 'release-sprint-26.14', pickedWhileOn: 'fix/current' } },
   };
   const load = spyOn(stateStore, 'load').mockImplementation(async () => structuredClone(stored));
@@ -26,9 +26,7 @@ test('a branch pick survives the simultaneous tab change and reopening', async (
     ]);
     await flushState();
     expect(stored.tab).toBe('chain');
-    expect(resolveSelection(stored.projects.project ?? {}, 'fix/current').branch).toBe(
-      'feature/chosen',
-    );
+    expect(resolveSelection(stored.projects.project ?? {}).branch).toBe('feature/chosen');
     expect(stored.projects.project?.env).toBe('ci3');
   } finally {
     load.mockRestore();

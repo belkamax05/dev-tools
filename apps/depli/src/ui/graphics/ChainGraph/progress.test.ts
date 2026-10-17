@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import type { ChainStep } from '../../../core/chain';
 import { layoutGraph } from '../../../core/graph';
 
-import { progressColumns } from './progress';
+import { progressColumns, staleColumns } from './progress';
 
 const steps = [
   { id: 'push' },
@@ -38,4 +38,22 @@ test('one remaining build marks only its own incoming connector', () => {
 test('no marker without a completed predecessor or recommended next step', () => {
   expect(columns(chain([], ['nginx']), 0)).toEqual([]);
   expect(columns(chain(['push'], []), 0)).toEqual([]);
+});
+
+const staleAt = (entries: ChainStep[], row: number) =>
+  staleColumns(entries, levels[row]!.nodes, levels[row + 1]!.nodes);
+test('a stale build under a done deploy marks its own leg orange', () => {
+  const entries = chain(['push', 'nodejs', 'deploy'], ['nginx']);
+  const nginx = levels[1]!.nodes.find((node) => node.id === 'nginx')!;
+  expect(staleAt(entries, 1)).toEqual([nginx.center]);
+  //? propagate is stale, deploy above it is done — nothing hidden there
+  expect(staleAt(entries, 2)).toEqual([]);
+});
+test('a stale deploy under which propagate is done marks the junction before it', () => {
+  const entries = chain(['push', 'nginx', 'nodejs', 'propagate'], ['deploy']);
+  expect(staleAt(entries, 2)).toEqual([20]);
+});
+test('no orange marker when the steps below are not done', () => {
+  expect(staleAt(chain(['push'], ['nginx', 'nodejs']), 0)).toEqual([]);
+  expect(staleAt(chain(['push'], ['nginx', 'nodejs']), 1)).toEqual([]);
 });

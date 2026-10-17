@@ -11,10 +11,10 @@ the trigger is confirmed, and a protected env is confirmed by its own name.
 
 ```sh
 depli                            # dashboard
-depli chain|branches|connections|settings
+depli chain|connections|settings
 depli status [--branch=B] [--env=E] [--json]   # the chain, and what is recommended next
 depli probe [--json]                           # each provider's transports, probed
-depli list-branches [glob…] [--json]           # the watch list by default
+depli list-branches [glob…] [--json]           # branches.recent (else the watch list) by default
 depli where [--json]                           # what every env runs now
 depli plan <step> [--branch=B] [--env=E]       # dry run of one step's trigger
 depli trigger <step> … --yes [--confirm-env=E] # refused unless triggers.enabled
@@ -24,16 +24,14 @@ depli trigger <step> … --yes [--confirm-env=E] # refused unless triggers.enabl
 
 | Tab | |
 | --- | --- |
-| 🚀 Chain | the chain once, as a graph: one box per step, steps that wait on the same steps side by side (they can run in parallel — both builds), connectors fanning out and back in. `↑`/`↓` between levels, `←`/`→` between parallel steps, click a box; each box shows when it last did its job. `← next` marks every step that can run now, `n` cycles through them. Env chips — click one, `e`/`]` next, `[` previous, `E` picker. Detail: the last good run's time first, then who did it (who pushed — from GitHub's activity log, so the pusher or merger rather than the commit's author — or who started the build), `o` open the step, `O` its last run, `c` copy the dry run as curl (variable names only), Enter dry run; clickable links and runs; a strip of recent runs (colour = result, length = duration); the pusher's avatar |
+| 🚀 Chain | the chain once, as a graph: one box per step, steps that wait on the same steps side by side (they can run in parallel — both builds), connectors fanning out and back in. `↑`/`↓` between levels, `←`/`→` between parallel steps, click a box; each box shows when it last did its job. `← next` marks every step that can run now, `n` cycles through them. **Environments**: closed by default — one line with the env chosen and what it runs; `E` (or a click) opens a panel above both panels with every env, what each runs (deploy state, branch, build numbers, age, the other steps' ages), the selected branch's rows `yours`, `behind` when it has newer builds; `↑`/`↓` and Enter (or a click) pick one and close it again, Esc closes; the pick is saved. `e`/`]` next, `[` previous. **Branch picker**: `b` (or the branch under the tabs) turns the whole tab into the branch list with the filter open — the newest branches on GitHub (`branches.recent`, else the watched ones), never local ones; `/` fuzzy filter as you type (`r2616` → `release-26.16`, searching every branch), `a` all / recent, Enter picks and returns to the chain, Esc goes back unchanged. Detail: the last good run's time first, then who did it (who pushed — from GitHub's activity log, so the pusher or merger rather than the commit's author — or who started the build), `o` open the step, `O` its last run, `c` copy the dry run as curl (variable names only), Enter dry run; clickable links and runs; a strip of recent runs (colour = result, length = duration); the pusher's avatar |
 | | `l` swaps the detail for the selected step's **logs** (open by default while the step is running, otherwise closed): highlighted — errors, warnings, success, commands (`+ cmd`), Jenkins `[Pipeline]` structure, Actions groups — and following the tail of a live Jenkins build, read incrementally every 3s. the mouse wheel, `j`/`k`, `Space`/PgDn / PgUp (or Ctrl+d / Ctrl+u, Shift+↑/↓) scroll, with a scrollbar beside the lines; `G` follows again, `g` top, `,` / `.` older / newer run. GitHub serves a job's log once it has finished; the pane keeps polling until then. Skipped checks appear after jobs with logs and explicitly say they were skipped; whole workflow runs only as a zip, so those link to the browser |
-| 🌍 Envs | every env and what it runs now, whichever branch — the selected branch's rows highlighted, `behind` when it has newer builds. Enter or click: that env's chain |
-| 🌿 Branches | checked-out branch first, then other local branches from `repo.path` (newest commit first), then watched branches (newest push first), without duplicates; branches absent from the remote are marked `local only`; `/` fuzzy filter as you type (`r2616` → `release-26.16`, searching every branch), `Esc` clears, `a` all / watched. Enter shows that branch's chain |
 | 🔌 Connections | each provider's transports in order, which one is in use, what it can and cannot do; `P` probes now |
 | 🔧 Settings | theme, the two files, reset |
 
-Everywhere: `1-5`/`Tab` switch tab, `r` refresh, `B` back to the checkout's branch, `t` theme, `q` quit. The row under the tabs is clickable: a provider opens Connections, the branch Branches, the env Envs. From the Chain, `b` goes to Branches with the filter open.
+Everywhere: `1-3`/`Tab` switch tab, `r` refresh, `B` back to the checkout's branch, `t` theme, `q` quit. The row under the tabs is clickable: a provider opens Connections, the branch the branch picker, the env the environments panel.
 
-**Triggers** (only with `triggers.enabled`): whether the selected step can be sent is worked out as soon as it is selected (a dry run — reads only): the button reads `[T] Trigger…` when it can, and orange **⊘ Trigger blocked** with every reason under it (plus the step's `blockedHelp` from the project config when the target itself would refuse) when it cannot. When the target refuses a value it could be taught (a branch outside a Jenkins job's choice list), an **Add …** action — `A` — appears directly under the reason in the same group, labelled “Resolve before triggering”, with a shared-configuration notice. It offers to change the target: a red popover says exactly what changes and for how long, and clickable Apply and Cancel buttons confirm or dismiss it (Enter applies, Esc cancels). Applying is refused while triggers are off. The step is planned again afterwards; triggering still has its own confirmation. `T`, or the Trigger button, plans the request, shows it in a popover and asks to confirm — for a protected env by typing its name. With triggers off, `T` is not bound at all and the button says what blocks it.
+**Triggers** (only with `triggers.enabled`): whether the selected step can be sent is worked out as soon as it is selected (a dry run — reads only): the button reads `[T] Trigger…` when it can, and orange **⊘ Trigger blocked** with every reason under it (plus the step's `blockedHelp` from the project config when the target itself would refuse) when it cannot. When the target refuses a value it could be taught (a branch outside a Jenkins job's choice list), an **Add …** action — `A` — appears directly under the reason in the same group, labelled “Resolve before triggering”, with a shared-configuration notice. It offers to change the target: a red popover says exactly what changes and for how long, and clickable Apply and Cancel buttons confirm or dismiss it (Enter applies, Esc cancels). Applying is refused while triggers are off. The step is planned again afterwards; triggering still has its own confirmation. `T`, or the Trigger button, plans the request, shows it in a popover and asks to confirm — for a protected env by typing its name. With triggers off, `T` is not bound at all and the button says what blocks it. **Stop**: while a step is running and its plugin can stop runs (Jenkins jobs), the detail shows a framed red **■ Stop #N** button — `X` or a click — that aborts the running build after a confirmation (a protected env by typing its name); it is not shown otherwise, nor while triggers are off.
 
 The entire Chain detail scrolls with the mouse wheel, `j`/`k` or Shift+↑/↓; PgUp/PgDn (or Space, Ctrl+u/Ctrl+d) page, and `g`/`G` go to the top/bottom. The detail and log scrollbars support dragging the thumb and clicking the track. A scrollbar shows the position; selecting another step resets it to the top. The Chain detail highlights each step’s produced values with their origin (from its log or derived from the build number). Parameters appear under the Trigger button before confirmation: values from earlier steps are highlighted and labelled `← step-id`; other values are labelled `← branch` or `← config`. Enter shows the request line and warnings without repeating the parameters.
 
@@ -56,9 +54,12 @@ Every `stale` (or never-run) step whose upstream is all `done` is recommended �
 
 ## Branch selection
 
-The branch preselected is the one checked out in `repo.path`. On opening the Branches tab, the cursor follows the branch selected in the app, independently of the checkout or last browsed row. The selected branch remains included alongside watched branches. A different pick (Branches tab) is
-remembered together with the branch the checkout was on at the time; once the checkout moves to
-another branch, the pick is dropped and the new current branch preselected.
+The branch is the last one picked, saved per project; the local checkout (`repo.path`) never
+preselects or resets it — it is only shown, and `B` jumps to it. With nothing picked yet, the app
+starts on the newest branch of the list. The list is read from the provider (GitHub), newest
+commit first: with `branches.recent`, its `required` branches always, at least `count` of each
+`atLeast` group, then the newest others up to `limit` (default 12); without it, the `watch`
+globs. The branch shown always stays listed. In the picker the cursor starts on it.
 
 ## Providers
 
@@ -91,7 +92,7 @@ export default {
     github: { plugin: 'github', repo: 'owner/app', checkout: '~/code/app' },
     jenkins: { plugin: 'jenkins', url: 'https://ci.example.com', userEnv: 'CI_USER', tokenEnv: 'CI_TOKEN' },
   },
-  envs: [{ id: 'qa' }, { id: 'prod', protected: true }],
+  envs: [{ id: 'qa' }, { id: 'staging', protected: true }],
   defaultEnv: 'qa',
   pipeline: [
     { id: 'push', label: 'Push', provider: 'github', kind: 'branch' },

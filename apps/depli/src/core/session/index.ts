@@ -10,10 +10,8 @@ export interface Session {
   env: Env;
   /** The checkout's branch right now. */
   current?: string;
-  /** The branch the app works on — the pick, or `current` after a checkout switch. */
+  /** The branch the app works on — the saved pick; undefined until one is made or read. */
   branch?: string;
-  /** The pick was dropped because the checkout moved to another branch. */
-  reset: boolean;
   targetEnv: string;
   state: ProjectState;
 }
@@ -27,7 +25,7 @@ export const openSession = async (env: Env = process.env): Promise<Session> => {
   const current = project.config.repo?.path
     ? await currentBranch(project.config.repo.path)
     : undefined;
-  const { branch, selection, reset } = resolveSelection(saved, current);
+  const { branch, selection } = resolveSelection(saved);
   const envIds = (project.config.envs ?? []).map((entry) => entry.id);
   const targetEnv =
     saved.env && envIds.includes(saved.env)
@@ -39,7 +37,6 @@ export const openSession = async (env: Env = process.env): Promise<Session> => {
     env,
     current,
     branch,
-    reset,
     targetEnv,
     state: {
       ...selection,

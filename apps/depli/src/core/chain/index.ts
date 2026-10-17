@@ -8,6 +8,11 @@ export interface ChainStep {
   recommended: boolean;
   /** The env is protected: never auto-proceeds, always its own confirmation. */
   protected: boolean;
+  /**
+   * Done against its direct parent, yet a step before it is behind (stale, never ran) — directly
+   * or through done steps between: it holds a result, but not the latest one. Still Complete.
+   */
+  behind?: boolean;
 }
 
 /** The pipeline's steps that apply to `env`, in config order. */
@@ -88,6 +93,17 @@ export const evaluateChain = async (
     entry.recommended =
       (entry.status.state === 'stale' || entry.status.state === 'none') &&
       (entry.step.after ?? []).every((id) => done[id]?.state === 'done');
+  }
+  //? Done steps only compare against their direct parents: carry "something before is behind"
+  //? down through done steps, so a green tail under an orange step still reads as stale
+  const behind = new Set<string>();
+  for (const entry of result) {
+    if (entry.status.state !== 'done') continue;
+    entry.behind = (entry.step.after ?? []).some((id) => {
+      const state = done[id]?.state;
+      return state === 'stale' || state === 'none' || behind.has(id);
+    });
+    if (entry.behind) behind.add(entry.step.id);
   }
   return result;
 };

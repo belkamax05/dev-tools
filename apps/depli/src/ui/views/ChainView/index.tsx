@@ -3,19 +3,26 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
-import ChipRow from '@/dev-tools/ui/components/ChipRow';
 import HintBar from '@/dev-tools/ui/components/HintBar';
 import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import Panel from '@/dev-tools/ui/components/Panel';
 import PickList from '@/dev-tools/ui/components/PickList';
 import Popover from '@/dev-tools/ui/components/Popover';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
+import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
 import openUrl from '@/dev-tools/utils/system/openUrl';
 
+import {
+  type AutoTrigger,
+  autoKey,
+  canArm,
+  estimateAutos,
+  formatEstimate,
+} from '../../../core/auto';
 import type { ChainStep } from '../../../core/chain';
 import { planToCurl } from '../../../core/curl';
 import { layoutGraph } from '../../../core/graph';
@@ -29,6 +36,7 @@ import LogPanel from '../LogPanel';
 import StepPanel from '../StepPanel';
 import StageTimings from '../StageTimings';
 import OtherRuns from '../OtherRuns';
+import { envLine } from '../EnvsPanel';
 import type { Session, Tone } from '../../types';
 import type { DepliData } from '../../useDepli';
 
@@ -36,6 +44,10 @@ import type { DepliData } from '../../useDepli';
 const SIDE_BY_SIDE_COLUMNS = 96;
 /** The graph's share of the width beside the detail pane. */
 const GRAPH_SHARE = 0.5;
+/** Envs listed at once in the open environments panel; more scroll. */
+const ENV_ROWS = 10;
+/** Auto triggers listed at once in their panel; more scroll out of sight behind a count. */
+const AUTO_ROWS = 4;
 
 export interface ChainViewProps {
   data: DepliData;
@@ -47,6 +59,8 @@ export interface ChainViewProps {
   onCaptureInput: (captured: boolean) => void;
   /** `b`: go and pick a branch, with the filter open. */
   onPickBranch: () => void;
+  /** Bumped from outside (the status row) to open the environments panel. */
+  envOpenRequest?: number;
 }
 
 const RUN_ICON: Record<StepRun['state'], string> = {
@@ -77,6 +91,43 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => {
   );
 };
 
+/**
+ * A framed button — for the one action that must not be mistaken for text: stopping a run. The
+ * whole frame is clickable and lights up under the pointer; the key does the same.
+ */
+const FramedButton = ({
+  hotkey,
+  label,
+  color,
+  disabled = false,
+  onPress,
+}: {
+  hotkey: string;
+  label: string;
+  color: string;
+  disabled?: boolean;
+  onPress: () => void;
+}) => {
+  const colors = useColors();
+  const ref = useRef<DOMElement>(null);
+  const { isHovered } = useClickable(ref, {
+    onClick: () => {
+      if (!disabled) onPress();
+    },
+    isActive: !disabled,
+  });
+  const tone = disabled ? colors.muted : color;
+  return (
+    <Box ref={ref} flexShrink={0} alignSelf="flex-start">
+      <Box borderStyle={isHovered ? 'bold' : 'round'} borderColor={tone} paddingX={1}>
+        <Text color={tone} bold inverse={isHovered}>
+          [{hotkey}] {label}
+        </Text>
+      </Box>
+    </Box>
+  );
+};
+
 const minutes = (ms?: number) =>
   !ms || ms <= 0 ? '' : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
 const stamp = (at: number) => new Date(at).toISOString().slice(0, 16).replace('T', ' ');
@@ -96,6 +147,7 @@ export const ChainView = ({
   notify,
   onCaptureInput,
   onPickBranch,
+  envOpenRequest = 0,
 }: ChainViewProps) => {
   const colors = useColors();
   const theme = useTuiTheme();
@@ -146,7 +198,16 @@ export const ChainView = ({
   const sideBySide = viewport.columns >= SIDE_BY_SIDE_COLUMNS;
   const graphPaneWidth = sideBySide ? Math.floor(appWidth * GRAPH_SHARE) : appWidth;
   const graphWidth = graphPaneWidth - 4;
-  const contentRows = viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'chipRow'], 6);
+  //? The auto-trigger panel takes its rows (frame, title, list) from the two above it
+  const autoPanelRows = data.autos.length ? Math.min(data.autos.length, AUTO_ROWS) + 3 : 0;
+  //? Open, the environments panel stands above both panels: its frame, title and rows
+  const envPanelRows = picking !== undefined ? Math.min(envIds.length, ENV_ROWS) + 3 : 0;
+  const contentRows = Math.max(
+    6,
+    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'chipRow'], 6) -
+      autoPanelRows -
+      envPanelRows,
+  );
   const graphRows = sideBySide ? contentRows : Math.max(6, Math.floor(contentRows / 2));
   const levels = layoutGraph(
     data.chain.map((entry) => ({ id: entry.step.id, after: entry.step.after })),
@@ -200,7 +261,24 @@ export const ChainView = ({
     const at = envIds.indexOf(data.targetEnv);
     data.setEnv(envIds[(at + delta + envIds.length) % envIds.length] ?? data.targetEnv);
   };
-  const openPicker = () => setPicking(Math.max(0, envIds.indexOf(data.targetEnv)));
+  //? The environments panel: closed by default, showing only the env chosen; open, every env
+  //? with what it runs. Picking one closes it again — the pick is saved, as `e` saves it
+  const openPicker = () => {
+    data.loadEnvs();
+    setPicking(Math.max(0, envIds.indexOf(data.targetEnv)));
+  };
+  const togglePicker = () => (picking === undefined ? openPicker() : setPicking(undefined));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a request from the status row
+  useEffect(() => {
+    if (envOpenRequest) openPicker();
+  }, [envOpenRequest]);
+  //? A branch picked meanwhile changes which env runs "yours": read them again while open
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the branch is the trigger
+  useEffect(() => {
+    if (picking !== undefined) data.loadEnvs();
+  }, [data.branch]);
+  const envRows = new Map((data.envs ?? []).map((row) => [row.env, row]));
+  const envWidth = Math.max(4, ...envIds.map((env) => env.length));
 
   /** The next recommended step after the selected one, wrapping — `n` cycles through them all. */
   const jumpToNext = () => {
@@ -322,6 +400,122 @@ export const ChainView = ({
     else prompt.confirm(`Send ${planned.plan.target} for ${data.branch}?`, () => send());
   };
 
+  /** The armed trigger for a step on the branch and env shown, if any. */
+  const autoOf = (entry: ChainStep) =>
+    data.autos.find(
+      (auto) =>
+        auto.stepId === entry.step.id && auto.branch === data.branch && auto.env === data.targetEnv,
+    );
+  const armable = (entry: ChainStep) =>
+    triggersEnabled && data.triggerable(entry) && canArm(data.chain, entry, data.armedIds);
+
+  /**
+   * Arm a one-shot auto trigger for the branch and env shown — confirmed like a trigger: by
+   * typing the env's name when it is protected, that typed name being what it is later sent with.
+   */
+  const startAuto = (entry: ChainStep | undefined) => {
+    if (!entry) return;
+    const armed = autoOf(entry);
+    if (armed) {
+      data.disarm(autoKey(armed));
+      return notify(`Auto trigger for ${fill(entry.step.label)} removed`, 'info');
+    }
+    if (!armable(entry))
+      return notify(
+        triggersEnabled
+          ? `${fill(entry.step.label)} can be auto-triggered only while it is not up to date and a step before it runs or is armed`
+          : 'Triggers are off (triggers.enabled in depli.config.ts)',
+        'warn',
+      );
+    const what = `${fill(entry.step.label)} for ${data.branch} → ${data.targetEnv}`;
+    const armed_ = (typed?: string) => {
+      data.arm(entry, typed);
+      notify(`Armed: ${what} — sent once, when the steps before it finish`, 'ok');
+    };
+    if (entry.protected)
+      prompt.ask(
+        `${data.targetEnv} is protected — type "${data.targetEnv}" to auto-trigger ${fill(entry.step.label)} once:`,
+        (typed) => {
+          if (typed.trim() !== data.targetEnv)
+            return notify(`Not armed: "${typed.trim()}" is not ${data.targetEnv}`, 'error');
+          armed_(typed.trim());
+        },
+      );
+    else
+      prompt.confirm(`Auto-trigger ${what} once, when the steps before it finish?`, () => armed_());
+  };
+
+  /** The run a Stop acts on: the one shown when it is running, else the step's running one. */
+  const runningRun = (entry: ChainStep) =>
+    entry.step.id === selected?.step.id && logRun?.state === 'running'
+      ? logRun
+      : entry.status.runs?.find((run) => run.state === 'running');
+  const canStop = (entry: ChainStep) =>
+    triggersEnabled && entry.status.state === 'running' && data.stoppable(entry);
+
+  /** Stop the step's running run — confirmed, by the env's name when it is protected. */
+  const startStop = (entry: ChainStep | undefined) => {
+    if (!entry || !canStop(entry)) return;
+    const run = runningRun(entry);
+    if (!run) return notify(`${fill(entry.step.label)} has no running build to stop`, 'warn');
+    const what = `${run.label} of ${fill(entry.step.label)}`;
+    const stop = (typed?: string) => {
+      notify(`Stopping ${what}…`, 'info');
+      data
+        .stop(entry, run, typed)
+        .then((done) => {
+          notify(`${done[0]?.toUpperCase()}${done.slice(1)}`, 'ok');
+          data.refresh();
+        })
+        .catch((error: Error) => notify(`Not stopped: ${error.message}`, 'error'));
+    };
+    if (entry.protected)
+      prompt.ask(
+        `${data.targetEnv} is protected — type "${data.targetEnv}" to stop ${what}:`,
+        (typed) => stop(typed.trim()),
+      );
+    else prompt.confirm(`Stop ${what}? It is aborted, not paused.`, () => stop());
+  };
+
+  /** Show an armed trigger's step and its dry run — on its own branch and env. */
+  const previewAuto = (auto: AutoTrigger) => {
+    if (auto.branch !== data.branch) data.selectBranch(auto.branch);
+    if (auto.env !== data.targetEnv) data.setEnv(auto.env);
+    select(auto.stepId);
+    const entry = data.chain.find((item) => item.step.id === auto.stepId);
+    if (entry && auto.branch === data.branch && auto.env === data.targetEnv) showPlan(entry);
+  };
+
+  //? Time left counts down between polls: re-render every few seconds while anything is armed
+  const [, setClock] = useState(0);
+  useEffect(() => {
+    if (!data.autos.length) return;
+    const timer = setInterval(() => setClock((value) => value + 1), 5_000);
+    return () => clearInterval(timer);
+  }, [data.autos.length]);
+  //? For the branch and env shown: when each armed step is sent and done, from now
+  const estimates = estimateAutos(data.chain, data.armedIds);
+  const shownAutos = data.autos.filter(
+    (auto) => auto.branch === data.branch && auto.env === data.targetEnv,
+  );
+  const allDone = shownAutos.reduce(
+    (total, auto) => {
+      const estimate = estimates[auto.stepId];
+      return estimate
+        ? {
+            ms: Math.max(total.ms, estimate.finishesInMs),
+            known: total.known && estimate.known,
+          }
+        : total;
+    },
+    { ms: 0, known: true },
+  );
+  const timeLeft = (auto: AutoTrigger) => {
+    const estimate = estimates[auto.stepId];
+    if (!estimate) return '';
+    return `sent in ${formatEstimate(estimate.startsInMs, estimate.known)} · done in ${formatEstimate(estimate.finishesInMs, estimate.known)}`;
+  };
+
   const pickerOpen = picking !== undefined;
   useInput(
     (input, key) => {
@@ -351,7 +545,7 @@ export const ChainView = ({
       else if (key.return && selected) showPlan(selected);
       else if (input === 'e' || input === ']') stepEnv(1);
       else if (input === '[') stepEnv(-1);
-      else if (input === 'E') openPicker();
+      else if (input === 'E') togglePicker();
       else if (input === 'n') jumpToNext();
       else if (input === 'o') openStep(selected);
       else if (input === 'O') openLatestRun(selected);
@@ -361,6 +555,10 @@ export const ChainView = ({
         setLogChoice((was) => ({ ...was, [selected.step.id]: !logsOpen }));
       //? Bound only with the gate open: while triggers are off no key can start one
       else if (input === 'T' && triggersEnabled) startTrigger(selected);
+      //? Stop the selected step's running build — only bound while it can be stopped
+      else if (input === 'X' && selected && canStop(selected)) startStop(selected);
+      //? Arm (or remove) the selected step's one-shot auto trigger
+      else if (input === 'a') startAuto(selected);
       //? The first fix of a refused step — still behind its own Apply confirmation
       else if (input === 'A' && triggersEnabled && selected) {
         const fix = fixesOf(selected)[0];
@@ -369,15 +567,6 @@ export const ChainView = ({
     },
     { isActive: !prompt.isOpen },
   );
-
-  const envChips = envIds.map((env) => ({
-    id: env,
-    label: protectedEnvs.includes(env) ? `${env}!` : env,
-    isOn: env === data.targetEnv,
-    tooltip: protectedEnvs.includes(env)
-      ? `${env} is protected: every trigger is confirmed by typing its name`
-      : undefined,
-  }));
 
   const renderPlan = (planned: PlannedTrigger | string | undefined, shown: boolean) => {
     if (!planned || !shown)
@@ -457,7 +646,20 @@ export const ChainView = ({
             />
           ) : (
             <Text color={checking ? colors.muted : colors.warn} bold wrap="wrap">
-              <StatusText text={checking ? '… Checking' : '⊘ Blocked'} />
+              <StatusText
+                text={
+                  checking
+                    ? '… Checking'
+                    : entry.status.state === 'done'
+                      ? '✓ Complete · ⊘ Blocked'
+                      : '⊘ Blocked'
+                }
+              />
+            </Text>
+          )}
+          {!ready && !checking && entry.status.state === 'done' && (
+            <Text color={colors.muted} wrap="wrap">
+              Cannot run again, but its result is fresh — the steps after it can use it.
             </Text>
           )}
           {!ready &&
@@ -561,7 +763,59 @@ export const ChainView = ({
             ))}
           </Box>
         )}
+        {canStop(entry) && (
+          <Box flexDirection="column" marginBottom={1} flexShrink={0}>
+            <FramedButton
+              hotkey="X"
+              label={`■ Stop ${runningRun(entry)?.label ?? 'build'}`}
+              color={colors.error}
+              disabled={!runningRun(entry)}
+              onPress={() => startStop(entry)}
+            />
+            <Text color={colors.muted} wrap="wrap">
+              Aborts the running build
+              {entry.protected ? ` — ${data.targetEnv} is protected, confirmed by its name` : ''}.
+            </Text>
+          </Box>
+        )}
         {data.triggerable(entry) && triggerButton(entry)}
+        {data.triggerable(entry) && (autoOf(entry) || armable(entry)) && (
+          <Box flexDirection="column" marginTop={1} flexShrink={0}>
+            {autoOf(entry) ? (
+              <>
+                <ActionButton
+                  hotkey="a"
+                  label="Remove auto trigger"
+                  color={colors.accent}
+                  onPress={() => startAuto(entry)}
+                />
+                <Text color={colors.muted} wrap="wrap">
+                  <StatusText text="↯ Auto" />
+                  {' · '}
+                  {(() => {
+                    const decision = data.autoStatus[autoKey(autoOf(entry) as AutoTrigger)];
+                    return decision?.kind === 'wait'
+                      ? `sent once ${decision.reason.replace('waiting on', 'after')} finishes · ${timeLeft(autoOf(entry) as AutoTrigger)}`
+                      : 'checking…';
+                  })()}
+                </Text>
+              </>
+            ) : (
+              <>
+                <ActionButton
+                  hotkey="a"
+                  label="Auto trigger…"
+                  color={entry.protected ? colors.error : colors.accent}
+                  onPress={() => startAuto(entry)}
+                />
+                <Text color={colors.muted} wrap="wrap">
+                  Send it once, for {data.branch} → {data.targetEnv} only, when the steps before it
+                  finish. Not kept after the app closes.
+                </Text>
+              </>
+            )}
+          </Box>
+        )}
         {data.hasActiveRuns(entry) && (
           <OtherRuns
             key={`${entry.step.id}:${data.branch}:${data.targetEnv}`}
@@ -602,8 +856,14 @@ export const ChainView = ({
               <StatusText
                 text={`${TRIGGER_ICON[status.state === 'none' ? 'neverrun' : status.state === 'done' ? 'complete' : status.state]} ${TRIGGER_LABEL[status.state === 'none' ? 'neverrun' : status.state === 'done' ? 'complete' : status.state]}`}
               />
+              {entry.behind && <StatusText text=" · ↻ Stale" />}
               {entry.recommended && <StatusText text=" · ➜ Next" />}
             </Text>
+            {entry.behind && (
+              <Text color={colors.muted} wrap="wrap">
+                Up to date with the step before it, but an earlier step is behind — not the latest.
+              </Text>
+            )}
             {/*? The time is the thing to read first: when this step last did its job */}
             <Field label={whenLabel}>
               {finished ? (
@@ -692,16 +952,22 @@ export const ChainView = ({
       <Box ref={chipsRef} flexShrink={0} flexDirection="row">
         {prompt.line ?? (
           <>
-            <ChipRow
-              label="env"
-              hotkey="e"
-              compact
-              chips={envChips}
-              onToggle={(id) => data.setEnv(id)}
-              onHover={(chip) => {
-                if (chip?.tooltip) notify(chip.tooltip, 'info');
-              }}
+            <ActionButton
+              hotkey="E"
+              label={`env ${data.targetEnv}${protectedEnvs.includes(data.targetEnv) ? '!' : ''} ${pickerOpen ? '▴' : '▾'}`}
+              color={protectedEnvs.includes(data.targetEnv) ? colors.error : colors.accent}
+              onPress={togglePicker}
             />
+            <Text color={colors.muted} wrap="truncate">
+              {(() => {
+                const row = envRows.get(data.targetEnv);
+                return row && !pickerOpen
+                  ? ` ${envLine(row, data).text.replace(/^\S+\s+\S+\s+/, '')}`
+                  : pickerOpen
+                    ? ' every environment below — Enter picks, Esc closes'
+                    : ' [E] every environment · [e] next';
+              })()}
+            </Text>
             <Text color={colors.muted} wrap="truncate">
               {data.branch !== data.current && data.current
                 ? ` checkout is on ${data.current} · [B] back to it`
@@ -710,6 +976,53 @@ export const ChainView = ({
           </>
         )}
       </Box>
+      {pickerOpen && (
+        <Panel
+          title={`Environments — ${data.branch ?? '(no branch)'} highlighted`}
+          badge={data.envs ? undefined : 'reading…'}
+          color={colors.accent}
+          width={appWidth}
+        >
+          <PickList
+            items={envIds.map((env) => {
+              const row = envRows.get(env);
+              const line = row
+                ? envLine(row, data, envWidth)
+                : { text: `… ${env.padEnd(envWidth)}`, mine: false, stale: false };
+              const isProtected = protectedEnvs.includes(env);
+              return {
+                id: env,
+                label: line.text,
+                hint: isProtected
+                  ? 'protected'
+                  : env === data.targetEnv
+                    ? 'current'
+                    : line.mine
+                      ? line.stale
+                        ? 'behind'
+                        : 'yours'
+                      : undefined,
+                hintColor: isProtected
+                  ? colors.error
+                  : line.stale
+                    ? colors.warn
+                    : env === data.targetEnv
+                      ? colors.accent
+                      : colors.ok,
+                value: env,
+              };
+            })}
+            selected={picking ?? 0}
+            visibleRows={Math.min(envIds.length, ENV_ROWS)}
+            onSelect={setPicking}
+            onActivate={(index) => {
+              const env = envIds[index];
+              if (env) data.setEnv(env);
+              setPicking(undefined);
+            }}
+          />
+        </Panel>
+      )}
       <Box flexDirection={sideBySide ? 'row' : 'column'} flexGrow={1} overflow="hidden">
         <Box width={graphPaneWidth} flexShrink={0} flexDirection="column">
           <Panel
@@ -729,6 +1042,7 @@ export const ChainView = ({
                 providerOf={data.providerOf}
                 triggerBadgeOf={(entry) => {
                   if (entry.status.state === 'running') return 'running';
+                  if (autoOf(entry)) return 'auto';
                   if (!data.triggerable(entry)) return 'readonly';
                   const state = triggerState(entry);
                   if (state.checking) return 'checking';
@@ -780,6 +1094,69 @@ export const ChainView = ({
           )}
         </Panel>
       </Box>
+      {data.autos.length > 0 && (
+        <Panel
+          title="Auto triggers"
+          badge={`${data.autos.length} pending${shownAutos.length ? ` · all done in ${formatEstimate(allDone.ms, allDone.known)}` : ''} · once each · not kept on restart`}
+          color={colors.accent}
+          width={appWidth}
+        >
+          {data.autos.slice(0, AUTO_ROWS).map((auto) => {
+            const id = autoKey(auto);
+            const decision = data.autoStatus[id];
+            const here = auto.branch === data.branch && auto.env === data.targetEnv;
+            return (
+              <Box key={id} flexDirection="row" flexShrink={0}>
+                <Box flexGrow={1} flexShrink={1}>
+                  <Text wrap="truncate-end">
+                    <StatusText text="↯ Auto" />
+                    <Text color={colors.text} bold>
+                      {' '}
+                      {auto.label}
+                    </Text>
+                    <Text color={protectedEnvs.includes(auto.env) ? colors.error : colors.muted}>
+                      {' '}
+                      {auto.branch} → {auto.env}
+                      {auto.protectedEnv ? '!' : ''}
+                    </Text>
+                    <Text color={colors.muted}>
+                      {' · '}
+                      {here
+                        ? decision?.kind === 'wait'
+                          ? `${decision.reason} · `
+                          : 'checking… · '
+                        : 'paused — not the branch and env shown'}
+                    </Text>
+                    <Text color={colors.accent} bold>
+                      {here ? timeLeft(auto) : ''}
+                    </Text>
+                    <Text color={colors.muted}>
+                      {' · '}armed{' '}
+                      {Date.now() - auto.armedAt < 60_000 ? 'just now' : ago(auto.armedAt)}
+                    </Text>
+                  </Text>
+                </Box>
+                <ActionButton
+                  label="preview"
+                  color={colors.accent}
+                  onPress={() => previewAuto(auto)}
+                />
+                <ActionButton
+                  label="remove"
+                  color={colors.error}
+                  onPress={() => {
+                    data.disarm(id);
+                    notify(`Auto trigger for ${auto.label} removed`, 'info');
+                  }}
+                />
+              </Box>
+            );
+          })}
+          {data.autos.length > AUTO_ROWS && (
+            <Text color={colors.muted}>+{data.autos.length - AUTO_ROWS} more</Text>
+          )}
+        </Panel>
+      )}
       <Box marginTop={1} flexShrink={0}>
         <HintBar
           hints={[
@@ -797,7 +1174,19 @@ export const ChainView = ({
                 ]),
             { key: 'Enter', label: 'dry run', onPress: () => selected && showPlan(selected) },
             { key: 'n', label: 'next', onPress: jumpToNext },
-            { key: 'E', label: `env: ${data.targetEnv}`, onPress: openPicker },
+            ...(selected && canStop(selected)
+              ? [{ key: 'X', label: 'stop build', onPress: () => startStop(selected) }]
+              : []),
+            ...(selected && (autoOf(selected) || armable(selected))
+              ? [
+                  {
+                    key: 'a',
+                    label: autoOf(selected) ? 'remove auto' : 'auto trigger',
+                    onPress: () => startAuto(selected),
+                  },
+                ]
+              : []),
+            { key: 'E', label: pickerOpen ? 'close envs' : 'all envs', onPress: togglePicker },
             { key: 'b', label: 'branch', onPress: onPickBranch },
             {
               key: 'l',
@@ -808,32 +1197,6 @@ export const ChainView = ({
           ]}
         />
       </Box>
-      {pickerOpen && (
-        <Popover anchorRef={chipsRef} containerRef={rootRef} width={28}>
-          <PickList
-            title="Environment"
-            items={envIds.map((env) => ({
-              id: env,
-              label: env,
-              hint: protectedEnvs.includes(env)
-                ? 'protected'
-                : env === data.targetEnv
-                  ? 'current'
-                  : undefined,
-              hintColor: protectedEnvs.includes(env) ? colors.error : colors.muted,
-              value: env,
-            }))}
-            selected={picking ?? 0}
-            visibleRows={Math.min(envIds.length, 8)}
-            onSelect={setPicking}
-            onActivate={(index) => {
-              const env = envIds[index];
-              if (env) data.setEnv(env);
-              setPicking(undefined);
-            }}
-          />
-        </Popover>
-      )}
       {fixing && (
         <Popover anchorRef={chipsRef} containerRef={rootRef} width="container">
           <Box flexDirection="column" borderStyle="round" borderColor={colors.error} paddingX={1}>

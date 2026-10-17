@@ -1,4 +1,5 @@
 import { TAB_IDS, type TabId } from './config/settings';
+import { pickRecentBranches } from './core/branch';
 import { type ChainStep, evaluateChain, STATE_ICON } from './core/chain';
 import { connectAll } from './core/connection';
 import { levelsOf } from './core/graph';
@@ -18,16 +19,17 @@ usage:
   depli probe [--json]            each provider's transports, probed; the first that works
                                   is the one used
   depli list-branches [glob…] [--json]
-                                  branches matching the globs (the config's watch list
-                                  when none) with their head commit
-  depli where [--json]            what every env runs now, whichever branch — the Envs tab
+                                  branches matching the globs (branches.recent, else the
+                                  watch list, when none) with their head commit
+  depli where [--json]            what every env runs now, whichever branch (Chain: [E])
   depli plan <step> [--branch=B] [--env=E]
                                   the exact request a step's trigger would send — a dry run
   depli trigger <step> [--branch=B] [--env=E] --yes [--confirm-env=E]
                                   send it — refused unless triggers.enabled is on in
                                   depli.config.ts; a protected env needs --confirm-env=<env>
 
-The branch defaults to the pick saved in the dashboard, else the checkout's current branch;
+The branch defaults to the pick saved in the dashboard, else the newest branch the provider
+lists (branches.recent) — never the checkout's;
 the env to the saved one, else the config's defaultEnv. Secrets come from the environment —
 run it under \`envi use\` (or \`dfs deploy\`) to have them there.
 `;
@@ -52,7 +54,7 @@ const printChain = (chain: ChainStep[]) => {
 };
 
 /**
- * `depli [tab | status | connections | branches | plan | trigger] [flags]`.
+ * `depli [tab | status | connections | list-branches | plan | trigger] [flags]`.
  *
  * The dashboard is imported lazily, as processi's is, so the scripted commands never load React
  * or Ink.
@@ -76,9 +78,37 @@ export const run = async (...argv: string[]) => {
   const session = await openSession();
   const { project } = session;
   for (const problem of project.problems) console.error(`depli: ${problem}`);
-  const branch = flagValue(argv, 'branch') ?? session.branch;
   const targetEnv = flagValue(argv, 'env') ?? session.targetEnv;
   const connections = await connectAll(project, session.env);
+
+  /** The provider's branches (matching `patterns`, or all), newest commit first. */
+  const providerHeads = async (patterns: string[]) => {
+    const name = project.config.branches?.provider;
+    const provider = project.providers.find((entry) =>
+      name ? entry.name === name : entry.plugin.branches,
+    );
+    const connection = provider && connections[provider.name];
+    if (!provider?.plugin.branches || !connection?.transport) return undefined;
+    const heads = await provider.plugin.branches(
+      { cwd: project.dir, env: session.env, options: provider.options, connection },
+      connection,
+      patterns,
+    );
+    return heads.sort((a, b) => (b.committedAt ?? '').localeCompare(a.committedAt ?? ''));
+  };
+  /** What the Branches tab lists: `branches.recent`'s pick, else the watched ones. */
+  const listedHeads = async () => {
+    const recent = project.config.branches?.recent;
+    if (!recent) return providerHeads(project.config.branches?.watch ?? []);
+    const all = await providerHeads([]);
+    return all && pickRecentBranches(all, recent);
+  };
+  const branch =
+    flagValue(argv, 'branch') ??
+    session.branch ??
+    (['status', 'plan', 'trigger'].includes(first ?? '')
+      ? (await listedHeads().catch(() => undefined))?.[0]?.name
+      : undefined);
 
   if (first === 'probe') {
     if (json) return void console.log(JSON.stringify(connections, null, 2));
@@ -110,23 +140,12 @@ export const run = async (...argv: string[]) => {
   }
 
   if (first === 'list-branches') {
-    const name = project.config.branches?.provider;
-    const provider = project.providers.find((entry) =>
-      name ? entry.name === name : entry.plugin.branches,
-    );
-    const connection = provider && connections[provider.name];
-    if (!provider?.plugin.branches || !connection?.transport) {
+    const heads = rest.length ? await providerHeads(rest) : await listedHeads();
+    if (!heads) {
       console.error('depli: no connected provider lists branches');
       process.exitCode = 1;
       return;
     }
-    const patterns = rest.length ? rest : (project.config.branches?.watch ?? []);
-    const heads = await provider.plugin.branches(
-      { cwd: project.dir, env: session.env, options: provider.options, connection },
-      connection,
-      patterns,
-    );
-    heads.sort((a, b) => (b.committedAt ?? '').localeCompare(a.committedAt ?? ''));
     if (json) return void console.log(JSON.stringify(heads, null, 2));
     for (const head of heads)
       console.log(
@@ -136,7 +155,9 @@ export const run = async (...argv: string[]) => {
   }
 
   if (!branch) {
-    console.error('depli: no branch — pass --branch=<name> or set repo.path in depli.config.ts');
+    console.error(
+      'depli: no branch — pass --branch=<name>, or connect the provider that lists them',
+    );
     process.exitCode = 1;
     return;
   }
@@ -144,9 +165,7 @@ export const run = async (...argv: string[]) => {
 
   if (first === 'status') {
     if (json) return void console.log(JSON.stringify({ branch, env: targetEnv, chain }, null, 2));
-    console.log(
-      `${branch} → ${targetEnv}${session.reset ? '  (checkout switched: pick reset to it)' : ''}\n`,
-    );
+    console.log(`${branch} → ${targetEnv}\n`);
     printChain(chain);
     return;
   }

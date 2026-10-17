@@ -11,7 +11,7 @@ import { type ChainStep, STATE_ICON } from '../../../core/chain';
 import { borderRow, busRow, type GraphNode, layoutGraph } from '../../../core/graph';
 import type { StepState } from '../../../core/plugin';
 import ProviderLogo, { hasProviderLogo } from '../ProviderLogo';
-import { progressColumns } from './progress';
+import { progressColumns, staleColumns } from './progress';
 import { connectorOwner } from './connectors';
 import ProgressMarker from '../ProgressMarker';
 
@@ -136,39 +136,80 @@ const Node = ({
   const inner = node.width - 4;
   const logo = inner >= 12 && hasProviderLogo(provider.id);
   const providerWidth = inner - (logo ? 5 : 0);
+  //? Up to date but its trigger is refused: it cannot run again, yet its result is fresh and
+  //? usable by the steps after it — so it shows both, Complete first
+  const completeButBlocked = status.state === 'done' && triggerBadge === 'blocked';
+  //? Done, but behind a stale step before it: Complete stays (and the green outline), Stale joins
+  const completeButStale = status.state === 'done' && Boolean(entry.behind);
+  //? Armed, a step waiting on the one before it shows Auto — and still says it is blocked
+  const autoBlocked = status.state === 'blocked' && triggerBadge === 'auto';
   const badge =
-    status.state === 'blocked'
+    status.state === 'blocked' && !autoBlocked
       ? 'blocked'
-      : (triggerBadge ??
-        (status.state === 'none'
-          ? 'neverrun'
-          : status.state === 'done'
-            ? 'complete'
-            : status.state));
-  const statusLabel = TRIGGER_LABEL[badge];
+      : completeButBlocked || completeButStale
+        ? 'complete'
+        : (triggerBadge ??
+          (status.state === 'none'
+            ? 'neverrun'
+            : status.state === 'done'
+              ? 'complete'
+              : status.state));
+  const statusLabel =
+    completeButBlocked || completeButStale
+      ? [
+          TRIGGER_LABEL.complete,
+          completeButStale && `${TRIGGER_ICON.stale} ${TRIGGER_LABEL.stale}`,
+          completeButBlocked && `${TRIGGER_ICON.blocked} ${TRIGGER_LABEL.blocked}`,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : autoBlocked
+        ? `${TRIGGER_LABEL.auto} · ${TRIGGER_ICON.blocked} ${TRIGGER_LABEL.blocked}`
+        : TRIGGER_LABEL[badge];
   const providerText = `${badge ? '    ' : ''}${statusLabel}${status.state === 'stale' && statusLabel !== 'Stale' ? ' · ↻ Stale' : ''}${logo && logoReady ? '' : ` · ${provider.label}`}`;
 
   const ref_ = status.ref;
+  //? Running: the build in progress, not the last good one `ref` points at
+  const live =
+    status.state === 'running'
+      ? (status.runs?.find((run) => run.state === 'running') ??
+        status.runs?.find((run) => run.state === 'queued'))
+      : undefined;
+  const liveAge = live?.at ? ago(live.at).replace(' ago', '') : '';
+  //? A numbered build (Jenkins) by its number; a commit whose checks run (GitHub) by its sha
+  const runningWhat = live?.label.startsWith('#')
+    ? live.label
+    : ref_?.sha
+      ? ref_.sha.slice(0, 7)
+      : `${TRIGGER_ICON.running} ${TRIGGER_LABEL.running}`;
   const what =
-    ref_?.buildNumber !== undefined
-      ? `#${ref_.buildNumber}`
-      : ref_?.sha
-        ? ref_.sha.slice(0, 7)
-        : status.state === 'none'
-          ? '○ Never run'
-          : status.state === 'blocked'
-            ? '⊘ Blocked'
-            : `${TRIGGER_ICON[status.state === 'done' ? 'complete' : status.state]} ${TRIGGER_LABEL[status.state === 'done' ? 'complete' : status.state]}`;
-  const when = ago(ref_?.finishedAt);
+    status.state === 'running'
+      ? runningWhat
+      : ref_?.buildNumber !== undefined
+        ? `#${ref_.buildNumber}`
+        : ref_?.sha
+          ? ref_.sha.slice(0, 7)
+          : status.state === 'none'
+            ? '○ Never run'
+            : status.state === 'blocked'
+              ? '⊘ Blocked'
+              : `${TRIGGER_ICON[status.state === 'done' ? 'complete' : status.state]} ${TRIGGER_LABEL[status.state === 'done' ? 'complete' : status.state]}`;
+  const when = live
+    ? live.state === 'queued'
+      ? 'queued'
+      : `running${liveAge ? ` ${liveAge}` : ''}`
+    : status.state === 'running'
+      ? ''
+      : ago(ref_?.finishedAt);
   const marker = entry.recommended ? ' · ➜ Next' : entry.protected ? ' !' : '';
   const title = `${STATE_ICON[status.state]} ${label}`;
   //? One line: the time when there is one, else what it is (never run…), then the marker
-  const full = ` ${when || what}${marker}`;
+  const full = ` ${live ? `${what} · ${when}` : when || what}${marker}`;
   //? A narrow box (parallel steps) keeps its label: the tail shrinks first
   const tail =
     providerWidth - full.length >= Math.min(label.length + 2, 14)
       ? full
-      : ` ${when ? when.replace(' ago', '') : '–'}${entry.recommended ? ' ➜ Next' : ''}`;
+      : ` ${live ? what : when ? when.replace(' ago', '') : '–'}${entry.recommended ? ' ➜ Next' : ''}`;
 
   return (
     <Box ref={ref} flexDirection="column" width={node.width} flexShrink={0}>
@@ -286,7 +327,14 @@ export const ChainGraph = ({
   );
   const progressRows = levels.reduce((count, level, index) => {
     const next = levels[index + 1];
-    return count + (next && progressColumns(chain, level.nodes, next.nodes).length ? 2 : 0);
+    return (
+      count +
+      (next &&
+      (progressColumns(chain, level.nodes, next.nodes).length ||
+        staleColumns(chain, level.nodes, next.nodes).length)
+        ? 2
+        : 0)
+    );
   }, 0);
   const compact = heightFor(levels.length, 5) + progressRows > rows;
   const byId = new Map(chain.map((entry) => [entry.step.id, entry]));
@@ -323,6 +371,13 @@ export const ChainGraph = ({
       {levels.map((level, index) => {
         const next = levels[index + 1];
         const progress = new Set(next ? progressColumns(chain, level.nodes, next.nodes) : []);
+        //? Orange where a step that is behind meets a done one below it; green wins a shared cell
+        const stale = new Set(
+          next
+            ? staleColumns(chain, level.nodes, next.nodes).filter((column) => !progress.has(column))
+            : [],
+        );
+        const markers = progress.size + stale.size;
         const connector = next
           ? busRow(
               level.nodes.map((node) => node.center),
@@ -356,13 +411,17 @@ export const ChainGraph = ({
               })}
             </Box>
             {next && (
-              <Box height={progress.size ? 3 : 1} flexDirection="column" flexShrink={0}>
-                {progress.size > 0 && renderStems(level.nodes)}
+              <Box height={markers ? 3 : 1} flexDirection="column" flexShrink={0}>
+                {markers > 0 && renderStems(level.nodes)}
                 <Box height={1} flexShrink={0}>
                   <Text color={colors.muted} wrap="truncate">
                     {Array.from(connector).map((cell, column) =>
                       progress.has(column) ? (
                         <Text key={column} color={colors.ok} bold>
+                          {rasterProgress ? ' ' : '●'}
+                        </Text>
+                      ) : stale.has(column) ? (
+                        <Text key={column} color={colors.warn} bold>
                           {rasterProgress ? ' ' : '●'}
                         </Text>
                       ) : (
@@ -388,8 +447,24 @@ export const ChainGraph = ({
                         <ProgressMarker overlayId={0x7000 + index * width + column} />
                       </Box>
                     ))}
+                  {rasterProgress &&
+                    [...stale].map((column) => (
+                      <Box
+                        key={`stale:${column}`}
+                        position="absolute"
+                        left={column - 1}
+                        top={0}
+                        width={3}
+                        height={1}
+                      >
+                        <ProgressMarker
+                          overlayId={0x7000 + index * width + column}
+                          color={colors.warn}
+                        />
+                      </Box>
+                    ))}
                 </Box>
-                {progress.size > 0 && renderStems(next.nodes)}
+                {markers > 0 && renderStems(next.nodes)}
               </Box>
             )}
           </Box>

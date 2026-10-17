@@ -26,14 +26,11 @@ import useDepli, { type DepliData } from '../useDepli';
 import BranchesView from '../views/BranchesView';
 import ChainView from '../views/ChainView';
 import ConnectionsView from '../views/ConnectionsView';
-import EnvsView from '../views/EnvsView';
 import SettingsView from '../views/SettingsView';
 
 /** Every icon is East Asian Width *Wide* with no U+FE0F selector — see `TabDefinition`. */
 export const TABS: readonly TabDefinition<TabId>[] = [
   { id: 'chain', icon: '🚀', label: '🚀 Chain' },
-  { id: 'envs', icon: '🌍', label: '🌍 Envs' },
-  { id: 'branches', icon: '🌿', label: '🌿 Branches' },
   { id: 'connections', icon: '🔌', label: '🔌 Connections' },
   { id: 'settings', icon: '🔧', label: '🔧 Settings' },
 ];
@@ -61,18 +58,23 @@ const Clickable = ({
 
 /**
  * Under the tabs, on every tab: each provider's connection (click: the Connections tab), the
- * branch and env (click: Branches / the Chain), and whether triggers can fire at all.
+ * branch (click: the branch picker) and env (click: the Chain's environments), and whether
+ * triggers can fire at all.
  */
 const StatusRow = ({
   data,
   providers,
   triggers,
   onTab,
+  onPickBranch,
+  onPickEnv,
 }: {
   data: DepliData;
   providers: string[];
   triggers: boolean;
   onTab: (tab: TabId) => void;
+  onPickBranch: () => void;
+  onPickEnv: () => void;
 }) => {
   const colors = useColors();
   return (
@@ -92,12 +94,12 @@ const StatusRow = ({
         );
       })}
       <Box marginRight={2} flexShrink={0}>
-        <Clickable color={colors.text} onClick={() => onTab('branches')}>
+        <Clickable color={colors.text} onClick={onPickBranch}>
           {`⎇ ${data.branch ?? '—'}`}
         </Clickable>
       </Box>
       <Box marginRight={2} flexShrink={0}>
-        <Clickable color={colors.text} onClick={() => onTab('envs')}>
+        <Clickable color={colors.text} onClick={onPickEnv}>
           {`→ ${data.targetEnv}`}
         </Clickable>
       </Box>
@@ -141,14 +143,11 @@ export const App = ({
     TAB_IDS.includes(session.tab as TabId) ? (session.tab as TabId) : 'chain',
   );
   const [isInputCaptured, setIsInputCaptured] = useState(false);
-  const [filterOnArrival, setFilterOnArrival] = useState(false);
-  const { status, notify, setStatus } = useStatus(
-    notice ??
-      (depli.reset
-        ? `Checkout is on ${depli.current} — the earlier pick was reset to it`
-        : undefined) ??
-      project.problems[0],
-  );
+  //? The branch picker: the Chain tab's whole area while open — `filter` opens with the filter
+  const [branchPicker, setBranchPicker] = useState<{ filter: boolean }>();
+  //? Bumped to open the Chain's environments panel from the status row
+  const [envOpenRequest, setEnvOpenRequest] = useState(0);
+  const { status, notify, setStatus } = useStatus(notice ?? project.problems[0]);
   const data = useDepli(depli, notify);
   const envs = project.config.envs ?? [];
   const triggers = Boolean(project.config.triggers?.enabled);
@@ -203,6 +202,15 @@ export const App = ({
           providers={project.providers.map((provider) => provider.name)}
           triggers={triggers}
           onTab={changeTab}
+          onPickBranch={() => {
+            changeTab('chain');
+            setBranchPicker({ filter: false });
+          }}
+          onPickEnv={() => {
+            changeTab('chain');
+            setBranchPicker(undefined);
+            setEnvOpenRequest((value) => value + 1);
+          }}
         />
       }
       theme={depliTheme}
@@ -212,7 +220,19 @@ export const App = ({
       footerHints="[r] refresh · [B] checkout branch"
       footerActions={footerActions}
     >
-      {tab === 'chain' && (
+      {tab === 'chain' && branchPicker && (
+        <BranchesView
+          data={data}
+          watch={project.config.branches?.watch ?? []}
+          recent={project.config.branches?.recent}
+          session={session}
+          startFiltering={branchPicker.filter}
+          onCaptureInput={setIsInputCaptured}
+          onPicked={() => setBranchPicker(undefined)}
+          onClose={() => setBranchPicker(undefined)}
+        />
+      )}
+      {tab === 'chain' && !branchPicker && (
         <ChainView
           data={data}
           envIds={envs.map((entry) => entry.id)}
@@ -221,33 +241,8 @@ export const App = ({
           session={session}
           notify={notify}
           onCaptureInput={setIsInputCaptured}
-          onPickBranch={() => {
-            setFilterOnArrival(true);
-            changeTab('branches');
-          }}
-        />
-      )}
-      {tab === 'envs' && (
-        <EnvsView
-          data={data}
-          session={session}
-          onOpenEnv={(env) => {
-            data.setEnv(env);
-            changeTab('chain');
-          }}
-        />
-      )}
-      {tab === 'branches' && (
-        <BranchesView
-          data={data}
-          watch={project.config.branches?.watch ?? []}
-          session={session}
-          startFiltering={filterOnArrival}
-          onCaptureInput={(captured) => {
-            setIsInputCaptured(captured);
-            if (!captured) setFilterOnArrival(false);
-          }}
-          onPicked={() => changeTab('chain')}
+          onPickBranch={() => setBranchPicker({ filter: true })}
+          envOpenRequest={envOpenRequest}
         />
       )}
       {tab === 'connections' && (

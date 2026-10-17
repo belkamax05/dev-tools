@@ -56,12 +56,27 @@ export interface TriggerConfig {
  * });
  * ```
  */
+/**
+ * Which of the provider's branches the Branches tab lists, by their newest commit — read from the
+ * provider (GitHub), never from a local checkout.
+ */
+export interface BranchRecentRule {
+  /** How many to show (default 12) — required and `atLeast` picks first, the newest fill up. */
+  limit?: number;
+  /** Always listed when they exist, however old (`master`, `develop`). */
+  required?: string[];
+  /** At least `count` of the newest branches matching `patterns` (globs). */
+  atLeast?: Array<{ patterns: string[]; count: number }>;
+}
+
 export interface DepliProjectConfig {
-  /** The checkout whose current branch preselects the branch. */
+  /** The checkout shown beside the branch (`B` jumps back to it); it preselects nothing. */
   repo?: { path?: string };
   branches?: {
     /** Glob patterns shown first, and the ones polled; every other branch is still reachable. */
     watch?: string[];
+    /** When set, the Branches tab lists these instead of `watch`. */
+    recent?: BranchRecentRule;
     /** Which provider instance lists branches; the first that can when unset. */
     provider?: string;
   };
