@@ -100,19 +100,27 @@ const escapeXml = (text: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
-/**
- * A job's config.xml with `value` added to the choice parameter `param`'s list — or undefined
- * when there is no such choice parameter, and the same text when the value is already listed.
- * Only that parameter's `<a class="string-array">` is touched.
- */
+/** Add a choice in either Jenkins XML list format, preserving the rest of the job. */
 export const addChoice = (xml: string, param: string, value: string): string | undefined => {
-  const block = new RegExp(
-    `(<hudson\\.model\\.ChoiceParameterDefinition>\\s*<name>${param.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</name>[\\s\\S]*?<a class="string-array">)([\\s\\S]*?)(\\s*</a>)`,
-  );
-  const match = block.exec(xml);
-  if (!match) return undefined;
-  const [, head = '', list = '', tail = ''] = match;
-  if (list.includes(`<string>${escapeXml(value)}</string>`)) return xml;
-  const indent = list.match(/\n(\s*)<string>/)?.[1] ?? '              ';
-  return xml.replace(block, `${head}${list}\n${indent}<string>${escapeXml(value)}</string>${tail}`);
+  const definitions =
+    /<hudson\.model\.ChoiceParameterDefinition\b[^>]*>[\s\S]*?<\/hudson\.model\.ChoiceParameterDefinition>/g;
+  for (const match of xml.matchAll(definitions)) {
+    const definition = match[0];
+    if (!definition.includes(`<name>${escapeXml(param)}</name>`)) continue;
+    const choices = /(<choices\b[^>]*>)([\s\S]*?)(<\/choices>)/.exec(definition);
+    if (!choices) return undefined;
+    const wrapped = /(<a\b[^>]*class="string-array"[^>]*>)([\s\S]*?)(<\/a>)/.exec(choices[2] ?? '');
+    const listMatch = wrapped ?? choices;
+    const list = listMatch[2] ?? '';
+    if (list.includes(`<string>${escapeXml(value)}</string>`)) return xml;
+    const indent = list.match(/\n([ \t]*)<string>/)?.[1] ?? '              ';
+    const trailing = list.match(/\s*$/)?.[0] ?? '';
+    const nextList =
+      list.slice(0, list.length - trailing.length) +
+      `\n${indent}<string>${escapeXml(value)}</string>${trailing}`;
+    const nextContainer = listMatch[1] + nextList + listMatch[3];
+    const nextDefinition = definition.replace(listMatch[0], () => nextContainer);
+    return xml.slice(0, match.index) + nextDefinition + xml.slice(match.index + definition.length);
+  }
+  return undefined;
 };

@@ -252,7 +252,7 @@ export const ChainView = ({
 
   /**
    * A fix (an edit on the target, shared by everyone): the red popover says exactly what changes,
-   * and nothing is written until the thing being edited is typed by name. The step is planned
+   * and nothing is written until Apply (or Enter) is pressed. The step is planned
    * again afterwards, so the Trigger button shows whether it can now be sent.
    */
   const startFix = (entry: ChainStep, fix: PlanFix) => {
@@ -342,7 +342,7 @@ export const ChainView = ({
         setLogChoice((was) => ({ ...was, [selected.step.id]: !logsOpen }));
       //? Bound only with the gate open: while triggers are off no key can start one
       else if (input === 'T' && triggersEnabled) startTrigger(selected);
-      //? The first fix of a refused step — still behind its own typed confirmation
+      //? The first fix of a refused step — still behind its own Apply confirmation
       else if (input === 'A' && triggersEnabled && selected) {
         const fix = fixesOf(selected)[0];
         if (fix) startFix(selected, fix);
@@ -370,12 +370,6 @@ export const ChainView = ({
         <Text color={colors.text} wrap="truncate-middle">
           {planned.plan.method} {planned.plan.url}
         </Text>
-        {Object.entries(planned.plan.params).map(([key, value]) => (
-          <Text key={key} wrap="truncate-end">
-            <Text color={colors.muted}> {key}=</Text>
-            <Text color={value === 'true' ? colors.ok : colors.text}>{value}</Text>
-          </Text>
-        ))}
         {(planned.plan.warnings ?? []).map((warning) => (
           <Text key={warning} color={colors.warn} wrap="wrap">
             ! {warning}
@@ -420,6 +414,7 @@ export const ChainView = ({
    */
   const triggerButton = (entry: ChainStep) => {
     const { ready, reasons, checking, refused } = triggerState(entry);
+    const planned = plans[entry.step.id];
     const explain = () =>
       notify(
         ready ? 'Press T to trigger' : `Trigger blocked: ${reasons.join('; ') || 'checking…'}`,
@@ -446,6 +441,20 @@ export const ChainView = ({
             if (hovered) explain();
           }}
         />
+        {typeof planned === 'object' &&
+          Object.entries(planned.plan.params).map(([name, value]) => {
+            const source = planned.plan.sources?.[name];
+            const fromStep = source !== undefined && source !== 'branch';
+            return (
+              <Text key={name} wrap="wrap">
+                <Text color={colors.muted}>{name}=</Text>
+                <Text color={fromStep ? colors.accent : colors.text} bold={fromStep}>
+                  {value}
+                </Text>
+                <Text color={colors.muted}> ← {source ?? 'config'}</Text>
+              </Text>
+            );
+          })}
         {!ready &&
           reasons.map((reason) => (
             <Text key={reason} color={colors.warn} wrap="wrap">
@@ -554,6 +563,17 @@ export const ChainView = ({
             </Text>
           </Box>
         </Box>
+        {(status.outputs ?? []).map((output) => (
+          <Field key={output.label} label="produces">
+            <Text wrap="wrap">
+              <Text color={colors.muted}>{output.label}: </Text>
+              <Text color={colors.accent} bold>
+                {output.value}
+              </Text>
+              {output.note && <Text color={colors.muted}> ({output.note})</Text>}
+            </Text>
+          </Field>
+        ))}
         {(status.notes ?? []).map((note) => (
           <Text key={note} color={colors.muted} wrap="wrap">
             {note}

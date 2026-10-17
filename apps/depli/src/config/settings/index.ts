@@ -42,3 +42,15 @@ export const stateStore = createConfigStore<DepliState>({
         : {},
   }),
 });
+
+// Branch/env and tab updates share one file: each must read after the previous write finishes.
+let pendingStateSave: Promise<void> = Promise.resolve();
+export const updateState = (update: (state: DepliState) => DepliState): Promise<void> => {
+  const saving = pendingStateSave.then(async () => {
+    await stateStore.save(update(await stateStore.load()));
+  });
+  pendingStateSave = saving.catch(() => {});
+  return saving;
+};
+
+export const flushState = (): Promise<void> => pendingStateSave;

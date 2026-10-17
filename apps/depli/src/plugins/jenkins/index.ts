@@ -280,14 +280,7 @@ const jobStatus = async (
             },
           ]
         : undefined,
-    notes: [
-      ...(ref && ref.version
-        ? [
-            `produces ${ref.version} (${ref.versionSource === 'log' ? 'from its log' : 'derived from the build number'})`,
-          ]
-        : []),
-      ...notes,
-    ],
+    notes,
   };
 };
 

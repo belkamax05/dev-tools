@@ -1,5 +1,5 @@
 import { loadProjectConfig } from '../../config/project';
-import { type ProjectState, stateStore } from '../../config/settings';
+import { type ProjectState, stateStore, updateState } from '../../config/settings';
 import { currentBranch, resolveSelection } from '../branch';
 import type { Env } from '../plugin';
 import { type Project, resolveProject } from '../registry';
@@ -47,9 +47,10 @@ export const openSession = async (env: Env = process.env): Promise<Session> => {
 
 /** Remember the pick and env for this project. */
 export const saveSession = async (session: Pick<Session, 'project' | 'state'>) => {
-  const state = await stateStore.load();
-  await stateStore.save({
+  const projectDir = session.project.dir;
+  const projectState = { ...session.state };
+  await updateState((state) => ({
     ...state,
-    projects: { ...state.projects, [session.project.dir]: session.state },
-  });
+    projects: { ...state.projects, [projectDir]: projectState },
+  }));
 };

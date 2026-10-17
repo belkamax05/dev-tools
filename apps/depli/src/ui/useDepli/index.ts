@@ -94,8 +94,10 @@ export const useDepli = (
 
   const persist = useCallback(() => {
     session.state = state.current;
-    saveSession(session).catch(() => {});
-  }, [session]);
+    saveSession(session).catch((error: Error) =>
+      notify(`Could not save branch and environment: ${error.message}`, 'warn'),
+    );
+  }, [session, notify]);
 
   //? Connections: now, then on the poll interval
   // biome-ignore lint/correctness/useExhaustiveDependencies: tick and probeTick are manual

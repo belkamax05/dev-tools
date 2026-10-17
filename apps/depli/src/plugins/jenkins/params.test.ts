@@ -132,6 +132,19 @@ const CONFIG = `<flow-definition>
 </flow-definition>`;
 
 describe('addChoice', () => {
+  test('supports the direct choices list used by build_fe-nodejs', () => {
+    const direct = CONFIG.replaceAll('<a class="string-array">', '').replaceAll('</a>', '');
+    const next = addChoice(direct, 'CODE_BRANCH', 'fix/a$&');
+    expect(next).toContain('<string>fix/a$&amp;</string>');
+    expect(next?.match(/<string>/g)?.length).toBe(4);
+    expect(addChoice(direct, 'CODE_BRANCH', 'master')).toBe(direct);
+  });
+
+  test('does not edit a later parameter when the requested one has no choices', () => {
+    const xml = CONFIG.replace(/<choices[\s\S]*?<\/choices>/, '');
+    expect(addChoice(xml, 'BUILD_AND_DEPLOY_BRANCH', 'fix/a')).toBeUndefined();
+  });
+
   test("adds the value to that parameter's list only, in its indentation", () => {
     const next = addChoice(CONFIG, 'CODE_BRANCH', 'fix/dfs2-1/a&b');
     expect(next).toContain(

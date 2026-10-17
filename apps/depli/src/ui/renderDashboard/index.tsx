@@ -5,7 +5,14 @@ import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
 import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
 import { describeClearResults } from '@/dev-tools/ui/components/ClearDataDialog';
 
-import { configStore, type DepliConfig, stateStore, type TabId } from '../../config/settings';
+import {
+  configStore,
+  type DepliConfig,
+  flushState,
+  stateStore,
+  type TabId,
+  updateState,
+} from '../../config/settings';
 import { openSession } from '../../core/session';
 import App from '../App';
 import type { Session } from '../types';
@@ -40,10 +47,9 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
           config = next;
           configStore.save(next).catch(() => {});
         }}
-        onStateChange={async () => {
-          //? Re-read first: the branch pick and env are saved there by the chain as they change
-          state = { ...(await stateStore.load()), tab: session.tab as TabId };
-          stateStore.save(state).catch(() => {});
+        onStateChange={() => {
+          const tab = session.tab as TabId;
+          updateState((saved) => ({ ...saved, tab })).catch(() => {});
         }}
         onHandoff={frame.handoff}
         onCleared={(results) => {
@@ -60,6 +66,7 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
         intent.type === 'edit' ? `Back from editing ${intent.path}` : `Back from ${intent.label}`,
     },
   );
+  await flushState();
   if (cleared) console.log(`depli: ${cleared}`);
 };
 
