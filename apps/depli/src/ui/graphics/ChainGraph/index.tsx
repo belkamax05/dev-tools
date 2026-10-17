@@ -8,6 +8,16 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import { type ChainStep, STATE_ICON } from '../../../core/chain';
 import { borderRow, busRow, type GraphNode, layoutGraph } from '../../../core/graph';
 import type { StepState } from '../../../core/plugin';
+import ProviderLogo, { hasProviderLogo } from '../ProviderLogo';
+import { progressColumns } from './progress';
+
+export type TriggerBadge = 'blocked' | 'readonly' | 'next' | 'checking';
+export const TRIGGER_ICON: Record<TriggerBadge, string> = {
+  blocked: '⊘',
+  readonly: '👁',
+  next: '➜',
+  checking: '…',
+};
 
 export const ago = (at?: number) => {
   if (!at) return '';
@@ -20,8 +30,12 @@ export const ago = (at?: number) => {
 /** Rows a graph of these levels takes with boxes `boxRows` tall: boxes plus one bus between levels. */
 const heightFor = (levels: number, boxRows: number) => levels * boxRows + Math.max(0, levels - 1);
 
-const clip = (text: string, width: number) =>
-  text.length > width ? `${text.slice(0, Math.max(0, width - 1))}…` : text.padEnd(width);
+const clip = (text: string, width: number) => {
+  const chars = Array.from(text);
+  return chars.length > width
+    ? `${chars.slice(0, Math.max(0, width - 1)).join('')}…`
+    : text + ' '.repeat(Math.max(0, width - chars.length));
+};
 
 /** A content line inside a box: its two side borders around whatever it holds. */
 const Row = ({ side, border, children }: { side: string; border: string; children: ReactNode }) => (
@@ -42,6 +56,9 @@ interface NodeProps {
   joinBottom: boolean;
   compact: boolean;
   onClick: () => void;
+  provider: { id: string; label: string };
+  triggerBadge?: TriggerBadge;
+  overlayId: number;
 }
 
 /** One step as a box: what it is, and when it last did its job — the time stands out. */
@@ -54,6 +71,9 @@ const Node = ({
   joinBottom,
   compact,
   onClick,
+  provider,
+  triggerBadge,
+  overlayId,
 }: NodeProps) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
@@ -85,6 +105,9 @@ const Node = ({
     tee,
   );
   const inner = node.width - 4;
+  const logo = inner >= 12 && hasProviderLogo(provider.id);
+  const providerWidth = inner - (logo ? 5 : 0);
+  const providerText = `${triggerBadge ? `${TRIGGER_ICON[triggerBadge]} ` : ''}${provider.label}`;
 
   const ref_ = status.ref;
   const what =
@@ -102,7 +125,7 @@ const Node = ({
   const full = ` ${when || what}${marker}`;
   //? A narrow box (parallel steps) keeps its label: the tail shrinks first
   const tail =
-    inner - full.length >= Math.min(label.length + 2, 14)
+    providerWidth - full.length >= Math.min(label.length + 2, 14)
       ? full
       : ` ${when ? when.replace(' ago', '') : '–'}${entry.recommended ? ' ←' : ''}`;
 
@@ -114,32 +137,47 @@ const Node = ({
       {compact ? (
         <Row side={side} border={border}>
           <Text color={colors.text} bold={selected}>
-            {clip(title, Math.max(1, inner - tail.length))}
+            {clip(title, Math.max(1, providerWidth - tail.length))}
           </Text>
           <Text color={when ? colors.accent : colors.muted} bold={Boolean(when)}>
             {tail}
           </Text>
+          {logo && <Text>{' '.repeat(5)}</Text>}
         </Row>
       ) : (
         <>
           <Row side={side} border={border}>
             <Text color={colors.text} bold={selected}>
-              {clip(title, inner)}
+              {clip(title, providerWidth)}
             </Text>
+            {logo && <Text>{' '.repeat(5)}</Text>}
           </Row>
           <Row side={side} border={border}>
-            <Text color={colors.muted}>{what}</Text>
-            <Text color={when ? colors.accent : colors.muted} bold>
-              {when ? ` · ${when}` : ''}
+            <Text color={when ? colors.accent : colors.muted} bold={Boolean(when)}>
+              {clip(`${what}${when ? ` · ${when}` : ''}${marker}`, providerWidth)}
             </Text>
-            <Text color={entry.recommended ? colors.accent : colors.error}>{marker}</Text>
-            <Text>
-              {' '.repeat(
-                Math.max(0, inner - what.length - (when ? when.length + 3 : 0) - marker.length),
-              )}
-            </Text>
+            {logo && <Text>{' '.repeat(5)}</Text>}
           </Row>
         </>
+      )}
+      <Row side={side} border={border}>
+        <Text
+          color={
+            triggerBadge === 'blocked'
+              ? colors.warn
+              : triggerBadge === 'next'
+                ? colors.accent
+                : colors.muted
+          }
+        >
+          {clip(providerText, providerWidth)}
+        </Text>
+        {logo && <Text>{' '.repeat(5)}</Text>}
+      </Row>
+      {logo && (
+        <Box position="absolute" right={2} bottom={1} width={4} height={2}>
+          <ProviderLogo provider={provider.id} overlayId={overlayId} rows={2} />
+        </Box>
       )}
       <Text color={border} wrap="truncate">
         {bottom}
@@ -157,6 +195,8 @@ export interface ChainGraphProps {
   /** The label shown in each box — the step's label with `{env}` filled in. */
   labelOf: (entry: ChainStep) => string;
   onSelect: (id: string) => void;
+  providerOf: (entry: ChainStep) => { id: string; label: string };
+  triggerBadgeOf: (entry: ChainStep) => TriggerBadge | undefined;
 }
 
 /**
@@ -172,19 +212,29 @@ export const ChainGraph = ({
   selectedId,
   labelOf,
   onSelect,
+  providerOf,
+  triggerBadgeOf,
 }: ChainGraphProps) => {
   const colors = useColors();
   const levels = layoutGraph(
     chain.map((entry) => ({ id: entry.step.id, after: entry.step.after })),
     width,
   );
-  const compact = heightFor(levels.length, 4) > rows;
+  const compact = heightFor(levels.length, 5) > rows;
   const byId = new Map(chain.map((entry) => [entry.step.id, entry]));
 
   return (
     <Box flexDirection="column" flexShrink={0}>
       {levels.map((level, index) => {
         const next = levels[index + 1];
+        const progress = new Set(next ? progressColumns(chain, level.nodes, next.nodes) : []);
+        const connector = next
+          ? busRow(
+              level.nodes.map((node) => node.center),
+              next.nodes.map((node) => node.center),
+              width,
+            )
+          : '';
         return (
           <Box key={level.nodes.map((node) => node.id).join('+')} flexDirection="column">
             <Box flexDirection="row">
@@ -195,6 +245,9 @@ export const ChainGraph = ({
                   <Box key={node.id} marginLeft={at === 0 ? node.x : 1} flexShrink={0}>
                     <Node
                       entry={entry}
+                      provider={providerOf(entry)}
+                      triggerBadge={triggerBadgeOf(entry)}
+                      overlayId={0x6000 + chain.indexOf(entry)}
                       node={node}
                       label={labelOf(entry)}
                       selected={node.id === selectedId}
@@ -209,10 +262,14 @@ export const ChainGraph = ({
             </Box>
             {next && (
               <Text color={colors.muted} wrap="truncate">
-                {busRow(
-                  level.nodes.map((node) => node.center),
-                  next.nodes.map((node) => node.center),
-                  width,
+                {Array.from(connector).map((cell, column) =>
+                  progress.has(column) ? (
+                    <Text key={column} color={colors.ok} bold>
+                      ●
+                    </Text>
+                  ) : (
+                    <Text key={column}>{cell}</Text>
+                  ),
                 )}
               </Text>
             )}

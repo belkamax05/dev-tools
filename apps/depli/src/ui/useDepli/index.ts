@@ -48,6 +48,7 @@ export interface DepliData {
   plan: (stepId: string) => Promise<PlannedTrigger>;
   /** Whether a step can be triggered at all — its plugin plans it; observe-only steps do not. */
   triggerable: (entry: ChainStep) => boolean;
+  providerOf: (entry: ChainStep) => { id: string; label: string };
   /** A run's log from a byte offset — read-only. */
   readLog: (entry: ChainStep, run: StepRun, start: number) => Promise<LogChunk>;
   /** A plan's fix (an edit on the target), through the core's gate — call it once the user confirmed. */
@@ -246,6 +247,10 @@ export const useDepli = (
     loadEnvs,
     plan: (stepId) =>
       planTrigger(project, connectionsRef.current, env, chain, stepId, branch ?? '', targetEnv),
+    providerOf: (entry) => {
+      const plugin = project.providers.find((item) => item.name === entry.step.provider)?.plugin;
+      return { id: plugin?.id ?? entry.step.provider, label: entry.step.provider };
+    },
     triggerable: (entry) =>
       Boolean(
         project.providers.find((item) => item.name === entry.step.provider)?.plugin.steps[

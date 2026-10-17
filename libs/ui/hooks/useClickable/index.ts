@@ -119,7 +119,16 @@ export const useClickable = (
       const { x, y, width, height } = measureElement(node);
       const column = event.column - VIEWPORT_ORIGIN;
       const row = event.row - VIEWPORT_ORIGIN;
-      const isInside = column >= x && column < x + width && row >= y && row < y + height;
+      let isInside = column >= x && column < x + width && row >= y && row < y + height;
+      // Scrolled children retain their full geometry; only their visible part receives input.
+      for (let parent = node.parentNode; isInside && parent; parent = parent.parentNode) {
+        const clipX = (parent.style.overflowX ?? parent.style.overflow) === 'hidden';
+        const clipY = (parent.style.overflowY ?? parent.style.overflow) === 'hidden';
+        if (!clipX && !clipY) continue;
+        const bounds = measureElement(parent);
+        if (clipX && (column < bounds.x || column >= bounds.x + bounds.width)) isInside = false;
+        if (clipY && (row < bounds.y || row >= bounds.y + bounds.height)) isInside = false;
+      }
 
       if (isInside !== hoveredRef.current) {
         hoveredRef.current = isInside;

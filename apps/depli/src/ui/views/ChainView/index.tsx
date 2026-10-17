@@ -25,6 +25,7 @@ import Avatar from '../../graphics/Avatar';
 import ChainGraph, { ago } from '../../graphics/ChainGraph';
 import HistoryStrip from '../../graphics/HistoryStrip';
 import LogPanel from '../LogPanel';
+import StepPanel from '../StepPanel';
 import type { Session, Tone } from '../../types';
 import type { DepliData } from '../../useDepli';
 
@@ -220,12 +221,25 @@ export const ChainView = ({
       });
   };
 
-  //? Whether the selected step can be triggered is known before T is pressed: its plan is made
-  //? (a dry run — reads only) whenever the selection or the chain changes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the step id and the chain are the triggers
+  // Plan every job for its graph badge; discard responses from an older branch/env/chain.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: data.chain identifies these inputs
   useEffect(() => {
-    if (selected && data.triggerable(selected)) showPlan(selected, false);
-  }, [selected?.step.id, data.chain]);
+    let live = true;
+    for (const entry of data.chain) {
+      if (!data.triggerable(entry)) continue;
+      data
+        .plan(entry.step.id)
+        .then((planned) => {
+          if (live) setPlans((was) => ({ ...was, [entry.step.id]: planned }));
+        })
+        .catch((error: Error) => {
+          if (live) setPlans((was) => ({ ...was, [entry.step.id]: error.message }));
+        });
+    }
+    return () => {
+      live = false;
+    };
+  }, [data.chain]);
 
   const openStep = (entry: ChainStep | undefined) => {
     if (entry?.status.url) openUrl(entry.status.url);
@@ -503,7 +517,7 @@ export const ChainView = ({
     //? A step that counts builds has a last good one; any other (a push) has a latest
     const whenLabel = status.ref?.buildNumber !== undefined ? 'last good' : 'latest';
     return (
-      //? Never shrunk: a detail taller than its pane is cut at the bottom by the pane, instead of
+      //? Never shrunk: the scroll viewport moves the complete detail vertically instead of
       //? Yoga squeezing its one-row boxes (the Trigger button) to nothing
       <Box flexDirection="column" flexShrink={0}>
         {data.triggerable(entry) && triggerButton(entry)}
@@ -645,6 +659,14 @@ export const ChainView = ({
                 selectedId={selected?.step.id}
                 labelOf={(entry) => fill(entry.step.label)}
                 onSelect={select}
+                providerOf={data.providerOf}
+                triggerBadgeOf={(entry) => {
+                  if (!data.triggerable(entry)) return 'readonly';
+                  const state = triggerState(entry);
+                  if (state.checking) return 'checking';
+                  if (!state.ready) return 'blocked';
+                  return entry.recommended ? 'next' : undefined;
+                }}
               />
             ) : (
               <Text color={colors.muted}>
@@ -679,7 +701,12 @@ export const ChainView = ({
               isActive={!prompt.isOpen && !pickerOpen}
             />
           ) : selected ? (
-            detail(selected)
+            <StepPanel
+              key={`${selected.step.id}:${data.branch}:${data.targetEnv}`}
+              isActive={!prompt.isOpen && !pickerOpen && !fixing}
+            >
+              {detail(selected)}
+            </StepPanel>
           ) : (
             <Text color={colors.muted}>Nothing selected.</Text>
           )}
@@ -695,7 +722,11 @@ export const ChainView = ({
                   { key: 'Space/PgUp', label: 'page' },
                   { key: 'g/G', label: 'top / follow' },
                 ]
-              : []),
+              : [
+                  { key: 'j/k · wheel', label: 'scroll step' },
+                  { key: 'PgUp/PgDn', label: 'page' },
+                  { key: 'g/G', label: 'top / bottom' },
+                ]),
             { key: 'Enter', label: 'dry run', onPress: () => selected && showPlan(selected) },
             { key: 'n', label: 'next', onPress: jumpToNext },
             { key: 'E', label: `env: ${data.targetEnv}`, onPress: openPicker },
