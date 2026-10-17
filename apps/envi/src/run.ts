@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { constants } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 import { PROJECT_CONFIG_NAMES, PROJECT_CONFIG_TEMPLATE } from './config/project';
 import {
@@ -54,6 +54,8 @@ usage:
   envi explain <KEY>              every layer that sets KEY, and which one wins
   envi run [--] <command...>      run a command with envi's variables (like dotenv-cli)
   envi -- <command...>            the same
+  envi use [--] [command...]      direnv-style: with a command, run it with envi's variables;
+                                  alone, print them for this shell — eval "$(envi use)"
   envi export [--shell zsh|bash|sh|fish|dotenv|json]
                                   print envi's variables — eval "$(envi export)"
   envi hook <zsh|bash|fish>       shell code that keeps them applied as you cd:
@@ -97,8 +99,8 @@ export const parseArgs = (argv: string[]): Args => {
       command = argv.slice(at + 1);
       break;
     }
-    //? Everything after `run`'s first word belongs to the command, flags included
-    if (positionals[0] === 'run' && !arg.startsWith('-')) {
+    //? Everything after `run`'s (or `use`'s) first word belongs to the command, flags included
+    if ((positionals[0] === 'run' || positionals[0] === 'use') && !arg.startsWith('-')) {
       command = argv.slice(at);
       break;
     }
@@ -297,6 +299,24 @@ export const run = async (...argv: string[]) => {
     for (const { key, from } of resolution.missing)
       console.error(`envi: ${key} is unset (required by ${from})`);
     await runCommand(args.command, resolution.env, cwd);
+    return;
+  }
+
+  //? direnv's two halves under one word: a command gets the variables in its environment, and
+  //? with none they are printed as code for the caller's shell (--shell, else $SHELL) to eval
+  if (first === 'use') {
+    const resolution = await resolveEnv({ cwd, config });
+    for (const { key, from } of resolution.missing)
+      console.error(`envi: ${key} is unset (required by ${from})`);
+    if (args.command.length) {
+      await runCommand(args.command, resolution.env, cwd);
+      return;
+    }
+    const login = basename(process.env.SHELL ?? '') as ExportFormat;
+    const format = (flag(args, '--shell', '--format') ??
+      (EXPORT_FORMATS.includes(login) ? login : 'sh')) as ExportFormat;
+    if (!EXPORT_FORMATS.includes(format)) return fail(`--shell takes ${EXPORT_FORMATS.join(', ')}`);
+    process.stdout.write(formatExport(resolution, format));
     return;
   }
 

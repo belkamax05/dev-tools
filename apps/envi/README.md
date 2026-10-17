@@ -12,6 +12,8 @@ envi shell [search] [--json]      # the current shell's variables, searched by n
 envi get API_URL                  # one resolved value; exits 1 when unset
 envi explain API_URL              # every layer that sets it, and which one wins
 envi run -- npm start             # run a command with envi's variables (= envi -- npm start)
+envi use -- npm start             # direnv-style: run a command with envi's variables, or
+envi use                          #   alone, print them for $SHELL — eval "$(envi use)"
 envi export [--shell zsh|bash|sh|fish|dotenv|json]   # eval "$(envi export)"
 envi hook zsh                     # keep them applied as you cd — see below
 envi set KEY=value [--file F | --global]   # .env.user here by default; --global: your vars
