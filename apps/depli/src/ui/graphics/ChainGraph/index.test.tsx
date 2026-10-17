@@ -29,9 +29,9 @@ test('provider badges render inside job boxes in full and compact graphs', () =>
         triggerBadgeOf={(entry) => entry.step.id as TriggerBadge}
       />,
     );
-    expect(output).toContain(`${TRIGGER_ICON.readonly} github`);
-    expect(output).toContain(`${TRIGGER_ICON.blocked} jenkins`);
-    expect(output).toContain(`${TRIGGER_ICON.next} jenkins`);
+    expect(output).toContain(`${TRIGGER_ICON.readonly}   github`);
+    expect(output).toContain(`${TRIGGER_ICON.blocked}   jenkins`);
+    expect(output).toContain(`${TRIGGER_ICON.next}   jenkins`);
   }
 });
 
@@ -68,4 +68,26 @@ test('the progress dot has separate incoming and outgoing connector rows', () =>
   expect(lines[marker + 1]?.trim()).toBe('│');
   expect(lines[marker - 1]?.indexOf('│')).toBe(lines[marker]?.indexOf('●'));
   expect(lines[marker + 1]?.indexOf('│')).toBe(lines[marker]?.indexOf('●'));
+});
+
+test('a running job shows its spinner and Running status beside the provider', () => {
+  const entry: ChainStep = {
+    step: { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job' },
+    status: { state: 'running', summary: 'building' },
+    recommended: false,
+    protected: false,
+  };
+  const output = renderToString(
+    <ChainGraph
+      chain={[entry]}
+      width={50}
+      rows={10}
+      labelOf={(item) => item.step.label}
+      onSelect={() => {}}
+      providerOf={(item) => ({ id: 'jenkins', label: item.step.provider })}
+      triggerBadgeOf={() => 'running'}
+    />,
+  );
+  expect(output).toContain('Running · jenkins');
+  expect(output).toContain('◐');
 });

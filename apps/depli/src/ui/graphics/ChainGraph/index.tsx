@@ -4,6 +4,7 @@ import { type ReactNode, useRef } from 'react';
 import Box from '@/dev-tools/ui/components/Box';
 import { bestTechnique, graphicsSupport } from '@/dev-tools/terminal-canvas';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
+import { mix, parseColor, toHex } from '@/dev-tools/ui/theme';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import { type ChainStep, STATE_ICON } from '../../../core/chain';
@@ -14,13 +15,9 @@ import { progressColumns } from './progress';
 import { connectorOwner } from './connectors';
 import ProgressMarker from '../ProgressMarker';
 
-export type TriggerBadge = 'blocked' | 'readonly' | 'next' | 'checking';
-export const TRIGGER_ICON: Record<TriggerBadge, string> = {
-  blocked: '⊘',
-  readonly: '👁',
-  next: '➜',
-  checking: '…',
-};
+import StatusIcon, { type TriggerBadge } from '../StatusIcon';
+import JobFrame, { supportsJobFrame } from '../JobFrame';
+export { type TriggerBadge, TRIGGER_ICON } from '../StatusIcon';
 
 const stateColor = (state: StepState, colors: ReturnType<typeof useColors>) =>
   state === 'done'
@@ -50,11 +47,25 @@ const clip = (text: string, width: number) => {
 };
 
 /** A content line inside a box: its two side borders around whatever it holds. */
-const Row = ({ side, border, children }: { side: string; border: string; children: ReactNode }) => (
+const Row = ({
+  side,
+  border,
+  background,
+  children,
+}: {
+  side: string;
+  border: string;
+  background?: string;
+  children: ReactNode;
+}) => (
   <Text wrap="truncate">
-    <Text color={border}>{side} </Text>
-    {children}
-    <Text color={border}> {side}</Text>
+    <Text color={border} bold={side === '║'}>
+      {side}
+    </Text>
+    <Text backgroundColor={background}> {children} </Text>
+    <Text color={border} bold={side === '║'}>
+      {side}
+    </Text>
   </Text>
 );
 
@@ -91,13 +102,16 @@ const Node = ({
   const ref = useRef<DOMElement>(null);
   const { isHovered } = useClickable(ref, { onClick });
   const { status } = entry;
-  const border = selected
-    ? colors.accent
-    : isHovered
-      ? colors.highlight
-      : stateColor(status.state, colors);
+  const border = stateColor(status.state, colors);
+  const base = parseColor(colors.page) ?? parseColor(colors.surface);
+  const foreground = parseColor(border);
+  const pixelFrame = selected && supportsJobFrame();
+  const tint =
+    selected && !pixelFrame && !graphicsSupport().imagesInCells && base && foreground
+      ? toHex(mix(base, foreground, 0.1))
+      : undefined;
   const tee = node.center - node.x;
-  const [side, line] = selected ? ['║', '═'] : ['│', '─'];
+  const [side, line] = pixelFrame ? [' ', ' '] : selected ? ['║', '═'] : ['│', '─'];
   const top = borderRow(
     node.width,
     selected ? ['╔', '╗'] : ['╭', '╮'],
@@ -115,7 +129,7 @@ const Node = ({
   const inner = node.width - 4;
   const logo = inner >= 12 && hasProviderLogo(provider.id);
   const providerWidth = inner - (logo ? 5 : 0);
-  const providerText = `${triggerBadge ? `${TRIGGER_ICON[triggerBadge]} ` : ''}${provider.label}`;
+  const providerText = `${triggerBadge ? '    ' : ''}${triggerBadge === 'running' ? 'Running · ' : ''}${provider.label}`;
 
   const ref_ = status.ref;
   const what =
@@ -139,12 +153,12 @@ const Node = ({
 
   return (
     <Box ref={ref} flexDirection="column" width={node.width} flexShrink={0}>
-      <Text color={border} wrap="truncate">
-        {top}
+      <Text color={border} bold={selected || isHovered} wrap="truncate">
+        {pixelFrame ? ' '.repeat(node.width) : top}
       </Text>
       {compact ? (
-        <Row side={side} border={border}>
-          <Text color={colors.text} bold={selected}>
+        <Row side={side} border={border} background={tint}>
+          <Text color={colors.text} bold={selected || isHovered}>
             {clip(title, Math.max(1, providerWidth - tail.length))}
           </Text>
           <Text color={when ? colors.accent : colors.muted} bold={Boolean(when)}>
@@ -154,13 +168,13 @@ const Node = ({
         </Row>
       ) : (
         <>
-          <Row side={side} border={border}>
+          <Row side={side} border={border} background={tint}>
             <Text color={colors.text} bold={selected}>
               {clip(title, providerWidth)}
             </Text>
             {logo && <Text>{' '.repeat(5)}</Text>}
           </Row>
-          <Row side={side} border={border}>
+          <Row side={side} border={border} background={tint}>
             <Text color={when ? colors.accent : colors.muted} bold={Boolean(when)}>
               {clip(`${what}${when ? ` · ${when}` : ''}${marker}`, providerWidth)}
             </Text>
@@ -168,7 +182,7 @@ const Node = ({
           </Row>
         </>
       )}
-      <Row side={side} border={border}>
+      <Row side={side} border={border} background={tint}>
         <Text
           color={
             triggerBadge === 'blocked'
@@ -182,13 +196,29 @@ const Node = ({
         </Text>
         {logo && <Text>{' '.repeat(5)}</Text>}
       </Row>
+      {pixelFrame && (
+        <JobFrame
+          target={ref}
+          color={border}
+          opacity={0.1}
+          overlayId={overlayId + 0x5000}
+          tee={tee}
+          joinTop={joinTop}
+          joinBottom={joinBottom}
+        />
+      )}
+      {triggerBadge && (
+        <Box position="absolute" left={2} bottom={1} width={3} height={1} backgroundColor={tint}>
+          <StatusIcon status={triggerBadge} overlayId={overlayId + 0x3000} />
+        </Box>
+      )}
       {logo && (
-        <Box position="absolute" right={2} bottom={1} width={4} height={2}>
+        <Box position="absolute" right={2} bottom={1} width={4} height={2} backgroundColor={tint}>
           <ProviderLogo provider={provider.id} overlayId={overlayId} rows={2} />
         </Box>
       )}
       <Text color={border} wrap="truncate">
-        {bottom}
+        {pixelFrame ? ' '.repeat(node.width) : bottom}
       </Text>
     </Box>
   );

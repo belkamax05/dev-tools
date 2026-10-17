@@ -677,6 +677,7 @@ export const ChainView = ({
                 onSelect={select}
                 providerOf={data.providerOf}
                 triggerBadgeOf={(entry) => {
+                  if (entry.status.state === 'running') return 'running';
                   if (!data.triggerable(entry)) return 'readonly';
                   const state = triggerState(entry);
                   if (state.checking) return 'checking';

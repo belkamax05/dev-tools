@@ -15,6 +15,8 @@ import { deflateSync } from 'node:zlib';
 export interface KittyImageOptions {
   /** Scale the image into this many terminal columns. */
   cols?: number;
+  /** Negative values place graphics behind text. */
+  zIndex?: number;
   /** Scale the image into this many terminal rows. */
   rows?: number;
   /** Leave the cursor where the image started instead of after it. */
@@ -64,7 +66,15 @@ export function encodeKittyImage(
   height: number,
   options: KittyImageOptions = {},
 ): string {
-  const { cols, rows, preserveCursor = false, id, quiet = true, compress = false } = options;
+  const {
+    cols,
+    rows,
+    preserveCursor = false,
+    id,
+    zIndex,
+    quiet = true,
+    compress = false,
+  } = options;
   // `Bun.deflateSync` emits *raw* deflate with no option to change it, and the
   // protocol asks for the RFC 1950 container — so this one goes through node's
   // zlib, which writes the header and Adler-32 in C rather than in a loop here.
@@ -82,6 +92,7 @@ export function encodeKittyImage(
   // still describe the pixels as they will be after the terminal inflates them.
   if (compress) control.push('o=z');
   if (id !== undefined) control.push(`i=${id}`);
+  if (zIndex !== undefined) control.push(`z=${zIndex}`);
   if (cols) control.push(`c=${cols}`);
   if (rows) control.push(`r=${rows}`);
   if (preserveCursor) control.push('C=1');

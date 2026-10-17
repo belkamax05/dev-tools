@@ -76,13 +76,13 @@ export const LogPanel = ({
         const chunk = await readRef.current(runRef.current, next);
         if (!alive) return;
         next = chunk.next;
-        if (chunk.unavailable) setNote(chunk.unavailable);
+        setNote(chunk.unavailable);
         ({ lines: acc, partial: rest } = appendLog(acc, rest, chunk.text));
         setLines(acc);
         setPartial(rest);
         setLive(chunk.more);
         setError(undefined);
-        if (chunk.more && !chunk.unavailable) timer = setTimeout(tick, POLL_MS);
+        if (chunk.more) timer = setTimeout(tick, POLL_MS);
       } catch (failure) {
         if (alive) setError((failure as Error).message);
       } finally {

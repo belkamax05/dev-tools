@@ -10,7 +10,8 @@ import {
   type StepRun,
   type StepStatus,
 } from '../../core/plugin';
-import { type GithubOptions, githubJobLog, githubRequest, splitRepo } from './api';
+import { type GithubOptions, githubRequest, splitRepo } from './api';
+import { checkLog } from './logs';
 
 export type { GithubOptions };
 
@@ -201,20 +202,23 @@ const branchStatus = async (
       `${path}/activity?ref=${encodeURIComponent(`refs/heads/${branch}`)}&per_page=10`,
     ).catch(() => [] as ActivityResponse),
   ]);
-  const checkRuns: StepRun[] = checks.check_runs.map((run) => ({
-    id: `check-${run.id}`,
-    label: `check: ${run.name}`,
-    state: runState(run.status, run.conclusion),
-    at: Date.parse(run.completed_at ?? run.started_at ?? '') || undefined,
-    durationMs: run.started_at
-      ? Math.max(
-          0,
-          (run.completed_at ? Date.parse(run.completed_at) : Date.now()) -
-            Date.parse(run.started_at),
-        )
-      : undefined,
-    url: run.html_url,
-  }));
+  const checkRuns: StepRun[] = checks.check_runs
+    .map((run) => ({
+      id: `check-${run.id}`,
+      label: `check: ${run.name}`,
+      state: runState(run.status, run.conclusion),
+      at: Date.parse(run.completed_at ?? run.started_at ?? '') || undefined,
+      durationMs: run.started_at
+        ? Math.max(
+            0,
+            (run.completed_at ? Date.parse(run.completed_at) : Date.now()) -
+              Date.parse(run.started_at),
+          )
+        : undefined,
+      url: run.html_url,
+      detail: run.conclusion === 'skipped' ? 'skipped' : undefined,
+    }))
+    .sort((a, b) => Number(a.detail === 'skipped') - Number(b.detail === 'skipped'));
   const actionRuns: StepRun[] = runs.workflow_runs
     .filter((run) => run.head_sha !== head.commit.sha || !checkRuns.length)
     .map((run) => ({
@@ -295,31 +299,7 @@ export const githubPlugin = definePlugin<GithubOptions>({
     branch: {
       status: (context, input) =>
         branchStatus(context, input.branch, context.connection?.transport),
-      logs: async ({ options, env }, _input, run) => {
-        if (!run.id.startsWith('check-'))
-          return {
-            text: '',
-            next: 0,
-            more: false,
-            unavailable: 'GitHub gives whole-run logs only as a zip — [O] opens the run',
-          };
-        if (run.state === 'running' || run.state === 'queued')
-          return {
-            text: '',
-            next: 0,
-            more: true,
-            unavailable: 'GitHub shows a job’s log once it has finished — [O] follows it live',
-          };
-        const text = await githubJobLog(options, env, run.id.slice(6));
-        if (text === undefined)
-          return {
-            text: '',
-            next: 0,
-            more: false,
-            unavailable: 'No log: this check was not made by an Actions job',
-          };
-        return { text, next: text.length, more: false };
-      },
+      logs: ({ options, env }, _input, run) => checkLog(options, env, run),
     },
   },
   branches: async (context, connection, patterns) => {
