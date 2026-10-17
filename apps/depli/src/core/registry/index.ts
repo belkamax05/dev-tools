@@ -1,51 +1,58 @@
-import type { DepliProjectConfig } from '../../config/project';
+import type { DepliProjectConfig, ProviderConfig } from '../../config/project';
 import githubPlugin from '../../plugins/github';
 import jenkinsPlugin from '../../plugins/jenkins';
-import type { DeployCheck, DeployContext, DeployPlugin } from '../plugin';
+import type { PluginContext, ProviderPlugin, Transport } from '../plugin';
 
 /** What ships with depli. Each is an ordinary plugin — nothing here is special-cased. */
-export const BUILTIN_PLUGINS: readonly DeployPlugin<any>[] = [jenkinsPlugin, githubPlugin];
+export const BUILTIN_PLUGINS: readonly ProviderPlugin<any>[] = [githubPlugin, jenkinsPlugin];
 
-/** One plugin as a project sees it: the plugin and the options its config gives it. */
-export interface Target {
-  plugin: DeployPlugin<any>;
-  options: Record<string, unknown>;
+/** One provider instance of the project: its name in config, the plugin, its options. */
+export interface Provider {
+  name: string;
+  plugin: ProviderPlugin<any>;
+  options: ProviderConfig;
+  /** The plugin's transports in the order this instance prefers them. */
+  transports: Transport<any>[];
 }
 
-/**
- * The built-ins, minus `disable`, with the project's own `plugins` added — or swapped in, when
- * one reuses a built-in's id. Order: built-ins first, in their own order, then the new ones.
- */
-export const resolveTargets = (config: DepliProjectConfig): Target[] => {
-  const disabled = new Set(config.disable ?? []);
-  const byId = new Map<string, DeployPlugin<any>>();
-  for (const plugin of BUILTIN_PLUGINS) byId.set(plugin.id, plugin);
-  for (const plugin of config.plugins ?? []) byId.set(plugin.id, plugin);
-  return [...byId.values()]
-    .filter((plugin) => !disabled.has(plugin.id))
-    .map((plugin) => ({ plugin, options: config.targets?.[plugin.id] ?? {} }));
-};
-
-export interface ContextBase {
-  cwd: string;
-  env: DeployContext['env'];
-  log?: (line: string) => void;
-  dryRun?: boolean;
+export interface Project {
+  dir: string;
+  config: DepliProjectConfig;
+  providers: Provider[];
+  /** Config mistakes, reported in the UI rather than thrown. */
+  problems: string[];
 }
 
-export const contextFor = (target: Target, base: ContextBase): DeployContext => ({
-  cwd: base.cwd,
-  env: base.env,
-  options: target.options,
-  log: base.log ?? (() => {}),
-  dryRun: base.dryRun ?? false,
-});
-
-/** A plugin whose check throws is reported as one failed check, not a crash. */
-export const checkTarget = async (target: Target, base: ContextBase): Promise<DeployCheck[]> => {
-  try {
-    return await target.plugin.check(contextFor(target, base));
-  } catch (error) {
-    return [{ label: 'check', ok: false, detail: (error as Error).message }];
+export const resolveProject = (dir: string, config: DepliProjectConfig): Project => {
+  const plugins = new Map<string, ProviderPlugin<any>>();
+  for (const plugin of [...BUILTIN_PLUGINS, ...(config.plugins ?? [])])
+    plugins.set(plugin.id, plugin);
+  const problems: string[] = [];
+  const providers: Provider[] = [];
+  for (const [name, options] of Object.entries(config.providers ?? {})) {
+    const plugin = plugins.get(options.plugin);
+    if (!plugin) {
+      problems.push(`providers.${name}: no plugin "${options.plugin}"`);
+      continue;
+    }
+    const order = options.transports ?? plugin.transports.map((transport) => transport.id);
+    const transports = order
+      .map((id) => plugin.transports.find((transport) => transport.id === id))
+      .filter((transport): transport is Transport<any> => Boolean(transport));
+    providers.push({ name, plugin, options, transports });
   }
+  for (const step of config.pipeline ?? []) {
+    const provider = providers.find((entry) => entry.name === step.provider);
+    if (!provider) problems.push(`pipeline.${step.id}: no provider "${step.provider}"`);
+    else if (!provider.plugin.steps[step.kind])
+      problems.push(`pipeline.${step.id}: ${provider.plugin.id} has no step kind "${step.kind}"`);
+  }
+  return { dir, config, providers, problems };
 };
+
+export const contextFor = (
+  project: Project,
+  provider: Provider,
+  env: PluginContext['env'],
+  connection?: PluginContext['connection'],
+): PluginContext<any> => ({ cwd: project.dir, env, options: provider.options, connection });

@@ -10,4 +10,6 @@ export type { Tone };
 export interface Session {
   tab: string;
   selected: Record<string, string | undefined>;
+  /** The Branches tab's filter text. */
+  branchFilter?: string;
 }

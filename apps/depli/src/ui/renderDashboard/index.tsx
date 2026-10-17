@@ -1,25 +1,29 @@
 import { render } from 'ink';
 
+import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
+
 import runTuiSession from '@/dev-tools/ui/app/runTuiSession';
 import { describeClearResults } from '@/dev-tools/ui/components/ClearDataDialog';
 
-import { loadProjectConfig } from '../../config/project';
 import { configStore, type DepliConfig, stateStore, type TabId } from '../../config/settings';
-import { resolveTargets } from '../../core/registry';
+import { openSession } from '../../core/session';
 import App from '../App';
 import type { Session } from '../types';
 
 /**
  * Open the dashboard, and keep reopening it after a handoff until the user quits.
  *
- * The project is read once, here: the targets and the folder they deploy from are fixed for the
- * session, and re-read after a handoff (an edited depli.config.ts takes effect on return).
+ * The project is read here and again after a handoff, so an edited depli.config.ts takes effect
+ * on return.
  */
 export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
-  let [config, state, project] = await Promise.all([
+  //? The probe reads replies from stdin, before Ink turns them into keypresses — then the
+  //? graph, history strips and avatars draw with kitty / sixel / iTerm2, or as characters
+  await probeGraphicsSupport();
+  let [config, state, depli] = await Promise.all([
     configStore.load(),
     stateStore.load(),
-    loadProjectConfig(),
+    openSession(),
   ]);
   const session: Session = { tab: initialTab ?? state.tab, selected: {} };
   let cleared: string | undefined;
@@ -27,10 +31,7 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
   await runTuiSession(
     (frame) => (
       <App
-        root={project.dir}
-        projectPath={project.path}
-        projectError={project.error}
-        targets={resolveTargets(project.config)}
+        depli={depli}
         config={config}
         configPath={configStore.path}
         session={session}
@@ -39,8 +40,9 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
           config = next;
           configStore.save(next).catch(() => {});
         }}
-        onStateChange={() => {
-          state = { tab: session.tab as TabId };
+        onStateChange={async () => {
+          //? Re-read first: the branch pick and env are saved there by the chain as they change
+          state = { ...(await stateStore.load()), tab: session.tab as TabId };
           stateStore.save(state).catch(() => {});
         }}
         onHandoff={frame.handoff}
@@ -52,7 +54,7 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
     {
       render,
       afterHandoff: async () => {
-        [config, project] = await Promise.all([configStore.load(), loadProjectConfig()]);
+        [config, depli] = await Promise.all([configStore.load(), openSession()]);
       },
       describe: (intent) =>
         intent.type === 'edit' ? `Back from editing ${intent.path}` : `Back from ${intent.label}`,

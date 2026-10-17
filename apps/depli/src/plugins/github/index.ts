@@ -1,40 +1,331 @@
-import { type DeployCheck, definePlugin, envCheck } from '../../core/plugin';
+import exec from '@/dev-tools/utils/process/exec';
 
-export interface GithubOptions {
-  /** `owner/name` */
-  repo?: string;
-  /** The workflow file to dispatch, e.g. `deploy.yml`. */
-  workflow?: string;
-  /** The ref it runs on; the current branch when unset. */
-  ref?: string;
-  /** The variable holding a token with `actions: write`. */
-  tokenEnv?: string;
+import { expandHome } from '../../config/project';
+import {
+  type BranchHead,
+  definePlugin,
+  matchesPatterns,
+  type PluginContext,
+  type StepActor,
+  type StepRun,
+  type StepStatus,
+} from '../../core/plugin';
+import { type GithubOptions, githubJobLog, githubRequest, splitRepo } from './api';
+
+export type { GithubOptions };
+
+/** `git ls-remote` heads from the configured checkout — what the SSH transport can see. */
+const lsRemote = async ({ cwd, options }: PluginContext<GithubOptions>, refs: string[] = []) => {
+  const result = await exec(
+    [
+      'git',
+      '-C',
+      expandHome(options.checkout ?? cwd),
+      'ls-remote',
+      '--heads',
+      options.remote ?? 'origin',
+      ...refs,
+    ],
+    {},
+  );
+  if (result.exitCode !== 0)
+    throw new Error(result.stderr.split('\n')[0] || 'git ls-remote failed');
+  return result.stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [sha = '', ref = ''] = line.split('\t');
+      return { sha, name: ref.replace('refs/heads/', '') };
+    });
+};
+
+interface RefsPage {
+  data: {
+    repository: {
+      refs: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        nodes: Array<{
+          name: string;
+          target: { oid: string; committedDate?: string; messageHeadline?: string };
+        }>;
+      };
+    };
+  };
 }
 
-/** Template: checks are real, the deploy itself is not written yet. */
+/** Every branch with its head commit's time, 100 per GraphQL page. */
+const apiBranches = async ({ options, env }: PluginContext<GithubOptions>) => {
+  const { owner, name } = splitRepo(options.repo);
+  const heads: BranchHead[] = [];
+  let after: string | null = null;
+  do {
+    const page: RefsPage = await githubRequest<RefsPage>(options, env, '/graphql', {
+      query: `query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){refs(refPrefix:"refs/heads/",first:100,after:$after){pageInfo{hasNextPage endCursor}nodes{name target{oid ... on Commit{committedDate messageHeadline}}}}}}`,
+      variables: { owner, name, after },
+    });
+    const refs = page.data.repository.refs;
+    for (const node of refs.nodes) {
+      heads.push({
+        name: node.name,
+        sha: node.target.oid,
+        committedAt: node.target.committedDate,
+        message: node.target.messageHeadline,
+      });
+    }
+    after = refs.pageInfo.hasNextPage ? refs.pageInfo.endCursor : null;
+  } while (after);
+  return heads;
+};
+
+const runState = (status: string, conclusion: string | null): StepRun['state'] => {
+  if (status === 'queued' || status === 'waiting' || status === 'pending') return 'queued';
+  if (status !== 'completed') return 'running';
+  if (conclusion === 'success' || conclusion === 'skipped' || conclusion === 'neutral')
+    return 'success';
+  if (conclusion === 'cancelled') return 'aborted';
+  return 'failure';
+};
+
+interface BranchResponse {
+  commit: {
+    sha: string;
+    html_url: string;
+    commit: { committer: { date: string }; author?: { name?: string }; message: string };
+    author: { login?: string; avatar_url?: string } | null;
+  };
+}
+interface CheckRunsResponse {
+  check_runs: Array<{
+    id: number;
+    name: string;
+    status: string;
+    conclusion: string | null;
+    completed_at: string | null;
+    started_at: string | null;
+    html_url: string;
+  }>;
+}
+interface PullsResponse
+  extends Array<{
+    number: number;
+    title: string;
+    html_url: string;
+    base: { ref: string };
+    draft: boolean;
+  }> {}
+interface ActivityResponse
+  extends Array<{
+    activity_type: string;
+    after: string;
+    timestamp: string;
+    actor: { login: string; avatar_url?: string } | null;
+  }> {}
+
+/** The push (or merge) that made `head` the branch's head, else the commit's author. */
+const actorOf = (head: BranchResponse, activity: ActivityResponse): StepActor | undefined => {
+  const event = activity.find((item) => item.after === head.commit.sha) ?? undefined;
+  if (event?.actor)
+    return {
+      login: event.actor.login,
+      avatarUrl: event.actor.avatar_url,
+      action: event.activity_type,
+      at: Date.parse(event.timestamp),
+    };
+  const author = head.commit.author;
+  return author
+    ? {
+        login: (author as { login?: string }).login ?? head.commit.commit.author?.name ?? '?',
+        name: head.commit.commit.author?.name,
+        avatarUrl: author.avatar_url,
+        action: 'authored',
+      }
+    : undefined;
+};
+
+interface RunsResponse {
+  workflow_runs: Array<{
+    id: number;
+    name: string;
+    status: string;
+    conclusion: string | null;
+    created_at: string;
+    updated_at: string;
+    html_url: string;
+    head_sha: string;
+  }>;
+}
+
+/**
+ * The branch's head as the chain's checkpoint, with what GitHub is doing about it: the open PRs
+ * from it, the head commit's check runs and the branch's latest Actions runs. Observe-only.
+ */
+const branchStatus = async (
+  context: PluginContext<GithubOptions>,
+  branch: string,
+  transport: string | undefined,
+): Promise<StepStatus> => {
+  const { options, env } = context;
+  if (transport === 'ssh') {
+    const [head] = await lsRemote(context, [`refs/heads/${branch}`]);
+    if (!head) return { state: 'missing', summary: `no branch ${branch} on the remote` };
+    return {
+      state: 'done',
+      summary: `head ${head.sha.slice(0, 8)} (SSH: no commit time, checks or PRs)`,
+      ref: { sha: head.sha },
+    };
+  }
+  const path = `/repos/${options.repo}`;
+  const encoded = encodeURIComponent(branch);
+  let head: BranchResponse;
+  try {
+    head = await githubRequest<BranchResponse>(options, env, `${path}/branches/${encoded}`);
+  } catch (error) {
+    if ((error as { status?: number }).status === 404)
+      return { state: 'missing', summary: `no branch ${branch} on GitHub` };
+    throw error;
+  }
+  const { owner } = splitRepo(options.repo);
+  const [checks, pulls, runs, activity] = await Promise.all([
+    githubRequest<CheckRunsResponse>(
+      options,
+      env,
+      `${path}/commits/${head.commit.sha}/check-runs?per_page=30`,
+    ),
+    githubRequest<PullsResponse>(options, env, `${path}/pulls?state=open&head=${owner}:${encoded}`),
+    githubRequest<RunsResponse>(options, env, `${path}/actions/runs?branch=${encoded}&per_page=5`),
+    //? Who pushed (or merged) — not the commit's author, who may be someone else entirely.
+    //? Optional: a token without access to it just loses the name
+    githubRequest<ActivityResponse>(
+      options,
+      env,
+      `${path}/activity?ref=${encodeURIComponent(`refs/heads/${branch}`)}&per_page=10`,
+    ).catch(() => [] as ActivityResponse),
+  ]);
+  const checkRuns: StepRun[] = checks.check_runs.map((run) => ({
+    id: `check-${run.id}`,
+    label: `check: ${run.name}`,
+    state: runState(run.status, run.conclusion),
+    at: Date.parse(run.completed_at ?? run.started_at ?? '') || undefined,
+    durationMs: run.started_at
+      ? Math.max(
+          0,
+          (run.completed_at ? Date.parse(run.completed_at) : Date.now()) -
+            Date.parse(run.started_at),
+        )
+      : undefined,
+    url: run.html_url,
+  }));
+  const actionRuns: StepRun[] = runs.workflow_runs
+    .filter((run) => run.head_sha !== head.commit.sha || !checkRuns.length)
+    .map((run) => ({
+      id: `run-${run.id}`,
+      label: `action: ${run.name}`,
+      state: runState(run.status, run.conclusion),
+      at: Date.parse(run.created_at),
+      durationMs:
+        (run.status === 'completed' ? Date.parse(run.updated_at) : Date.now()) -
+        Date.parse(run.created_at),
+      url: run.html_url,
+      detail: run.head_sha === head.commit.sha ? 'head' : `at ${run.head_sha.slice(0, 8)}`,
+    }));
+  const committedAt = Date.parse(head.commit.commit.committer.date);
+  const running = checkRuns.some((run) => run.state === 'running' || run.state === 'queued');
+  const failed = checkRuns.filter((run) => run.state === 'failure');
+  return {
+    state: running ? 'running' : failed.length ? 'failed' : 'done',
+    summary: `head ${head.commit.sha.slice(0, 8)} · ${head.commit.commit.message.split('\n')[0]}`,
+    ref: { sha: head.commit.sha, finishedAt: committedAt },
+    url: head.commit.html_url,
+    actor: actorOf(head, activity),
+    runs: [...checkRuns, ...actionRuns],
+    notes: [
+      ...(failed.length
+        ? [`failing checks: ${failed.map((run) => run.label.slice(7)).join(', ')}`]
+        : []),
+      ...(pulls.length
+        ? pulls.map(
+            (pr) => `PR #${pr.number} → ${pr.base.ref}${pr.draft ? ' (draft)' : ''}: ${pr.title}`,
+          )
+        : ['no open PR from this branch']),
+    ],
+  };
+};
+
 export const githubPlugin = definePlugin<GithubOptions>({
   id: 'github',
   label: 'GitHub',
   icon: '🐙',
-  description: 'Dispatch a GitHub Actions workflow',
-  check: async ({ env, options }) => {
-    const tokenEnv = options.tokenEnv ?? 'GITHUB_TOKEN';
-    const checks: DeployCheck[] = [envCheck(env, tokenEnv, 'Token')];
-    checks.push({
-      label: 'Repository',
-      ok: Boolean(options.repo),
-      detail: options.repo ?? 'set targets.github.repo in depli.config.ts',
-    });
-    checks.push({
-      label: 'Workflow',
-      ok: Boolean(options.workflow),
-      detail: options.workflow ?? 'set targets.github.workflow in depli.config.ts',
-    });
-    return checks;
+  transports: [
+    {
+      id: 'api',
+      label: 'API (token / gh login)',
+      capabilities: ['heads', 'commits', 'checks', 'pulls', 'runs'],
+      probe: async ({ options, env }) => {
+        try {
+          const repo = await githubRequest<{ full_name: string; permissions?: { push?: boolean } }>(
+            options,
+            env,
+            `/repos/${options.repo}`,
+          );
+          const me = await githubRequest<{ login: string }>(options, env, '/user');
+          return { ok: true, detail: `can read ${repo.full_name}`, identity: me.login };
+        } catch (error) {
+          return { ok: false, detail: (error as Error).message };
+        }
+      },
+    },
+    {
+      id: 'ssh',
+      label: 'SSH (git ls-remote)',
+      capabilities: ['heads'],
+      probe: async (context) => {
+        try {
+          const heads = await lsRemote(context, ['HEAD-does-not-exist']);
+          return {
+            ok: true,
+            detail: `git ls-remote works (${heads.length ? 'heads' : 'reachable'})`,
+          };
+        } catch (error) {
+          return { ok: false, detail: (error as Error).message };
+        }
+      },
+    },
+  ],
+  steps: {
+    branch: {
+      status: (context, input) =>
+        branchStatus(context, input.branch, context.connection?.transport),
+      logs: async ({ options, env }, _input, run) => {
+        if (!run.id.startsWith('check-'))
+          return {
+            text: '',
+            next: 0,
+            more: false,
+            unavailable: 'GitHub gives whole-run logs only as a zip — [O] opens the run',
+          };
+        if (run.state === 'running' || run.state === 'queued')
+          return {
+            text: '',
+            next: 0,
+            more: true,
+            unavailable: 'GitHub shows a job’s log once it has finished — [O] follows it live',
+          };
+        const text = await githubJobLog(options, env, run.id.slice(6));
+        if (text === undefined)
+          return {
+            text: '',
+            next: 0,
+            more: false,
+            unavailable: 'No log: this check was not made by an Actions job',
+          };
+        return { text, next: text.length, more: false };
+      },
+    },
   },
-  deploy: async ({ options, log, dryRun }) => {
-    log(`${dryRun ? 'Would dispatch' : 'Dispatching'} ${options.workflow ?? '(no workflow)'}`);
-    return { ok: false, message: 'The GitHub plugin is a template — deploy is not written yet' };
+  branches: async (context, connection, patterns) => {
+    const all =
+      connection.transport === 'api' ? await apiBranches(context) : await lsRemote(context);
+    return patterns.length ? all.filter((head) => matchesPatterns(head.name, patterns)) : all;
   },
 });
 

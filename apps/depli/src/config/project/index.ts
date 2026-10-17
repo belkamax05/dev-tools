@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { DeployPlugin } from '../../core/plugin';
+import type { ProviderPlugin, StepConfig } from '../../core/plugin';
 
 /** The file names looked for, in order. `.ts` is the documented one. */
 export const PROJECT_CONFIG_NAMES = [
@@ -11,25 +12,68 @@ export const PROJECT_CONFIG_NAMES = [
   'depli.config.js',
 ] as const;
 
+/** One provider instance: which plugin, and its options (URLs, which env vars hold secrets…). */
+export interface ProviderConfig {
+  plugin: string;
+  /** Transport ids in order of preference; the plugin's own order when unset. */
+  transports?: string[];
+  [option: string]: unknown;
+}
+
+export interface EnvConfig {
+  id: string;
+  label?: string;
+  /**
+   * Never auto-proceeds into or through it, and every trigger needs its own confirmation — even
+   * when auto-proceed or one-click chains are on.
+   */
+  protected?: boolean;
+}
+
+export interface TriggerConfig {
+  /** Off: plans are shown as dry runs and nothing is ever sent. */
+  enabled?: boolean;
+  /** Opt-in: start the next step when one succeeds (stops before a protected env). */
+  autoProceed?: boolean;
+}
+
 /**
  * What a project's `depli.config.ts` may export.
  *
  * ```ts
- * // depli.config.ts
- * export default {
- *   targets: {
- *     jenkins: { url: 'https://jenkins.example.com', job: 'web/job/deploy', tokenEnv: 'MY_TOKEN' },
- *     github: { repo: 'owner/name', workflow: 'deploy.yml' },
+ * export default defineConfig({
+ *   repo: { path: '~/code/app' },
+ *   branches: { watch: ['main', 'release-*'] },
+ *   providers: {
+ *     github: { plugin: 'github', repo: 'owner/app' },
+ *     jenkins: { plugin: 'jenkins', url: 'https://ci.example.com', userEnv: 'CI_USER', tokenEnv: 'CI_TOKEN' },
  *   },
- *   plugins: [myPlugin],   // added, or replacing a built-in with the same id
- *   disable: ['github'],   // built-ins not offered here
- * };
+ *   envs: [{ id: 'qa' }, { id: 'prod', protected: true }],
+ *   pipeline: [
+ *     { id: 'push', label: 'Push', provider: 'github', kind: 'branch' },
+ *     { id: 'build', label: 'Build', provider: 'jenkins', kind: 'job', job: 'build', after: ['push'] },
+ *   ],
+ * });
  * ```
  */
 export interface DepliProjectConfig {
-  targets?: Record<string, Record<string, unknown>>;
-  plugins?: DeployPlugin<any>[];
-  disable?: string[];
+  /** The checkout whose current branch preselects the branch. */
+  repo?: { path?: string };
+  branches?: {
+    /** Glob patterns shown first, and the ones polled; every other branch is still reachable. */
+    watch?: string[];
+    /** Which provider instance lists branches; the first that can when unset. */
+    provider?: string;
+  };
+  providers?: Record<string, ProviderConfig>;
+  envs?: EnvConfig[];
+  defaultEnv?: string;
+  pipeline?: StepConfig[];
+  triggers?: TriggerConfig;
+  /** Added — or replacing a built-in, by reusing its id. */
+  plugins?: ProviderPlugin<any>[];
+  /** Seconds between connection probes; 0 switches polling off. */
+  pollSeconds?: number;
 }
 
 /** Typing help for a `depli.config.ts`; returns its argument. */
@@ -43,6 +87,9 @@ export interface ProjectConfigResult {
   /** Why the file could not be used — reported rather than thrown. */
   error?: string;
 }
+
+export const expandHome = (path: string): string =>
+  path === '~' ? homedir() : path.startsWith('~/') ? join(homedir(), path.slice(2)) : path;
 
 /** The nearest config file at or above `dir`, the way git finds its repository. */
 export const findProjectConfig = (dir: string): string | undefined => {

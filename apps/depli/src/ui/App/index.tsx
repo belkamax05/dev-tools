@@ -1,12 +1,15 @@
 import { basename } from 'node:path';
-import { useApp } from 'ink';
-import { useState } from 'react';
+import { type DOMElement, Text, useApp, useInput } from 'ink';
+import { useRef, useState } from 'react';
 
 import AppShell from '@/dev-tools/ui/components/AppShell';
-import useStatus from '@/dev-tools/ui/hooks/useStatus';
+import Box from '@/dev-tools/ui/components/Box';
 import type { ClearResult } from '@/dev-tools/ui/components/ClearDataDialog';
 import type { FooterAction } from '@/dev-tools/ui/components/Footer';
 import type { TabDefinition } from '@/dev-tools/ui/components/TabStrip';
+import useClickable from '@/dev-tools/ui/hooks/useClickable';
+import useStatus from '@/dev-tools/ui/hooks/useStatus';
+import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
   configStore,
@@ -15,24 +18,97 @@ import {
   TAB_IDS,
   type TabId,
 } from '../../config/settings';
-import type { Target } from '../../core/registry';
+import type { Session as DepliSession } from '../../core/session';
 import depliTheme from '../theme';
 import type { Handoff, Session } from '../types';
+import useDepli, { type DepliData } from '../useDepli';
+import BranchesView from '../views/BranchesView';
+import ChainView from '../views/ChainView';
+import ConnectionsView from '../views/ConnectionsView';
+import EnvsView from '../views/EnvsView';
 import SettingsView from '../views/SettingsView';
-import TargetsView from '../views/TargetsView';
 
 /** Every icon is East Asian Width *Wide* with no U+FE0F selector — see `TabDefinition`. */
 export const TABS: readonly TabDefinition<TabId>[] = [
-  { id: 'targets', icon: '🚀', label: '🚀 Targets' },
+  { id: 'chain', icon: '🚀', label: '🚀 Chain' },
+  { id: 'envs', icon: '🌍', label: '🌍 Envs' },
+  { id: 'branches', icon: '🌿', label: '🌿 Branches' },
+  { id: 'connections', icon: '🔌', label: '🔌 Connections' },
   { id: 'settings', icon: '🔧', label: '🔧 Settings' },
 ];
 
+/** A word in the status row that does something when clicked. */
+const Clickable = ({
+  children,
+  color,
+  onClick,
+}: {
+  children: string;
+  color: string;
+  onClick: () => void;
+}) => {
+  const ref = useRef<DOMElement>(null);
+  const { isHovered } = useClickable(ref, { onClick });
+  return (
+    <Box ref={ref} flexShrink={0}>
+      <Text color={color} inverse={isHovered}>
+        {children}
+      </Text>
+    </Box>
+  );
+};
+
+/**
+ * Under the tabs, on every tab: each provider's connection (click: the Connections tab), the
+ * branch and env (click: Branches / the Chain), and whether triggers can fire at all.
+ */
+const StatusRow = ({
+  data,
+  providers,
+  triggers,
+  onTab,
+}: {
+  data: DepliData;
+  providers: string[];
+  triggers: boolean;
+  onTab: (tab: TabId) => void;
+}) => {
+  const colors = useColors();
+  return (
+    <Box flexDirection="row" flexShrink={0}>
+      {providers.map((name) => {
+        const connection = data.connections[name];
+        const up = Boolean(connection?.transport);
+        return (
+          <Box key={name} marginRight={2} flexShrink={0}>
+            <Clickable
+              color={connection ? (up ? colors.ok : colors.error) : colors.muted}
+              onClick={() => onTab('connections')}
+            >
+              {`${up ? '●' : '○'} ${name}${connection ? ` ${connection.transport ?? 'offline'}` : ' …'}`}
+            </Clickable>
+          </Box>
+        );
+      })}
+      <Box marginRight={2} flexShrink={0}>
+        <Clickable color={colors.text} onClick={() => onTab('branches')}>
+          {`⎇ ${data.branch ?? '—'}`}
+        </Clickable>
+      </Box>
+      <Box marginRight={2} flexShrink={0}>
+        <Clickable color={colors.text} onClick={() => onTab('envs')}>
+          {`→ ${data.targetEnv}`}
+        </Clickable>
+      </Box>
+      <Text color={triggers ? colors.error : colors.muted}>
+        {triggers ? 'triggers ON' : 'dry run only'}
+      </Text>
+    </Box>
+  );
+};
+
 export interface AppProps {
-  /** The project folder — where depli.config.ts was found, else the cwd. */
-  root: string;
-  projectPath?: string;
-  projectError?: string;
-  targets: Target[];
+  depli: DepliSession;
   config: DepliConfig;
   configPath: string;
   session: Session;
@@ -45,12 +121,9 @@ export interface AppProps {
   onCleared: (results: ClearResult[]) => void;
 }
 
-/** depli's dashboard: the deploy targets this project has, whether each is ready, and a deploy. */
+/** depli's dashboard: the chain for a branch and env, every env, the branches, the connections. */
 export const App = ({
-  root,
-  projectPath,
-  projectError,
-  targets,
+  depli,
   config: initialConfig,
   configPath,
   session,
@@ -61,15 +134,23 @@ export const App = ({
   onCleared,
 }: AppProps) => {
   const { exit } = useApp();
+  const { project } = depli;
   const [config, setConfig] = useState(initialConfig);
   const [tab, setTab] = useState<TabId>(
-    TAB_IDS.includes(session.tab as TabId) ? (session.tab as TabId) : 'targets',
+    TAB_IDS.includes(session.tab as TabId) ? (session.tab as TabId) : 'chain',
   );
   const [isInputCaptured, setIsInputCaptured] = useState(false);
+  const [filterOnArrival, setFilterOnArrival] = useState(false);
   const { status, notify, setStatus } = useStatus(
-    notice ?? (projectError ? `${projectPath}: ${projectError}` : undefined),
+    notice ??
+      (depli.reset
+        ? `Checkout is on ${depli.current} — the earlier pick was reset to it`
+        : undefined) ??
+      project.problems[0],
   );
-  const [refreshKey, setRefreshKey] = useState(0);
+  const data = useDepli(depli, notify);
+  const envs = project.config.envs ?? [];
+  const triggers = Boolean(project.config.triggers?.enabled);
 
   const updateConfig = (next: DepliConfig) => {
     setConfig(next);
@@ -82,48 +163,104 @@ export const App = ({
     onStateChange();
   };
 
+  //? Everywhere: B is "back to the branch I have checked out"
+  useInput(
+    (input) => {
+      if (input !== 'B') return;
+      if (!data.current) return notify('No checkout branch to go back to', 'warn');
+      data.resetBranch();
+      notify(`Back on ${data.current}`, 'ok');
+    },
+    { isActive: !isInputCaptured },
+  );
+
   const footerActions: FooterAction[] = [
     {
       id: 'refresh',
-      label: 'Recheck',
+      label: 'Refresh',
       hotkey: 'r',
       onPress: () => {
-        setRefreshKey((key) => key + 1);
+        data.refresh();
         setStatus(undefined);
       },
-      tooltip: 'Run every target’s checks again',
+      tooltip: 'Read the chain, the branches and the envs again',
     },
   ];
 
   return (
     <AppShell
       title="depli"
-      detail={`${basename(root) || root} · ${targets.length} targets`}
+      detail={`${basename(project.dir)}${data.current ? ` · checkout ${data.current}` : ''}`}
       status={status}
-      note={projectPath ?? `${root} (no depli.config.ts)`}
+      note={depli.path ?? `${project.dir} (no depli.config.ts)`}
       tabs={TABS}
       activeTab={tab}
       onTabChange={changeTab}
+      underTabs={
+        <StatusRow
+          data={data}
+          providers={project.providers.map((provider) => provider.name)}
+          triggers={triggers}
+          onTab={changeTab}
+        />
+      }
       theme={depliTheme}
       palette={config.theme}
       onPaletteChange={(theme) => updateConfig({ ...config, theme })}
       isInputCaptured={isInputCaptured}
-      footerHints="[r] recheck"
+      footerHints="[r] refresh · [B] checkout branch"
       footerActions={footerActions}
     >
-      {tab === 'targets' && (
-        <TargetsView
-          root={root}
-          targets={targets}
+      {tab === 'chain' && (
+        <ChainView
+          data={data}
+          envIds={envs.map((entry) => entry.id)}
+          protectedEnvs={envs.filter((entry) => entry.protected).map((entry) => entry.id)}
+          triggersEnabled={triggers}
           session={session}
           notify={notify}
-          refreshKey={refreshKey}
+          onCaptureInput={setIsInputCaptured}
+          onPickBranch={() => {
+            setFilterOnArrival(true);
+            changeTab('branches');
+          }}
+        />
+      )}
+      {tab === 'envs' && (
+        <EnvsView
+          data={data}
+          session={session}
+          onOpenEnv={(env) => {
+            data.setEnv(env);
+            changeTab('chain');
+          }}
+        />
+      )}
+      {tab === 'branches' && (
+        <BranchesView
+          data={data}
+          watch={project.config.branches?.watch ?? []}
+          session={session}
+          startFiltering={filterOnArrival}
+          onCaptureInput={(captured) => {
+            setIsInputCaptured(captured);
+            if (!captured) setFilterOnArrival(false);
+          }}
+          onPicked={() => changeTab('chain')}
+        />
+      )}
+      {tab === 'connections' && (
+        <ConnectionsView
+          data={data}
+          providers={project.providers}
+          problems={project.problems}
+          session={session}
         />
       )}
       {tab === 'settings' && (
         <SettingsView
           configPath={configPath}
-          projectPath={projectPath}
+          projectPath={depli.path}
           session={session}
           onEditFile={(path) => {
             onHandoff({ type: 'edit', path });
@@ -132,7 +269,12 @@ export const App = ({
           onCaptureInput={setIsInputCaptured}
           clearTargets={[
             { id: 'config', label: 'Settings', store: configStore, detail: 'theme' },
-            { id: 'state', label: 'State', store: stateStore, detail: 'last tab' },
+            {
+              id: 'state',
+              label: 'State',
+              store: stateStore,
+              detail: 'last tab, branch picks, envs',
+            },
           ]}
           onCleared={(results) => {
             onCleared(results);
