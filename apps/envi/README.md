@@ -101,9 +101,9 @@ editor, run `envi reload`.
 | Tab | Keys |
 | --- | --- |
 | 🐚 Shell | the exported environment, with `◆` marking what the hook set. `/` searches names and values together (`k:`/`v:` restrict a word to one side). `c` copy · `C` copy `KEY=value` · `s` pin into `.env.user` · `g` pin into your vars |
-| 🧩 Resolved | what envi sets: the winning layer, the layers it beat, and the shell's value. Missing required variables are listed first. `/` search · `c` copy · `s` set where Settings says (`.env.user` by default) · `g` set in your vars · `o` open the source · `x` remove from the source |
+| 🧩 Resolved | what envi sets: the winning layer, the layers it beat, and the shell's value. Missing required variables are listed first. `/` search · `c` copy · `s` set where Settings says (`.env.user` by default) · `g` set in your vars · `u` reveal this one · `C` copy the secret itself (a reference read first) · `o` open the source · `x` remove from the source |
 | 📄 Files | the env files in order, plus each `env.config.ts`. Space switches a file on or off · `a` add · `n` add a variable to it · `e` edit/create · `[`/`]` reorder · `x` unlist |
-| 👤 Your vars | the file they are saved in heads the tab — click it or `o` to open it. `a` add · `n` edit value · `R` rename · `x` delete · `c` copy · `p` preview a 1Password secret · `/` search |
+| 👤 Your vars | the file they are saved in heads the tab — click it or `o` to open it. `a` add · `n` edit value · `R` rename · `x` delete · `c` copy · `p` preview a 1Password secret · `u` reveal this one · `C` copy the secret itself (a reference read first) · `/` search |
 | 🔧 Settings | where `envi set` writes (`.env.user` here, `.env` here, your vars, machine vars), override, expansion, secret name patterns, the hook line to copy, theme, `e` edit the file |
 
 Everywhere: `1-5`/`Tab` switch tab, `r` refresh, `v` reveal secrets, `t` theme, `q` quit.
