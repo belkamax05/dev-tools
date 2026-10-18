@@ -131,6 +131,9 @@ src/config/                 systemConfig / sysPaths mirrors of shulker-controlle
 Commit (`c`, or its button) opens the same full-screen form as `giti save`, including staging,
 message and flags. Esc or completing the commit returns to the dashboard through a screen
 handoff; standalone `save` still exits. Empty commits open this form with Allow empty selected.
+The shared ListDetail action strip wraps whole hotkey buttons into additional rows as width
+shrinks, reserving those rows from the pane budget. Only short terminals limit visible controls;
+the shell's theme/quit footer remains separate.
 Shift+Enter (or Commit now) skips optional review steps in this shared form. If a message is
 required, a message-only modal collects it and Enter commits; Esc returns to the form.
 Overview's navigation row opens Log (`l`), Stashes (`S`) and Remotes (`R`) as full two-pane

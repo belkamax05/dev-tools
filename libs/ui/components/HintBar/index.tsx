@@ -31,7 +31,7 @@ const SEPARATOR = ' · ';
 const ELLIPSIS = ' …';
 
 /** Cells one hint takes: its two brackets, the key, a space, and the label. */
-export const hintWidth = (hint: Hint): number => 3 + hint.key.length + hint.label.length;
+export const hintWidth = (hint: Hint): number => Bun.stringWidth(`[${hint.key}] ${hint.label}`);
 
 /**
  * The hints that fit `columns` cells, dropped from the right.
@@ -72,6 +72,30 @@ export const fitHints = (hints: Hint[], columns: number): { shown: Hint[]; dropp
   return { shown: hints.slice(0, shown), dropped: hints.length - shown };
 };
 
+/** Pack whole buttons into rows, clipping only when the height budget is exhausted. */
+export const layoutHints = (hints: Hint[], columns: number, maxRows: number) => {
+  const rows: Hint[][] = [];
+  let remaining = hints;
+  while (remaining.length && rows.length < Math.max(1, maxRows)) {
+    if (rows.length === Math.max(1, maxRows) - 1) {
+      const { shown, dropped } = fitHints(remaining, columns);
+      rows.push(shown);
+      return { rows, dropped };
+    }
+    let count = 0;
+    let used = 0;
+    for (const hint of remaining) {
+      const width = hintWidth(hint) + (count ? SEPARATOR.length : 0);
+      if (count && used + width > columns) break;
+      used += width;
+      count++;
+    }
+    rows.push(remaining.slice(0, count));
+    remaining = remaining.slice(count);
+  }
+  return { rows, dropped: remaining.length };
+};
+
 const HintButton = ({ hint, isActive }: { hint: Hint; isActive: boolean }) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
@@ -104,6 +128,8 @@ export interface HintBarProps {
   isActive?: boolean;
   /** Cells the row has. Defaults to the width of a `Bar` on this terminal. */
   width?: number;
+  /** Extra rows reserved by the caller for responsive controls. */
+  maxRows?: number;
 }
 
 /**
@@ -115,29 +141,33 @@ export interface HintBarProps {
  * Hover is drawn rather than left to the pointer changing shape: only kitty can
  * do that, so a colour is the only feedback most terminals have.
  */
-export const HintBar = ({ hints, isActive = true, width }: HintBarProps) => {
+export const HintBar = ({ hints, isActive = true, width, maxRows = 1 }: HintBarProps) => {
   const colors = useColors();
   const theme = useTuiTheme();
   const viewport = useViewport();
   const framed = viewport.shows.barBorders !== false;
   const available = width ?? barInnerWidth(viewport.columns, framed, theme.sizes.app);
-  const { shown, dropped } = fitHints(hints, available);
+  const { rows, dropped } = layoutHints(hints, available, maxRows);
 
   return (
-    <Box flexDirection="row" flexWrap="nowrap" overflow="hidden">
-      {shown.map((hint, index) => (
-        //? Each hint holds its width: shrinking one would wrap its text onto a
-        //? second line, which is the one thing this row must never do.
-        <Box key={`${hint.key}:${hint.label}`} flexShrink={0}>
-          {index > 0 && <Text color={colors.muted}>{SEPARATOR}</Text>}
-          <HintButton hint={hint} isActive={isActive} />
+    <Box flexDirection="column" flexShrink={0} overflow="hidden">
+      {rows.map((shown, row) => (
+        <Box key={row} flexDirection="row" flexShrink={0}>
+          {shown.map((hint, index) => (
+            //? Each hint holds its width: shrinking one would wrap its text onto a
+            //? second line, which is the one thing this row must never do.
+            <Box key={`${hint.key}:${hint.label}`} flexShrink={0}>
+              {index > 0 && <Text color={colors.muted}>{SEPARATOR}</Text>}
+              <HintButton hint={hint} isActive={isActive} />
+            </Box>
+          ))}
+          {dropped > 0 && row === rows.length - 1 && (
+            <Box flexShrink={0}>
+              <Text color={colors.muted}>{ELLIPSIS}</Text>
+            </Box>
+          )}
         </Box>
       ))}
-      {dropped > 0 && (
-        <Box flexShrink={0}>
-          <Text color={colors.muted}>{ELLIPSIS}</Text>
-        </Box>
-      )}
     </Box>
   );
 };

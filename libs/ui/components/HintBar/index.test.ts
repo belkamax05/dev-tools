@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { fitHints, type Hint, hintWidth } from './index';
+import { fitHints, type Hint, hintWidth, layoutHints } from './index';
 
 /** A realistic row: eight hints, which is more than a narrow terminal can take. */
 const HINTS: Hint[] = [
@@ -13,6 +13,40 @@ const HINTS: Hint[] = [
   { key: 'w', label: 'write' },
   { key: 'z', label: 'reload' },
 ];
+
+describe('responsive hint rows', () => {
+  test('keeps all controls on narrow tall terminals and uses one row when wide', () => {
+    const narrow = layoutHints(HINTS, 30, 12);
+    expect(narrow.dropped).toBe(0);
+    expect(narrow.rows.length).toBeGreaterThan(1);
+    expect(narrow.rows.flat()).toEqual(HINTS);
+    for (const row of narrow.rows) {
+      expect(
+        Bun.stringWidth(row.map((hint) => `[${hint.key}] ${hint.label}`).join(' · ')),
+      ).toBeLessThanOrEqual(30);
+    }
+    expect(layoutHints(HINTS, 200, 12).rows).toEqual([HINTS]);
+  });
+
+  test('stacks whole buttons and limits rows only when height is scarce', () => {
+    const stacked = layoutHints(HINTS, 18, 20);
+    expect(stacked.rows.every((row) => row.length === 1)).toBe(true);
+    expect(stacked.dropped).toBe(0);
+    const short = layoutHints(HINTS, 30, 2);
+    expect(short.rows).toHaveLength(2);
+    expect(short.dropped).toBeGreaterThan(0);
+    expect(short.rows.flat().length + short.dropped).toBe(HINTS.length);
+  });
+
+  test('counts terminal cells for Unicode labels when packing buttons', () => {
+    expect(hintWidth({ key: 'x', label: '界界' })).toBe(8);
+    const hints = [
+      { key: 'x', label: '界界' },
+      { key: 'y', label: 'ok' },
+    ];
+    expect(layoutHints(hints, 15, 3).rows).toHaveLength(2);
+  });
+});
 
 /** What a row of hints actually draws, so the fit can be checked against it. */
 const drawn = (hints: Hint[]) => hints.map((hint) => `[${hint.key}] ${hint.label}`).join(' · ');

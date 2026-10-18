@@ -7,7 +7,7 @@ import { useColors, useTuiTheme } from '../../providers/TuiThemeProvider';
 import type { TuiTheme } from '../../theme';
 import Box from '../Box';
 import type { Hint } from '../HintBar';
-import HintBar from '../HintBar';
+import HintBar, { layoutHints } from '../HintBar';
 import Panel from '../Panel';
 import type { PickItem } from '../PickList';
 import PickList, { firstSelectable, moveInList } from '../PickList';
@@ -33,8 +33,7 @@ const listDetailContentRows = (
     3,
   );
 
-const stackedListRows = (contentRows: number): number =>
-  Math.max(2, Math.floor(contentRows / 2));
+const stackedListRows = (contentRows: number): number => Math.max(2, Math.floor(contentRows / 2));
 
 /**
  * Rows the detail pane of a list-layout `ListDetail` has for its content, on this terminal.
@@ -270,7 +269,16 @@ export const ListDetail = <T,>({
     { isActive: isInputActive },
   );
 
-  const contentRows = listDetailContentRows(viewport, layout, reservedChrome);
+  const navigationHints: Hint[] = [
+    { key: layout === 'grid' ? '↑/↓/←/→' : '↑/↓', label: 'move' },
+    ...(onActivate ? [{ key: 'Enter', label: activateLabel }] : []),
+    ...hints,
+  ];
+  const baseContentRows = listDetailContentRows(viewport, layout, reservedChrome);
+  //? Spend spare height on complete controls while retaining room for both panes.
+  const hintMaxRows = Math.max(1, baseContentRows - 6);
+  const hintRows = layoutHints(navigationHints, appWidth, hintMaxRows).rows.length;
+  const contentRows = Math.max(3, baseContentRows - Math.max(0, hintRows - 1));
   // Grid frame: two borders, one title and one scroll indicator.
   const listRows =
     layout === 'grid'
@@ -278,12 +286,6 @@ export const ListDetail = <T,>({
       : sideBySide
         ? contentRows
         : stackedListRows(contentRows);
-
-  const navigationHints: Hint[] = [
-    { key: layout === 'grid' ? '↑/↓/←/→' : '↑/↓', label: 'move' },
-    ...(onActivate ? [{ key: 'Enter', label: activateLabel }] : []),
-    ...hints,
-  ];
 
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
@@ -336,7 +338,7 @@ export const ListDetail = <T,>({
       </Box>
 
       <Box marginTop={1} flexShrink={0}>
-        <HintBar hints={navigationHints} />
+        <HintBar hints={navigationHints} width={appWidth} maxRows={hintMaxRows} />
       </Box>
     </Box>
   );
