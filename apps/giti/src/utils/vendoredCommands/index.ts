@@ -157,8 +157,8 @@ export const describeVendored = (
   //? Ordered the way they have to happen: merge upstream in, send our own commits, then record
   //? where the submodule ended up — a gitlink committed any earlier pins a commit that then moves.
   const actions: string[] = [];
-  if (wantsPull) actions.push(`giti ${kind}/pull ${vendored.dir}`);
-  if (wantsPush) actions.push(`giti ${kind}/push ${vendored.dir}`);
+  if (wantsPull) actions.push(`giti ${kind}s/pull ${vendored.dir}`);
+  if (wantsPush) actions.push(`giti ${kind}s/push ${vendored.dir}`);
   if (gitlinkStale) actions.push('commit the moved gitlink in the parent');
 
   const tone = actions.length > 0 ? 'warning' : 'error';
@@ -254,7 +254,7 @@ export const printVendoredDiff = async (
   if (result.exitCode !== 0) {
     console.error(
       `❌ ${dir}: cannot diff — ${commit.slice(0, 7)} is not in this repository. ` +
-        `Run \`giti ${kind}/status\` to fetch it.`,
+        `Run \`giti ${kind}s/status\` to fetch it.`,
     );
   }
 };
@@ -288,7 +288,7 @@ export const runVendoredDiff = async (
  */
 export const hasVendorTooling = async (kind: VendorKind) => {
   if (kind !== 'subrepo' || (await isSubrepoUsable())) return true;
-  console.error('❌ git-subrepo is not installed. Run `giti subrepo/install` first.');
+  console.error('❌ git-subrepo is not installed. Run `giti subrepos/install` first.');
   return false;
 };
 
@@ -308,7 +308,7 @@ export const runVendoredPull = async (
     return [];
   }
 
-  //? Same frame as `mega/pull`: pullVendored prints each entry as a clack line, so the run opens
+  //? Same frame as `receive`: pullVendored prints each entry as a clack line, so the run opens
   //? and closes around them rather than around loose console output.
   intro(formatColor(`giti ${kind} pull`, 'command'));
   log.message(formatColor(`Checking ${plural(targets.length, kind)}`, 'info'));

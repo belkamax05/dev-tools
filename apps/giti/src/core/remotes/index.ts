@@ -55,7 +55,7 @@ export const fetchAll = (root: string, onProgress?: Progress) =>
 export const pullCurrent = (root: string, onProgress?: Progress) =>
   run(['pull', '--ff-only', '--progress'], root, onProgress, 'Pulled', 'pull stopped');
 
-/** One line of `giti mega/pull`'s output, without colour codes or clack's frame and spinner glyphs. */
+/** One line of `giti receive`/`send` output, without colour codes or clack's frame and spinner glyphs. */
 const plainLine = (line: string) =>
   line
     // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI is the point
@@ -64,14 +64,19 @@ const plainLine = (line: string) =>
     .trim();
 
 /**
- * Pull the repository and every subrepo, submodule and subtree in it, by running `giti mega/pull`
- * in a child process — its body prints through clack, which would draw straight over the
- * dashboard if run in this one. Piped, it prints one line per step instead of redrawing, and each
- * of those is handed to `onProgress`; the last one is its tally, which becomes the message.
+ * Run `giti receive` or `giti send` in a child process — their bodies print through clack and
+ * plain lines, which would draw straight over the dashboard if run in this one. Piped (and with
+ * `--yes`, so no screen opens), they print one line per step, and each of those is handed to
+ * `onProgress`; the last one is the tally, which becomes the message.
  */
-export const pullMega = async (root: string, onProgress?: Progress): Promise<OperationResult> => {
+const runTransfer = async (
+  root: string,
+  args: string[],
+  fallback: { ok: string; failed: string },
+  onProgress?: Progress,
+): Promise<OperationResult> => {
   const giti = join(sysPaths.rootDir, '..', '..', 'bin', 'giti');
-  const child = Bun.spawn([process.execPath, giti, 'mega/pull'], {
+  const child = Bun.spawn([process.execPath, giti, ...args, '--yes'], {
     cwd: root,
     stdin: 'ignore',
     stdout: 'pipe',
@@ -93,9 +98,37 @@ export const pullMega = async (root: string, onProgress?: Progress): Promise<Ope
   await Promise.all([read(child.stdout), read(child.stderr)]);
   const exitCode = await child.exited;
   const last = lines.at(-1) ?? '';
-  //? mega/pull does not exit non-zero when an entry is left alone — its tally says so instead
+  //? receive/send do not exit non-zero when an entry is left alone — the tally says so instead
   const ok = exitCode === 0 && !/left alone|failed/i.test(last);
-  return { ok, message: last || (ok ? 'Pulled' : 'mega pull failed') };
+  return { ok, message: last || (ok ? fallback.ok : fallback.failed) };
+};
+
+/** Pull the repository and every subrepo, submodule and subtree in it — `giti receive`. */
+export const pullMega = (root: string, onProgress?: Progress) =>
+  runTransfer(root, ['receive'], { ok: 'Pulled', failed: 'receive failed' }, onProgress);
+
+/**
+ * Push every subrepo, submodule and subtree and then the repository — `giti send`. A branch with no
+ * upstream yet is pushed to `remote` and set to track it. `force` means `--force-with-lease`,
+ * which refuses if the remote moved since the last fetch, never a bare `--force`.
+ */
+export const pushMega = async (
+  root: string,
+  {
+    remote = 'origin',
+    force = false,
+    onProgress,
+  }: { remote?: string; force?: boolean; onProgress?: Progress } = {},
+) => {
+  //? The remote is named only for a first push: with an upstream, naming it would make the push
+  //? an explicit `git push <remote>` and skip send's checks against the tracking branch
+  const upstream = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], root);
+  return runTransfer(
+    root,
+    ['send', ...(upstream.ok ? [] : [remote]), ...(force ? ['--force-with-lease'] : [])],
+    { ok: 'Pushed', failed: 'send failed' },
+    onProgress,
+  );
 };
 
 /**

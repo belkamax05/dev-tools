@@ -15,7 +15,7 @@ import openUrl, { remoteWebUrl } from '@/dev-tools/utils/system/openUrl';
 import { getBranches } from '../../../../core/branches';
 import {
   getRemotes,
-  pushCurrent,
+  pushMega,
   type Remote,
   removeRemote,
   restoreRemote,
@@ -33,7 +33,7 @@ export interface RemotesViewProps extends GitViewProps {
   sync: RemoteSync;
   /** For its vendored directories — listed here, under the remotes they are also synced with. */
   snapshot: RepoSnapshot;
-  /** Run a giti command on the real terminal — `mega/push` and `mega/status` print their own. */
+  /** Run a giti command on the real terminal — `send` and `mega/status` print their own. */
   onRunCommand: (command: string) => void;
 }
 
@@ -99,13 +99,13 @@ export const RemotesView = ({
     if (!progress) sync.pull();
   };
   const push = (remote = current?.name ?? 'origin') =>
-    void run('Pushing', (onProgress) => pushCurrent(root, { remote, onProgress }));
+    void run('Sending', (onProgress) => pushMega(root, { remote, onProgress }));
   const forcePush = () =>
     prompt.confirm(
       `Force-push ${branch?.name ?? 'this branch'} (with lease — refused if the remote moved)?`,
       () =>
         run('Force-pushing', (onProgress) =>
-          pushCurrent(root, { remote: current?.name ?? 'origin', force: true, onProgress }),
+          pushMega(root, { remote: current?.name ?? 'origin', force: true, onProgress }),
         ),
     );
 
@@ -132,8 +132,8 @@ export const RemotesView = ({
       if (input === 'f') fetch();
       else if (input === 'x') remove();
       else if (input === 'p') pull();
-      //? On a vendored row, push means every vendored directory — what mega/push does
-      else if (input === 'P') currentVendored ? onRunCommand('mega/push') : push();
+      //? On a vendored row, push means every vendored directory — what send does
+      else if (input === 'P') currentVendored ? onRunCommand('send') : push();
       else if (input === 'S') onRunCommand('mega/status');
       else if (input === 'F') forcePush();
       else if (input === 'o' && current) {
@@ -216,7 +216,7 @@ export const RemotesView = ({
   //? a report per directory and so run on the real terminal
   const vendoredActions: ToolbarAction[] = [
     actions[1] as ToolbarAction,
-    { hotkey: 'P', label: 'Push all', onPress: () => onRunCommand('mega/push') },
+    { hotkey: 'P', label: 'Push all', onPress: () => onRunCommand('send') },
     { hotkey: 'S', label: 'Status of all', onPress: () => onRunCommand('mega/status') },
   ];
 
@@ -254,7 +254,7 @@ export const RemotesView = ({
           { key: 'f', label: 'fetch', onPress: fetch },
           { key: 'p', label: 'pull', onPress: pull },
           currentVendored
-            ? { key: 'P', label: 'push all', onPress: () => onRunCommand('mega/push') }
+            ? { key: 'P', label: 'push all', onPress: () => onRunCommand('send') }
             : { key: 'P', label: 'push', onPress: () => push() },
           ...(vendored.length
             ? [{ key: 'S', label: 'status of all', onPress: () => onRunCommand('mega/status') }]

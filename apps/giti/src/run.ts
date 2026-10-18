@@ -44,7 +44,7 @@ const run = async (...[firstArg, ...args]: string[]) => {
 
   //? A folder with the same name as the argument means it is a command group. Two paths:
   //? 1. The next arg looks like a sub-command name (no leading `-`) → recurse with the joined
-  //?    path, e.g. `giti branch status` → run('branch/status', ...). This mirrors
+  //?    path, e.g. `giti branches status` → run('branches/status', ...). This mirrors
   //?    shulker-controller's walkCommandTree: each positional arg is consumed as a path segment
   //?    until a leaf is reached.
   //? 2. No sub-command arg (or it starts with `-`) → open the top-level picker pre-navigated

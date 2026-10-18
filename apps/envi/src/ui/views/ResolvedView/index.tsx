@@ -10,7 +10,15 @@ import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
 
-import { isSecretKey, touchStamp, withoutVar, withVar } from '../../../config/settings';
+import {
+  isSecretKey,
+  SET_TARGET_LABELS,
+  saveState,
+  stateStore,
+  touchStamp,
+  withoutVar,
+  withVar,
+} from '../../../config/settings';
 import { removeFromEnvFile, setInEnvFile } from '../../../core/envFile';
 import type { ResolvedVar, VarSource, VarStatus } from '../../../core/resolve';
 import { matchesSearch } from '../../../core/search';
@@ -37,7 +45,7 @@ const where = (source: VarSource) =>
  * What envi sets here — every variable some layer defines, with the layer that won, the ones it
  * beat, and how it compares with the shell. Required variables nothing sets are listed first.
  *
- * From here a value can be overridden for this folder (`.env.user`) or everywhere (your vars),
+ * From here a value can be set where the setTarget setting says (`s` — `.env.user` by default) or in your vars (`g`),
  * and the line that set it can be removed or opened in the editor.
  */
 export const ResolvedView = ({
@@ -121,12 +129,24 @@ export const ResolvedView = ({
       reload();
     });
 
+  //? Where `s` writes is the setTarget setting — the same place `envi set` writes
+  const target = config.setTarget;
+  const targetLabel = SET_TARGET_LABELS[target];
   const setHere = (key: string, initial = '') =>
     prompt.ask(
-      `${key} in .env.user here =`,
+      `${key} in ${targetLabel} =`,
       (value) => {
-        setInEnvFile(join(cwd, '.env.user'), key, value)
-          .then(afterWrite(`${key} set in .env.user`))
+        if (target === 'config') {
+          onConfigChange({ ...config, vars: withVar(config.vars, key, value) });
+          notify(`${key} set in your vars`, 'ok');
+          return;
+        }
+        const write =
+          target === 'state'
+            ? stateStore.load().then((state) => saveState({ ...state, vars: withVar(state.vars, key, value) }))
+            : setInEnvFile(join(cwd, target), key, value);
+        write
+          .then(afterWrite(`${key} set in ${targetLabel}`))
           .catch((error: Error) => notify(error.message, 'error'));
       },
       { initial },
@@ -203,7 +223,7 @@ export const ResolvedView = ({
       return [
         {
           hotkey: 's',
-          label: 'Set in .env.user',
+          label: `Set in ${targetLabel}`,
           onPress: () => setHere(row.key),
           tone: 'primary',
         },
@@ -222,7 +242,7 @@ export const ResolvedView = ({
         : []),
       {
         hotkey: 's',
-        label: 'Override here',
+        label: `Override in ${targetLabel}`,
         onPress: () => setHere(entry.key, entry.value),
       },
       {

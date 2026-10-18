@@ -16,7 +16,12 @@ import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThe
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
 
-import { DEFAULT_MASK_PATTERNS } from '../../../config/settings';
+import {
+  DEFAULT_MASK_PATTERNS,
+  SET_TARGET_LABELS,
+  SET_TARGETS,
+  type SetTarget,
+} from '../../../config/settings';
 import { launchEnv, STAMP_VAR } from '../../../core/shell';
 import type { ViewProps } from '../../App';
 
@@ -29,6 +34,7 @@ export interface SettingsViewProps extends ViewProps {
 }
 
 type Setting =
+  | { kind: 'setTarget'; target: SetTarget }
   | { kind: 'override' }
   | { kind: 'expand' }
   | { kind: 'pattern'; pattern: string }
@@ -38,6 +44,16 @@ type Setting =
   | { kind: 'state' }
   | { kind: 'file' }
   | { kind: 'clear' };
+
+const SET_TARGET_DETAIL: Record<SetTarget, string> = {
+  '.env.user':
+    'The .env.user of the folder envi runs in — the file meant to stay out of git. The default.',
+  '.env': 'The .env of the folder envi runs in — usually committed, so shared with the project.',
+  config:
+    'Your vars in ~/.config/envi/config.json — set in every folder, and the file dotfiles keep.',
+  state:
+    'Machine vars in ~/.local/state/envi/state.json — set in every folder, on this machine only: they never travel with dotfiles.',
+};
 
 const HOOK_FILES = {
   zsh: '~/.zshrc',
@@ -94,7 +110,11 @@ export const SettingsView = ({
   const apply = (setting: Setting | undefined) => {
     if (!setting) return;
     if (themes.owns(setting)) return themes.activate(setting);
-    if (setting.kind === 'override') onConfigChange({ ...config, override: !config.override });
+    if (setting.kind === 'setTarget') {
+      onConfigChange({ ...config, setTarget: setting.target });
+      notify(`envi set now writes to ${SET_TARGET_LABELS[setting.target]}`, 'ok');
+    } else if (setting.kind === 'override')
+      onConfigChange({ ...config, override: !config.override });
     else if (setting.kind === 'expand') onConfigChange({ ...config, expand: !config.expand });
     else if (setting.kind === 'pattern') removePattern(setting.pattern);
     else if (setting.kind === 'addPattern') addPattern();
@@ -119,6 +139,14 @@ export const SettingsView = ({
   const onOff = (value: boolean) => (value ? 'on' : 'off');
 
   const items: PickItem<Setting>[] = [
+    { id: 'header-set', label: 'envi set writes to', isHeader: true },
+    ...SET_TARGETS.map((target) => ({
+      id: `setTarget:${target}`,
+      label: `${config.setTarget === target ? '◉' : '○'} ${SET_TARGET_LABELS[target]}`,
+      hint: target === '.env.user' ? 'default' : undefined,
+      isCurrent: config.setTarget === target,
+      value: { kind: 'setTarget' as const, target },
+    })),
     { id: 'header-merge', label: 'Merging', isHeader: true },
     {
       id: 'override',
@@ -176,6 +204,14 @@ export const SettingsView = ({
   const detail = (setting: Setting) => {
     if (themes.owns(setting)) return themes.renderDetail(setting);
     switch (setting.kind) {
+      case 'setTarget':
+        return (
+          <Text color={colors.muted} wrap="wrap">
+            {SET_TARGET_DETAIL[setting.target]} Used by envi set / unset (and dfs env set) when no
+            flag says otherwise — --to, --file, --global and --state still pick a place outright —
+            and by s on the Resolved tab. Enter picks it; the setting is kept in your config.
+          </Text>
+        );
       case 'override':
         return (
           <Text color={colors.muted} wrap="wrap">

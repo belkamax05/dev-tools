@@ -443,14 +443,55 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
       label: 'API (user + API token)',
       capabilities: ['jobs', 'trigger'],
       recommended: true,
+      setup: {
+        label: 'Save your Jenkins login',
+        detail:
+          'Asks for your Jenkins user id and an API token, and stores them with the project’s env command (dfs env set) — where its setting says, .env.user by default — then probes again. Nothing to run in a shell.',
+        steps: [
+          'Make a token: open your Jenkins token page below → API Token → Add new token → Generate, and copy it (it is shown once).',
+          'Press L (or the button) — give your Jenkins user id, then paste the token. An op://vault/item/field reference works as the token too.',
+          'They are stored, used by this run straight away, and probed — no restart.',
+        ],
+        links: ({ options }) =>
+          options.url ? [{ label: 'Your Jenkins API tokens', url: `${options.url}/me/security/` }] : [],
+        inputs: [
+          {
+            id: 'user',
+            label: 'Jenkins user id',
+            initial: ({ options, env }) => (options.userEnv ? env[options.userEnv] : undefined),
+          },
+          { id: 'token', label: 'Jenkins API token (or an op:// reference)', secret: true },
+        ],
+        unavailable: async ({ options }) =>
+          options.userEnv && options.tokenEnv
+            ? undefined
+            : 'depli.config.ts names no userEnv / tokenEnv for this Jenkins — add them first.',
+        start: (context, onProgress, values) => {
+          const { options, setEnv } = context;
+          const user = values.user?.trim() ?? '';
+          const token = values.token?.trim() ?? '';
+          if (!setEnv || !options.userEnv || !options.tokenEnv || !user || !token) {
+            onProgress({ state: 'failed', message: 'needs both a user id and a token' });
+            return { cancel: () => {} };
+          }
+          onProgress({
+            state: 'running',
+            message: `storing ${options.userEnv} and ${options.tokenEnv}…`,
+          });
+          setEnv({ [options.userEnv]: user, [options.tokenEnv]: token })
+            .then((said) => onProgress({ state: 'done', message: said }))
+            .catch((error: Error) => onProgress({ state: 'failed', message: error.message }));
+          return { cancel: () => {} };
+        },
+      },
       guide: {
         summary:
           'Jenkins\' JSON API with your user and an API token — reads builds and, when triggers are on, starts them. The only transport depli uses for Jenkins today.',
         steps: [
           'Be on the network Jenkins is on (VPN) — the probe checks that first.',
           'In Jenkins: your name (top right) → Security (or Configure) → API Token → Add new token; copy it, it is shown once.',
-          'Put your Jenkins user id and the token in the variables depli.config.ts names (userEnv, tokenEnv) — dfs env use provides them from envi.',
-          'Then press P to probe again.',
+          'Press L — Save your Jenkins login — to give your user id and the token: stored with the project’s env command (dfs env set) under the names depli.config.ts gives (userEnv, tokenEnv), and used straight away.',
+          'Or set them yourself (dfs env set NAME=value) and press P.',
         ],
       },
       probe: async ({ options, env }) => {
@@ -472,7 +513,7 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
             tone: options.tokenEnv && env[options.tokenEnv] ? undefined : 'error',
           },
         ];
-        const tokenLinks = [{ label: 'Your Jenkins API tokens', url: `${options.url}/me/configure` }];
+        const tokenLinks = [{ label: 'Your Jenkins API tokens', url: `${options.url}/me/security/` }];
         //? Reachability first, without credentials: a VPN-only server times out or fails DNS
         try {
           const login = await fetch(`${options.url}/login`, { signal: AbortSignal.timeout(6_000) });
@@ -499,7 +540,7 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
               why: 'Jenkins is up, but depli has no credentials to sign in with.',
               steps: [
                 `Create an API token in Jenkins (link below) — your name → Security → API Token → Add new token.`,
-                `Store your user id as ${options.userEnv} and the token as ${options.tokenEnv} (dfs env use / envi), then restart depli.`,
+                `Press L — Save your Jenkins login — to store your user id as ${options.userEnv} and the token as ${options.tokenEnv}; they are used straight away, no restart.`,
               ],
               links: tokenLinks,
             },

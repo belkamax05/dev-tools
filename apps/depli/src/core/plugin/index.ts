@@ -22,6 +22,12 @@ export interface PluginContext<Options = Record<string, unknown>> {
    * transport's own default.
    */
   choice?: string;
+  /**
+   * Store environment variables the way the project does it — `dfs env set` for dfs, `envi set`
+   * otherwise (`envSet` in depli.config.ts) — and apply them to this run, so a probe right after
+   * sees them. Resolves to what the command said (where it wrote); rejects with its error.
+   */
+  setEnv?: (vars: Record<string, string>) => Promise<string>;
 }
 
 // --- connections -----------------------------------------------------------------------------
@@ -94,22 +100,39 @@ export interface SetupProgress {
   url?: string;
 }
 
+/** One value a setup asks for before it starts — a user id, a token. */
+export interface SetupInput<Options = Record<string, unknown>> {
+  id: string;
+  /** The question, e.g. "Jenkins user id". */
+  label: string;
+  /** Typed as dots (Tab shows it) — for tokens. */
+  secret?: boolean;
+  /** What to start the answer from — the value in use now, say. */
+  initial?: (context: PluginContext<Options>) => string | undefined;
+}
+
 /**
- * A setup the app runs for the person — a CLI's login flow — instead of telling them to run it
- * in a shell. Started from the Connections tab; the transport is probed again once it is done.
+ * A setup the app runs for the person — a CLI's login flow, storing a token — instead of telling
+ * them to run something in a shell. Started from the Connections tab; the transport is probed
+ * again once it is done.
  */
 export interface TransportSetup<Options = Record<string, unknown>> {
   /** The button: "Sign in with the GitHub CLI". */
   label: string;
   /** One sentence: what it will do. */
   detail: string;
-  /** What to do while it waits — on the page it opened. */
+  /** What to do — before it starts, or on the page it opened while it waits. */
   steps: string[];
+  /** Pages the steps refer to — where a token is made. */
+  links?: (context: PluginContext<Options>) => GuideLink[];
+  /** Asked for in turn when it is started, then handed to `start` by id. */
+  inputs?: SetupInput<Options>[];
   /** Why it cannot run here (the CLI is not installed…), with what to do; undefined when it can. */
   unavailable?: (context: PluginContext<Options>) => Promise<string | undefined>;
   start: (
     context: PluginContext<Options>,
     onProgress: (progress: SetupProgress) => void,
+    values: Record<string, string>,
   ) => { cancel: () => void };
 }
 

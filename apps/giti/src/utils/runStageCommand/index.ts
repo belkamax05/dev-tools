@@ -15,7 +15,7 @@ interface StageCommandOptions {
 }
 
 /**
- * The shared body of `giti stage` and `giti unstage`: explicit paths are passed straight to git,
+ * The shared body of `giti mark` and `giti unmark`: explicit paths are passed straight to git,
  * kind flags (`--modified`, `--deleted`, …) pick matching files from `git status`, and `--all`
  * takes every kind. With neither, it only reports what there is — moving the whole index is
  * never what a bare command does.
@@ -59,7 +59,9 @@ const runStageCommand = async (
         : `Nothing to ${verb}.`,
     );
     const kindFlags = kinds.map((kind) => `--${kind}`).join(' ');
-    console.log(formatColor(`Usage: giti ${verb} <paths…> | ${kindFlags} | --all`, 'debug'));
+    //? The command is `mark`/`unmark`; `verb` is what git calls the action (stage/unstage)
+    const command = verb === 'stage' ? 'mark' : 'unmark';
+    console.log(formatColor(`Usage: giti ${command} <paths…> | ${kindFlags} | --all`, 'debug'));
     return;
   }
 

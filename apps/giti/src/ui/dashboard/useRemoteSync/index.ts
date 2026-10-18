@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { countVendoredBehind, fetchAll, pullMega, pushCurrent } from '../../../core/remotes';
+import { countVendoredBehind, fetchAll, pullMega, pushMega } from '../../../core/remotes';
 import type { OperationResult } from '../../../core/status';
 import type { Tone } from '../types';
 
@@ -138,7 +138,7 @@ export const useRemoteSync = (
     fetch: () => void fetchWith(false),
     pull: () => {
       if (!root) return;
-      void run('Mega pull', async (onProgress) => {
+      void run('Receiving', async (onProgress) => {
         const result = await pullMega(root, onProgress);
         //? Re-counted rather than zeroed: mega pull leaves dirty or diverged entries alone
         const behind = await countVendoredBehind(root);
@@ -148,7 +148,7 @@ export const useRemoteSync = (
       });
     },
     push: () => {
-      if (root) void run('Pushing', (onProgress) => pushCurrent(root, { remote, onProgress }));
+      if (root) void run('Sending', (onProgress) => pushMega(root, { remote, onProgress }));
     },
   };
 };

@@ -52,7 +52,7 @@ export const ValueBlock = ({
           {!read || read.status === 'idle' ? (
             <Text color={colors.muted} wrap="wrap">
               {secretPreview
-                ? `Read with op when a command needs it — [p] previews the secret now.`
+                ? 'Read with op when a command needs it — [p] previews the secret, [u] shows it, [C] copies it.'
                 : 'Read with op when a command needs it (envi get, envi run, dfs deploy).'}
             </Text>
           ) : read.status === 'loading' ? (
@@ -65,7 +65,9 @@ export const ValueBlock = ({
               {secret && !reveal ? (
                 <>
                   <Text color={colors.warn}>{maskValue(read.value) || '(empty)'}</Text>
-                  <Text color={colors.muted}>Secret by name — [v] reveals it.</Text>
+                  <Text color={colors.muted}>
+                    Secret by name — [u] reveals this one, [v] every secret · [C] copies it.
+                  </Text>
                 </>
               ) : (
                 <Text color={colors.text} wrap="wrap">
@@ -82,7 +84,9 @@ export const ValueBlock = ({
     return (
       <Box flexDirection="column">
         <Text color={colors.warn}>{maskValue(value) || '(empty)'}</Text>
-        <Text color={colors.muted}>Secret by name — [v] reveals every secret.</Text>
+        <Text color={colors.muted}>
+          Secret by name — [u] reveals this one, [v] every secret · [C] copies it.
+        </Text>
       </Box>
     );
   }

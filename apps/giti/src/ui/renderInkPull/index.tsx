@@ -114,8 +114,9 @@ const buildCommandPreview = (
   strategy: MergeStrategy,
   enabledFlags: Set<string>,
   passthroughFlags: string[],
+  prefix = 'git pull',
 ) => {
-  const parts = ['git', 'pull'];
+  const parts = [prefix];
   if (remote) parts.push(remote);
   if (branch) parts.push(branch);
 
@@ -154,9 +155,18 @@ interface AppProps {
   initialFlags: string[];
   passthroughFlags: string[];
   onPull: (args: string[]) => void;
+  /** What the preview line names instead of `git pull <remote> <branch>` — e.g. `giti receive`. */
+  preview?: { prefix: string; remote: string; branch: string };
 }
 
-const App = ({ branchInfo, initialStrategy, initialFlags, passthroughFlags, onPull }: AppProps) => {
+const App = ({
+  branchInfo,
+  initialStrategy,
+  initialFlags,
+  passthroughFlags,
+  onPull,
+  preview,
+}: AppProps) => {
   const { exit } = useApp();
   const [strategy, setStrategy] = useState<MergeStrategy>(initialStrategy);
   const [stratIndex, setStratIndex] = useState(() =>
@@ -195,7 +205,16 @@ const App = ({ branchInfo, initialStrategy, initialFlags, passthroughFlags, onPu
   const currentStrategy = STRATEGIES[stratIndex];
   const warnRebase = currentStrategy?.warnsOnLocalCommits && localCommitCount > 0;
   const hasYes = enabledFlags.has('--yes');
-  const command = buildCommandPreview(remote, branch, strategy, enabledFlags, passthroughFlags);
+  const command = preview
+    ? buildCommandPreview(
+        preview.remote,
+        preview.branch,
+        strategy,
+        enabledFlags,
+        passthroughFlags,
+        preview.prefix,
+      )
+    : buildCommandPreview(remote, branch, strategy, enabledFlags, passthroughFlags);
 
   const handlePull = useCallback(() => {
     onPull(buildGitArgs(remote, branch, strategy, enabledFlags, passthroughFlags));
@@ -464,6 +483,7 @@ interface RootProps {
   cwd: string;
   onPull: (args: string[]) => void;
   onUpToDate: (message: string) => void;
+  preview?: { prefix: string; remote: string; branch: string };
 }
 
 const Root = ({
@@ -474,6 +494,7 @@ const Root = ({
   cwd,
   onPull,
   onUpToDate,
+  preview,
 }: RootProps) => {
   const { exit } = useApp();
   const [branchInfo, setBranchInfo] = useState<BranchInfo | null>(null);
@@ -583,6 +604,7 @@ const Root = ({
       initialFlags={strippedInitialFlags}
       passthroughFlags={passthroughFlags}
       onPull={onPull}
+      preview={preview}
     />
   );
 };
@@ -595,6 +617,14 @@ export interface RenderInkPullOptions {
   initialFlags: string[];
   passthroughFlags: string[];
   cwd: string;
+  /**
+   * Hand the strategy and flags picked here to this instead of running `git pull` — how
+   * `giti receive` puts this screen in front of a pull of the whole tree. Called with the flags
+   * alone; the remote and branch stay the caller's.
+   */
+  onConfirm?: (flags: string[]) => Promise<void>;
+  /** The command the preview line names when `onConfirm` runs it — `giti receive`. */
+  previewCommand?: string;
 }
 
 const renderInkPull = async ({
@@ -603,6 +633,8 @@ const renderInkPull = async ({
   initialFlags,
   passthroughFlags,
   cwd,
+  onConfirm,
+  previewCommand = 'giti receive',
 }: RenderInkPullOptions) => {
   let gitArgs: string[] | null = null;
   let upToDateMessage: string | null = null;
@@ -616,6 +648,11 @@ const renderInkPull = async ({
       cwd={cwd}
       onPull={(args) => (gitArgs = args)}
       onUpToDate={(message) => (upToDateMessage = message)}
+      preview={
+        onConfirm
+          ? { prefix: previewCommand, remote: initialRemote ?? '', branch: initialBranch ?? '' }
+          : undefined
+      }
     />,
     { exitOnCtrlC: false },
   );
@@ -625,8 +662,21 @@ const renderInkPull = async ({
   unmount();
 
   //? Printed after unmount because `clear()` wipes anything ink rendered.
+  //? The repository is current, but its vendored directories may not be — the caller's run
+  //? checks each of them and reports the current ones too
+  if (upToDateMessage && onConfirm) return onConfirm([...initialFlags, ...passthroughFlags]);
   if (upToDateMessage) {
     console.log(upToDateMessage);
+    return;
+  }
+
+  if (gitArgs && onConfirm) {
+    const flags = (gitArgs as string[]).filter((arg) => arg.startsWith('-'));
+    //? "Merge" carries no flag for `git pull`, but the caller defaults to --ff-only when it is
+    //? given no strategy — so a merge picked on this screen is said out loud as --no-rebase
+    const strategies = ['--rebase', '--rebase=merges', '--ff-only', '--squash', '--no-rebase'];
+    if (!flags.some((flag) => strategies.includes(flag))) flags.push('--no-rebase');
+    await onConfirm(flags);
     return;
   }
 

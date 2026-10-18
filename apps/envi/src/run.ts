@@ -9,8 +9,12 @@ import {
   type EnviConfig,
   isSecretKey,
   maskValue,
+  SET_TARGETS,
+  type SetTarget,
   saveConfig,
+  saveState,
   stampPath,
+  stateStore,
   TAB_IDS,
   type TabId,
   touchStamp,
@@ -48,6 +52,9 @@ usage:
   envi list [search] [--json] [--reveal]
                                   what envi sets here, where each value comes from, and
                                   whether the shell already has it
+  envi list --resolve [--only K,K] [search] [--json]
+                                  the same, with op:// values read from 1Password and shown
+                                  in full — exactly what envi run hands a command
   envi shell [search] [--json] [--reveal]
                                   the current shell's variables; the search matches names
                                   and values (k:word / v:word for one side only)
@@ -64,10 +71,11 @@ usage:
                                   print envi's variables — eval "$(envi export)"
   envi hook <zsh|bash|fish>       shell code that keeps them applied as you cd:
                                   add  eval "$(envi hook zsh)"  to ~/.zshrc
-  envi set KEY=VALUE... [--file F | --global]
-                                  write variables: to .env.user here (default), to file F,
-                                  or to your own vars (every folder)
-  envi unset KEY... [--file F | --global]
+  envi set KEY=VALUE... [--to .env.user|.env|config|state | --file F | --global | --state]
+                                  write variables where the setTarget setting says (.env.user
+                                  here unless changed in Settings), or: --to that place,
+                                  --file F, --global your vars (config), --state machine vars
+  envi unset KEY... [the same flags]
   envi files                      the env files read here, in order, and their state
   envi files add|remove <path>    add a file to (or drop it from) your list
   envi files disable|enable <path>
@@ -87,7 +95,16 @@ A value written as op://vault/item/field is a 1Password reference: get, run and 
 read it with the op CLI; the dashboard, list, export and the hook show it as it is.
 `;
 
-const VALUE_FLAGS = new Set(['-C', '--cwd', '--file', '-f', '--shell', '--format', '--only']);
+const VALUE_FLAGS = new Set([
+  '-C',
+  '--cwd',
+  '--file',
+  '-f',
+  '--shell',
+  '--format',
+  '--only',
+  '--to',
+]);
 
 interface Args {
   positionals: string[];
@@ -148,7 +165,8 @@ const shown = (key: string, value: string, config: EnviConfig, reveal: boolean) 
 
 /** What a command needs: every `op://` value read from 1Password, asking on this terminal. */
 const resolveForCommand = async (cwd: string, config: EnviConfig, secrets: boolean | string[]) => {
-  const resolution = await resolveEnv({ cwd, config, secrets, interactive: true });
+  const { vars: stateVars } = await stateStore.load();
+  const resolution = await resolveEnv({ cwd, config, stateVars, secrets, interactive: true });
   for (const { key, error } of resolution.secretErrors)
     console.error(`envi: ${key}: ${OP_LABEL}: ${error}`);
   return resolution;
@@ -178,8 +196,18 @@ const oneLine = (value: string) => value.replace(/\n/g, '\\n');
 const where = (source: { label: string; line?: number }) =>
   source.line ? `${source.label}:${source.line}` : source.label;
 
-const printVars = (resolution: Resolution, config: EnviConfig, reveal: boolean, query: string) => {
-  const rows = resolution.vars.filter((entry) => matchesSearch(entry.key, entry.value, query));
+const printVars = (
+  resolution: Resolution,
+  config: EnviConfig,
+  reveal: boolean,
+  query: string,
+  only?: string[],
+) => {
+  const rows = resolution.vars.filter(
+    (entry) =>
+      (!only || only.includes(entry.key)) &&
+      matchesSearch(entry.key, entry.ref ?? entry.value, query),
+  );
   if (!rows.length) {
     console.log(
       query
@@ -189,13 +217,18 @@ const printVars = (resolution: Resolution, config: EnviConfig, reveal: boolean, 
     return;
   }
   const keyWidth = Math.max(3, ...rows.map((row) => row.key.length)) + 2;
-  const sourceWidth = Math.max(6, ...rows.map((row) => where(row.source).length)) + 2;
+  //? A value read from 1Password names its reference as its source — the value column is the value
+  const sourceOf = (row: ResolvedVar) =>
+    row.ref && row.ref !== row.value ? `${where(row.source)} → ${row.ref}` : where(row.source);
+  const sourceWidth = Math.max(6, ...rows.map((row) => sourceOf(row).length)) + 2;
   console.log(`${'KEY'.padEnd(keyWidth)}${'STATUS'.padEnd(9)}${'SOURCE'.padEnd(sourceWidth)}VALUE`);
   for (const row of rows) {
     console.log(
-      `${row.key.padEnd(keyWidth)}${STATUS_LABEL[row.status].padEnd(9)}${where(row.source).padEnd(sourceWidth)}${oneLine(shown(row.key, row.value, config, reveal))}`,
+      `${row.key.padEnd(keyWidth)}${STATUS_LABEL[row.status].padEnd(9)}${sourceOf(row).padEnd(sourceWidth)}${oneLine(shown(row.key, row.value, config, reveal))}`,
     );
   }
+  for (const { key, error } of resolution.secretErrors)
+    if (rows.some((row) => row.key === key)) console.log(`! ${key}: ${OP_LABEL}: ${error}`);
 };
 
 const printFiles = (resolution: Resolution) => {
@@ -240,15 +273,28 @@ const runCommand = (command: string[], env: Record<string, string>, cwd: string)
     });
   });
 
-const fileTarget = (args: Args, cwd: string) => {
+type WriteTarget = { kind: 'file'; path: string } | { kind: 'config' } | { kind: 'state' };
+
+/**
+ * Where `set`/`unset` write: a flag says so outright (`--file F`, `--global`, `--state`,
+ * `--to <target>`), else the `setTarget` setting — `.env.user` here unless changed in Settings.
+ */
+const writeTarget = (args: Args, cwd: string, config: EnviConfig): WriteTarget | string => {
   const file = flag(args, '--file', '-f');
-  return file ? resolve(cwd, expandHome(file)) : join(cwd, '.env.user');
+  if (file) return { kind: 'file', path: resolve(cwd, expandHome(file)) };
+  if (args.flags.has('--global')) return { kind: 'config' };
+  if (args.flags.has('--state')) return { kind: 'state' };
+  const to = flag(args, '--to') ?? config.setTarget;
+  if (!SET_TARGETS.includes(to as SetTarget)) return `--to takes ${SET_TARGETS.join(', ')}`;
+  if (to === 'config') return { kind: 'config' };
+  if (to === 'state') return { kind: 'state' };
+  return { kind: 'file', path: join(cwd, to) };
 };
 
 const filesCommand = async (args: Args, config: EnviConfig, cwd: string) => {
   const [, action, path] = args.positionals;
   if (!action) {
-    printFiles(await resolveEnv({ cwd, config }));
+    printFiles(await resolveEnv({ cwd, config, stateVars: (await stateStore.load()).vars }));
     return;
   }
   if (!path) return fail(`usage: envi files ${action} <path>`);
@@ -270,7 +316,7 @@ const filesCommand = async (args: Args, config: EnviConfig, cwd: string) => {
     return;
   }
   if (action === 'disable' || action === 'enable') {
-    const resolution = await resolveEnv({ cwd, config });
+    const resolution = await resolveEnv({ cwd, config, stateVars: (await stateStore.load()).vars });
     const target = resolve(cwd, expandHome(path));
     const layer = resolution.layers.find(
       (candidate) =>
@@ -331,6 +377,7 @@ export const run = async (...argv: string[]) => {
   }
 
   const config = await configStore.load();
+  const state = await stateStore.load();
 
   if (first === 'run' || (!first && args.command.length)) {
     if (!args.command.length) return fail('usage: envi run [--] <command...>');
@@ -347,7 +394,7 @@ export const run = async (...argv: string[]) => {
     //? Printed for eval, references stay as they are — reading them is for a command that runs
     const resolution = args.command.length
       ? await resolveForCommand(cwd, config, only ?? true)
-      : await resolveEnv({ cwd, config });
+      : await resolveEnv({ cwd, config, stateVars: state.vars });
     for (const { key, from } of resolution.missing)
       console.error(`envi: ${key} is unset (required by ${from})`);
     if (args.command.length) {
@@ -365,7 +412,7 @@ export const run = async (...argv: string[]) => {
   if (first === 'export') {
     const format = (flag(args, '--shell', '--format') ?? 'zsh') as ExportFormat;
     if (!EXPORT_FORMATS.includes(format)) return fail(`--shell takes ${EXPORT_FORMATS.join(', ')}`);
-    const resolution = await resolveEnv({ cwd, config });
+    const resolution = await resolveEnv({ cwd, config, stateVars: state.vars });
     if (args.flags.has('--hook')) {
       if (format === 'dotenv' || format === 'json') return fail('--hook needs a shell');
       const stamp = (
@@ -379,19 +426,29 @@ export const run = async (...argv: string[]) => {
   }
 
   if (first === 'list' || first === 'ls') {
-    const resolution = await resolveEnv({ cwd, config });
+    //? --resolve: what `envi run` would hand a command — references read from 1Password, all
+    //? of them or just --only's; without it nothing is read and references show as they are
+    const resolving = args.flags.has('--resolve');
+    //? Asking to resolve is asking to see the values — exactly what `run` would hand over
+    const showAll = reveal || resolving;
+    const resolution = resolving
+      ? await resolveForCommand(cwd, config, only ?? true)
+      : await resolveEnv({ cwd, config, stateVars: state.vars });
+    const listed = only ?? undefined;
     if (json) {
       console.log(
         JSON.stringify(
-          resolution.vars.map((entry) => ({
-            ...entry,
-            value: shown(entry.key, entry.value, config, reveal),
-          })),
+          resolution.vars
+            .filter((entry) => !listed || listed.includes(entry.key))
+            .map((entry) => ({
+              ...entry,
+              value: shown(entry.key, entry.value, config, showAll),
+            })),
           null,
           2,
         ),
       );
-    } else printVars(resolution, config, reveal, rest.join(' '));
+    } else printVars(resolution, config, showAll, rest.join(' '), listed);
     return;
   }
 
@@ -430,7 +487,7 @@ export const run = async (...argv: string[]) => {
   if (first === 'explain' || first === 'why') {
     const key = rest[0];
     if (!key) return fail('usage: envi explain <KEY>');
-    const resolution = await resolveEnv({ cwd, config });
+    const resolution = await resolveEnv({ cwd, config, stateVars: state.vars });
     const entry = resolution.vars.find((candidate) => candidate.key === key);
     const shell = resolution.base[key];
     if (!entry) {
@@ -467,45 +524,57 @@ export const run = async (...argv: string[]) => {
     const bad = assignments.find((entry) => !entry.parsed);
     if (!assignments.length || bad)
       return fail(bad ? `"${bad.text}" is not KEY=VALUE` : 'usage: envi set KEY=VALUE...');
-    if (args.flags.has('--global')) {
+    const target = writeTarget(args, cwd, config);
+    if (typeof target === 'string') return fail(target);
+    const keys = assignments.map((entry) => entry.parsed?.key).join(', ');
+    if (target.kind === 'config') {
       let vars = config.vars;
       for (const { parsed } of assignments)
         if (parsed) vars = withVar(vars, parsed.key, parsed.value);
       await saveConfig({ ...config, vars });
-      console.log(`Set ${assignments.length} in your vars — ${configStore.path}`);
+      console.log(`Set ${keys} in your vars — ${configStore.path}`);
       return;
     }
-    const path = fileTarget(args, cwd);
+    if (target.kind === 'state') {
+      let vars = state.vars;
+      for (const { parsed } of assignments)
+        if (parsed) vars = withVar(vars, parsed.key, parsed.value);
+      await saveState({ ...state, vars });
+      console.log(`Set ${keys} in machine vars — ${stateStore.path}`);
+      return;
+    }
     for (const { parsed } of assignments)
-      if (parsed) await setInEnvFile(path, parsed.key, parsed.value);
+      if (parsed) await setInEnvFile(target.path, parsed.key, parsed.value);
     await touchStamp();
-    console.log(`Set ${assignments.map((entry) => entry.parsed?.key).join(', ')} in ${path}`);
+    console.log(`Set ${keys} in ${target.path}`);
     return;
   }
 
   if (first === 'unset') {
     if (!rest.length) return fail('usage: envi unset KEY...');
-    if (args.flags.has('--global')) {
-      const missing = rest.filter((key) => !(key in config.vars));
-      await saveConfig({
-        ...config,
-        vars: rest.reduce(withoutVar, config.vars),
-      });
-      if (missing.length) console.log(`Not in your vars: ${missing.join(', ')}`);
+    const target = writeTarget(args, cwd, config);
+    if (typeof target === 'string') return fail(target);
+    if (target.kind === 'config' || target.kind === 'state') {
+      const vars = target.kind === 'config' ? config.vars : state.vars;
+      const missing = rest.filter((key) => !(key in vars));
+      const next = rest.reduce(withoutVar, vars);
+      if (target.kind === 'config') await saveConfig({ ...config, vars: next });
+      else await saveState({ ...state, vars: next });
+      const where = target.kind === 'config' ? 'your vars' : 'machine vars';
+      if (missing.length) console.log(`Not in ${where}: ${missing.join(', ')}`);
       return;
     }
-    const path = fileTarget(args, cwd);
     let removed = 0;
-    for (const key of rest) removed += await removeFromEnvFile(path, key);
+    for (const key of rest) removed += await removeFromEnvFile(target.path, key);
     await touchStamp();
-    console.log(`Removed ${removed} line(s) from ${path}`);
+    console.log(`Removed ${removed} line(s) from ${target.path}`);
     return;
   }
 
   if (first === 'files') return filesCommand(args, config, cwd);
 
   if (first === 'check') {
-    const resolution = await resolveEnv({ cwd, config });
+    const resolution = await resolveEnv({ cwd, config, stateVars: state.vars });
     if (!resolution.required.length) {
       console.log('Nothing is required here — no env.config.ts `required`, no .env.example.');
       return;
@@ -529,7 +598,7 @@ export const run = async (...argv: string[]) => {
   }
 
   if (first === 'config') {
-    const resolution = await resolveEnv({ cwd, config });
+    const resolution = await resolveEnv({ cwd, config, stateVars: state.vars });
     console.log(`${configStore.path} (your files, vars and settings)`);
     for (const project of resolution.projects) console.log(`${project.path} (workspace)`);
     return;

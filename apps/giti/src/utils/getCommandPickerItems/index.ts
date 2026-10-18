@@ -51,7 +51,7 @@ const buildLevel = (pending: PendingEntry[], prefix: string): PickerItem[] => {
 };
 
 /**
- * Fold the flat command listing into the tree the picker browses: `subrepo/install` becomes an
+ * Fold the flat command listing into the tree the picker browses: `subrepos/install` becomes an
  * `install` row inside a `subrepo` folder, while a top-level command stays where it is.
  */
 const getCommandPickerItems = (entries: CommandEntry[]): PickerItem[] =>

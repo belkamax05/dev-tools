@@ -29,8 +29,28 @@ export const DEFAULT_MASK_PATTERNS = [
   'SESSION',
 ] as const;
 
+/**
+ * Where `envi set` / `envi unset` write when no flag says otherwise:
+ * - `.env.user` / `.env`: that file in the folder envi runs in (`.env.user` is the default — it is
+ *   the one meant to stay out of git);
+ * - `config`: your vars in `~/.config/envi/config.json` — every folder, and the file dotfiles keep;
+ * - `state`: machine vars in `~/.local/state/envi/state.json` — every folder, this machine only.
+ */
+export const SET_TARGETS = ['.env.user', '.env', 'config', 'state'] as const;
+export type SetTarget = (typeof SET_TARGETS)[number];
+
+/** How a target reads in the UI and in what `set` prints. */
+export const SET_TARGET_LABELS: Record<SetTarget, string> = {
+  '.env.user': '.env.user here',
+  '.env': '.env here',
+  config: 'your vars (config)',
+  state: 'machine vars (state)',
+};
+
 export interface EnviConfig {
   theme: string;
+  /** Where `envi set` writes by default — see `SET_TARGETS`. */
+  setTarget: SetTarget;
   /**
    * The env files read from the folder envi runs in, in order — a later file wins. Relative
    * paths are taken from that folder; absolute and `~/` ones are used as they are.
@@ -55,6 +75,11 @@ export interface EnviConfig {
 
 export interface EnviState {
   tab: TabId;
+  /**
+   * Machine vars: like your vars (every folder, under the env files) but kept here, so they never
+   * travel with dotfiles. Applied after your vars — the machine's own value wins.
+   */
+  vars: Record<string, string>;
 }
 
 const stringList = (raw: unknown, fallback: readonly string[]): string[] =>
@@ -83,6 +108,7 @@ export const configStore = createConfigStore<EnviConfig>({
   appName: 'envi',
   defaults: {
     theme: 'classic',
+    setTarget: '.env.user',
     files: [...DEFAULT_FILES],
     disabled: [],
     vars: {},
@@ -92,6 +118,9 @@ export const configStore = createConfigStore<EnviConfig>({
   },
   coerce: (raw, defaults) => ({
     theme: typeof raw.theme === 'string' ? raw.theme : defaults.theme,
+    setTarget: SET_TARGETS.includes(raw.setTarget as SetTarget)
+      ? (raw.setTarget as SetTarget)
+      : defaults.setTarget,
     //? An emptied list stays empty — someone who removed both defaults meant it
     files: stringList(raw.files, defaults.files),
     disabled: stringList(raw.disabled, []),
@@ -102,15 +131,22 @@ export const configStore = createConfigStore<EnviConfig>({
   }),
 });
 
-/** `~/.local/state/envi/state.json`: the tab envi was left on. */
+/** `~/.local/state/envi/state.json`: the tab envi was left on, and your machine vars. */
 export const stateStore = createConfigStore<EnviState>({
   appName: 'envi',
   kind: 'state',
-  defaults: { tab: 'resolved' },
+  defaults: { tab: 'resolved', vars: {} },
   coerce: (raw, defaults) => ({
     tab: TAB_IDS.includes(raw.tab as TabId) ? (raw.tab as TabId) : defaults.tab,
+    vars: coerceVars(raw.vars),
   }),
 });
+
+/** Save the state file and tell hooked shells — machine vars live in it. */
+export const saveState = async (state: EnviState) => {
+  await stateStore.save(state);
+  await touchStamp();
+};
 
 /**
  * A file whose content changes whenever envi changes something a hooked shell should pick up —

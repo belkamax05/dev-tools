@@ -59,7 +59,7 @@ describe('getCommandEntries', () => {
 
   test('defaults to this CLI’s own commands, so the picker needs no wiring', async () => {
     const names = (await getCommandEntries()).map((entry) => entry.name);
-    expect(names).toContain('status');
+    expect(names).toContain('state');
     expect(names).toContain('hash');
   });
 });

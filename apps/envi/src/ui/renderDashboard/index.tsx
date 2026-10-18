@@ -51,7 +51,12 @@ export const renderDashboard = async (
         }}
         onTabChange={(tab) => {
           state = { ...state, tab };
-          stateStore.save(state).catch(() => {});
+          //? Read fresh before writing: machine vars live in the same file, and `envi set --state`
+          //? may have changed them since the dashboard opened
+          stateStore
+            .load()
+            .then((fresh) => stateStore.save({ ...fresh, tab }))
+            .catch(() => {});
         }}
         onHandoff={frame.handoff}
         onCleared={(results) => {

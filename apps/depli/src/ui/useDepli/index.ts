@@ -13,6 +13,7 @@ import {
   type ConnectionPreference,
   type LogChunk,
   type RunTimings,
+  type PluginContext,
   type SetupProgress,
   matchesPatterns,
   type StepRun,
@@ -63,8 +64,13 @@ export interface DepliData {
   setPreference: (provider: string, preference: ConnectionPreference) => void;
   /** The guided setup running (or last run), by `provider:transport` — one at a time. */
   setup?: { key: string; progress: SetupProgress };
-  /** Start a transport's guided setup (gh auth login…); probes again once it is done. */
-  startSetup: (provider: string, transport: string) => void;
+  /**
+   * Start a transport's guided setup (gh auth login, storing a Jenkins token…) with the answers to
+   * its `inputs`; probes again once it is done.
+   */
+  startSetup: (provider: string, transport: string, values?: Record<string, string>) => void;
+  /** The context a setup runs with — for its `inputs`' initial values. */
+  setupContext: (provider: string) => PluginContext<any> | undefined;
   cancelSetup: () => void;
   /** Why a transport's setup cannot run here, or undefined when it can. */
   setupUnavailable: (provider: string, transport: string) => Promise<string | undefined>;
@@ -392,13 +398,15 @@ export const useDepli = (
       setProbeTick((value) => value + 1);
     },
     setup,
-    startSetup: (name, transportId) => {
+    startSetup: (name, transportId, values = {}) => {
       const provider = project.providers.find((entry) => entry.name === name);
       const transport = provider?.transports.find((entry) => entry.id === transportId);
       if (!provider || !transport?.setup) return;
       setupRun.current?.cancel();
       const key = `${name}:${transportId}`;
-      setupRun.current = transport.setup.start(contextFor(project, provider, env), (progress) => {
+      setupRun.current = transport.setup.start(
+        contextFor(project, provider, env),
+        (progress) => {
         setSetup({ key, progress });
         if (progress.state === 'done') {
           setupRun.current = undefined;
@@ -409,7 +417,13 @@ export const useDepli = (
           setupRun.current = undefined;
           setProbeTick((value) => value + 1);
         }
-      });
+      },
+        values,
+      );
+    },
+    setupContext: (name) => {
+      const provider = project.providers.find((entry) => entry.name === name);
+      return provider && contextFor(project, provider, env);
     },
     cancelSetup: () => {
       setupRun.current?.cancel();

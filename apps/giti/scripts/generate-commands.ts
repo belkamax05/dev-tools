@@ -25,9 +25,9 @@ interface GitCommand extends CommandEntry {
 
 const toGitCommand = (entry: CommandEntry): GitCommand => ({
   ...entry,
-  //? Nested commands (`subrepo/install`) stay slash-separated for the CLI, which resolves the
+  //? Nested commands (`subrepos/install`) stay slash-separated for the CLI, which resolves the
   //? name straight onto a path, but git config keys only take `[A-Za-z0-9-]`, so the alias
-  //? flattens to `subrepo-install`.
+  //? flattens to `subrepos-install`.
   alias: entry.name.replaceAll('/', '-'),
 });
 
@@ -52,7 +52,7 @@ const formatEntry = ({ name, alias, meta }: GitCommand) => {
   return [description, `${alias} = "!git giti ${name}"`].filter(Boolean).join('\n');
 };
 
-/** One alias per command group folder so `git branch status` dispatches via `giti branch status`. */
+/** One alias per command group folder so `git branches status` dispatches via `giti branches status`. */
 const getFolderAliases = (): GitCommand[] => {
   const { commandsDir } = sysPaths;
   const leafNames = new Set(
@@ -81,7 +81,11 @@ const getFolderAliases = (): GitCommand[] => {
 };
 
 const run = async () => {
-  const leafCommands = (await getCommandEntries()).map(toGitCommand);
+  //? A command that opts out (`meta.gitAlias: false`) is named like one of git's own commands:
+  //? git would run its own and ignore the alias, so writing one would only mislead
+  const leafCommands = (await getCommandEntries())
+    .filter((entry) => entry.meta?.gitAlias !== false)
+    .map(toGitCommand);
   const folderCommands = getFolderAliases();
 
   //? Merge and sort so the output file reads alphabetically regardless of which kind each entry is

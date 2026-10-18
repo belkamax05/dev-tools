@@ -252,6 +252,7 @@ export const App = ({
           problems={project.problems}
           session={session}
           notify={notify}
+          onCaptureInput={setIsInputCaptured}
         />
       )}
       {tab === 'settings' && (

@@ -98,7 +98,11 @@ export const App = ({
   const { status, notify, setStatus } = useStatus(notice);
   const [reveal, setReveal] = useState(session.reveal);
 
-  const loader = useLoader(() => resolveEnv({ cwd, config }), [JSON.stringify(config), cwd]);
+  //? Machine vars are re-read each time: `envi set --state` in another shell changes them
+  const loader = useLoader(
+    async () => resolveEnv({ cwd, config, stateVars: (await stateStore.load()).vars }),
+    [JSON.stringify(config), cwd],
+  );
   const { reload } = loader;
 
 

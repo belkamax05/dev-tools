@@ -20,4 +20,9 @@ export interface CommandMeta {
    * If true, the command will not be displayed in the interactive menu
    */
   hidden?: boolean;
+  /**
+   * False: no `git <name>` alias is generated for it. For a command named like one of git's own
+   * (`push`, `pull`) — git would run its own and ignore the alias anyway. `giti <name>` still works.
+   */
+  gitAlias?: boolean;
 }

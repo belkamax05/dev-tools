@@ -135,7 +135,7 @@ const printSelfStatus = async (
   }
   if (repo.dirty.length > 0) notes.push(plural(repo.dirty.length, 'uncommitted file'));
 
-  const hint = behind ? 'giti mega/pull' : ahead ? 'giti mega/push' : '';
+  const hint = behind ? 'giti receive' : ahead ? 'giti send' : '';
   const label =
     notes.length === 0
       ? formatColor(fetch ? 'up to date' : 'nothing to send', 'success')
@@ -189,9 +189,67 @@ export const runMegaStatus = async (tree: MegaTree, cwd: string, rawArgs: string
   if (!fetch) console.log(formatColor('\n--no-fetch: upstream was not checked.', 'info'));
 };
 
+/**
+ * Where the repository's own push or pull goes when the user named it — `giti send origin main`,
+ * the same two positionals `git push` / `git pull` take. Unset: its tracking branch.
+ */
+export interface TransferTarget {
+  remote?: string;
+  branch?: string;
+}
+
+/** The remote and branch as git's own positionals, for a target the user named. */
+const targetArgs = ({ remote, branch }: TransferTarget) =>
+  remote ? [remote, ...(branch ? [branch] : [])] : branch ? ['origin', branch] : [];
+
+const isForce = (flag: string) =>
+  flag === '--force' || flag === '-f' || flag.startsWith('--force-with-lease');
+
+/** A push that only shows what it would do — `git push --dry-run` / `-n`. */
+export const isDryRun = (flags: string[]) => flags.includes('--dry-run') || flags.includes('-n');
+
+/**
+ * Split the remote and branch `git push`/`git pull` take off the front of the positionals, so
+ * `giti send origin main` means what `git push origin main` does. A positional is a remote only
+ * when the repository has a remote of that name — vendored directories are the other positionals,
+ * and a name can only be one of the two — and the one right after it is the branch.
+ */
+export const splitTransferTarget = (args: string[], remotes: string[]) => {
+  const rest: string[] = [];
+  const target: TransferTarget = {};
+  let verbatim = false;
+  for (const arg of args) {
+    if (verbatim || arg.startsWith('-')) {
+      if (arg === '--') verbatim = true;
+      rest.push(arg);
+      continue;
+    }
+    if (!target.remote && remotes.includes(arg)) {
+      target.remote = arg;
+      continue;
+    }
+    if (target.remote && !target.branch && rest.every((one) => one.startsWith('-'))) {
+      target.branch = arg;
+      continue;
+    }
+    rest.push(arg);
+  }
+  return { target, rest };
+};
+
 /** The repository's own pull: a fast-forward, refused rather than forced when it cannot be one. */
-const pullSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOutcome> => {
+const pullSelf = async (
+  repo: MegaRepo,
+  args: VendoredArgs,
+  target: TransferTarget = {},
+): Promise<VendoredOutcome> => {
   const label = vendoredLabel('self');
+  const { flags } = forwardVendoredFlags(args.passthrough, 'git');
+  const where = targetArgs(target);
+
+  //? A remote and branch the user named are pulled as named: the tracking branch is no measure
+  //? of them, so the "already up to date" shortcut does not apply and git says so itself
+  if (where.length > 0) return pullFromTarget(repo, flags, where, label);
 
   //? No passthrough on this one: it is giti's own look at the upstream, not the pull the user
   //? asked for, and `git fetch` rejects the flags a pull takes.
@@ -208,8 +266,9 @@ const pullSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOut
   }
 
   //? A pull into a dirty tree either refuses half-way through or merges over work in progress,
-  //? and which of the two it does depends on which files happen to overlap.
-  if (repo.dirty.length > 0) {
+  //? and which of the two it does depends on which files happen to overlap — unless the user
+  //? asked for --autostash, which is git's own answer to exactly that
+  if (repo.dirty.length > 0 && !flags.includes('--autostash')) {
     log.warn(
       `${label}  ${formatColor('skipped', 'warning')} · ` +
         `${plural(repo.dirty.length, 'uncommitted file')} in the way — commit or stash them ` +
@@ -222,7 +281,6 @@ const pullSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOut
   //? to bring copies up to date; anything that cannot fast-forward wants a person looking at it.
   //? It is giti's default rather than the user's, though: `--rebase`/`--no-ff` and the rest say
   //? how this pull should integrate, and git refuses two answers to that at once.
-  const { flags } = forwardVendoredFlags(args.passthrough, 'git');
   const own = setsIntegration(flags) ? [] : ['--ff-only'];
   const before = (await gitExec(['rev-parse', 'HEAD'], repo.path)).stdout.trim();
   const step = await runGitStep(
@@ -245,38 +303,112 @@ const pullSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOut
   return 'done';
 };
 
-/** The repository's own push, skipped when it has nothing upstream does not already have. */
-const pushSelf = async (repo: MegaRepo, args: VendoredArgs): Promise<VendoredOutcome> => {
-  const { upstream, ahead, behind } = await getMegaSelfState(repo.path);
-
-  if (!upstream) {
-    console.log('   (this repo): tracks no upstream branch — nothing to push');
+/** `git pull <remote> [<branch>]` for a target the user named — giti's checks do not apply. */
+const pullFromTarget = async (
+  repo: MegaRepo,
+  flags: string[],
+  where: string[],
+  label: string,
+): Promise<VendoredOutcome> => {
+  if (repo.dirty.length > 0 && !flags.includes('--autostash')) {
+    log.warn(
+      `${label}  ${formatColor('skipped', 'warning')} · ` +
+        `${plural(repo.dirty.length, 'uncommitted file')} in the way — commit or stash them, ` +
+        'or pass --autostash.',
+    );
+    return 'skipped';
+  }
+  const own = setsIntegration(flags) ? [] : ['--ff-only'];
+  const before = (await gitExec(['rev-parse', 'HEAD'], repo.path)).stdout.trim();
+  const step = await runGitStep(
+    `${label}  pulling from ${where.join(' ')}`,
+    ['pull', ...own, ...flags, ...where],
+    repo.path,
+  );
+  if (step.exitCode !== 0) {
+    step.fail(`${label}  ${formatColor('pull failed', 'error')}`);
+    return 'failed';
+  }
+  const after = (await gitExec(['rev-parse', 'HEAD'], repo.path)).stdout.trim();
+  if (before === after) {
+    step.succeed(`${label}  ${formatColor(`up to date with ${where.join(' ')}`, 'success')}`);
     return 'current';
   }
+  step.succeed(`${label}  ${(await describePull(before, after, repo.path)).join('\n')}`);
+  return 'done';
+};
 
-  if (ahead === 0) {
+/**
+ * The repository's own push — everything `git push` does, with giti's checks in front of it:
+ * nothing to send is said rather than pushed, and a push upstream would reject as
+ * non-fast-forward is refused up front unless it is forced. A branch that tracks nothing yet is
+ * pushed to `origin` (or the named remote) under its own name and set to track it.
+ */
+const pushSelf = async (
+  repo: MegaRepo,
+  args: VendoredArgs,
+  target: TransferTarget = {},
+): Promise<VendoredOutcome> => {
+  //? The repository is pushed by a plain `git push`, so every flag the user typed is one it
+  //? understands: `--no-verify`, `--force-with-lease`, `--tags`, `--push-option=` all land unchanged.
+  const { flags } = forwardVendoredFlags(args.passthrough, 'git');
+  const where = targetArgs(target);
+  const forced = flags.some(isForce);
+  const tags = flags.includes('--tags') || flags.includes('--follow-tags');
+  const trial = isDryRun(flags) ? ' (dry run)' : '';
+  const { upstream, ahead, behind } = await getMegaSelfState(repo.path);
+
+  const push = async (command: string[]) => {
+    const result = await gitExec(command, repo.path, { stream: true });
+    if (result.exitCode === 0) return 'done' as const;
+    console.error('❌ (this repo): push failed.');
+    return 'failed' as const;
+  };
+
+  //? Named remote/branch: pushed as named — the tracking branch says nothing about them
+  if (where.length > 0 && upstream) {
+    console.log(`⬆️  (this repo): pushing to ${where.join(' ')}${trial}...`);
+    return push(['push', ...flags, ...where]);
+  }
+
+  if (!upstream) {
+    const branch = repo.branch && repo.branch !== 'HEAD' ? repo.branch : '';
+    if (!branch) {
+      console.error('❌ (this repo): detached HEAD — switch to a branch to push it.');
+      return 'skipped';
+    }
+    //? The usual first push, `git push -u origin <branch>`: without it a new branch could only
+    //? ever be sent by hand
+    const remote = target.remote ?? 'origin';
+    const into = target.branch ?? branch;
+    console.log(
+      `⬆️  (this repo): ${branch} tracks nothing yet — pushing it to ${remote}/${into} and setting it as upstream${trial}...`,
+    );
+    return push(['push', '--set-upstream', ...flags, remote, `${branch}:${into}`]);
+  }
+
+  if (ahead === 0 && !tags && !forced) {
     console.log(`ℹ️  (this repo): nothing to push — ${upstream} already has it all.`);
     return 'current';
   }
 
-  if (behind && behind > 0) {
+  if (behind && behind > 0 && !forced) {
     console.error(
       `❌ (this repo): ${upstream} moved ${plural(behind, 'commit')}, so the push would be ` +
-        'rejected as non-fast-forward. Run `giti mega/pull` first.',
+        'rejected as non-fast-forward. Run `giti receive` first, or pass --force-with-lease.',
     );
     return 'skipped';
   }
 
-  console.log(`⬆️  (this repo): pushing ${plural(ahead ?? 0, 'commit')} to ${upstream}...`);
-
-  //? The repository is pushed by a plain `git push`, so every flag the user typed is one it
-  //? understands: `--no-verify`, `--force-with-lease`, `--push-option=` all land unchanged.
-  const { flags } = forwardVendoredFlags(args.passthrough, 'git');
-  const result = await gitExec(['push', ...flags], repo.path, { stream: true });
-
-  if (result.exitCode === 0) return 'done';
-  console.error('❌ (this repo): push failed.');
-  return 'failed';
+  //? `git push --tags` sends every tag and *only* tags — the branch stays where it is, as it does
+  //? for git itself; --follow-tags is the one that sends the branch with its annotated tags
+  const what = flags.includes('--tags')
+    ? 'every tag (not the branch — that is --follow-tags)'
+    : ahead
+      ? plural(ahead, 'commit')
+      : 'HEAD';
+  console.log(`⬆️  (this repo): pushing ${what} to ${upstream}${forced ? ' (forced)' : ''}${trial}...`);
+  return push(['push', ...flags]);
 };
 
 /** Tally across every group, so a run over a whole tree ends on one line. */
@@ -295,11 +427,11 @@ const summariseTree = (outcomes: VendoredOutcome[], verb: string) => {
 type Transfer = (entry: Vendored, cwd: string, args: VendoredArgs) => Promise<VendoredOutcome>;
 
 /**
- * The shape `mega/pull` and `mega/push` share: the repository itself on one side of the vendored
+ * The shape `receive` and `send` share: the repository itself on one side of the vendored
  * groups, every group run through the same per-entry body, and one tally at the end.
  *
  * The arguments are split once here and handed down whole: every command this fans out to gets
- * the same flags the user typed, so `--no-verify` on a `mega/push` means "skip the hooks" for the
+ * the same flags the user typed, so `--no-verify` on a `send` means "skip the hooks" for the
  * repository and for all three mechanisms, not for whichever of them git happens to run last.
  *
  * @param selfFirst - Whether the repository is handled before its vendored directories
@@ -329,7 +461,7 @@ const runMegaTransfer = async (
   const say = (message: string) => (framed ? log.info(message) : console.log(`\n${message}`));
 
   if (framed) {
-    intro(formatColor(`giti mega ${verb === 'Pulled' ? 'pull' : 'push'}`, 'command'));
+    intro(formatColor(`giti ${verb === 'Pulled' ? 'receive' : 'send'}`, 'command'));
     log.message(formatMegaHeaderLines(tree.repo));
   } else {
     console.log(formatMegaHeader(tree.repo));
@@ -399,25 +531,41 @@ const runMegaTransfer = async (
   if (gitlinkNote) console.log(`ℹ️  ${gitlinkNote}`);
 };
 
-/** `mega/pull [<dir>...] [--no-self] [--squash]`: bring the whole tree up to its upstreams. */
-export const runMegaPull = (tree: MegaTree, cwd: string, args: string[]) =>
+/**
+ * `receive [<remote> [<branch>]] [<dir>...] [--no-self] [git pull flags]`: bring the whole tree up
+ * to its upstreams — the repository, then every subrepo, submodule and subtree in it.
+ */
+export const runMegaPull = (
+  tree: MegaTree,
+  cwd: string,
+  args: string[],
+  target: TransferTarget = {},
+) =>
   //? The repository first: its own pull is what moves the pins and `.gitmodules` entries that
   //? every vendored directory below is then measured against.
   runMegaTransfer(tree, cwd, args, pullVendored, {
     verb: 'Pulled',
     selfFirst: true,
-    self: (own) => pullSelf(tree.repo, own),
+    self: (own) => pullSelf(tree.repo, own, target),
     framed: true,
   });
 
-/** `mega/push [<dir>...] [--no-self] [--squash]`: send the whole tree's local work upstream. */
-export const runMegaPush = (tree: MegaTree, cwd: string, args: string[]) =>
+/**
+ * `send [<remote> [<branch>]] [<dir>...] [--no-self] [git push flags]`: send the whole tree's local
+ * work upstream — every subrepo, submodule and subtree, then the repository.
+ */
+export const runMegaPush = (
+  tree: MegaTree,
+  cwd: string,
+  args: string[],
+  target: TransferTarget = {},
+) =>
   //? The repository last: it records which upstream commit each copy sits on, and publishing that
   //? before the copies themselves would point everyone at commits no remote has yet.
   runMegaTransfer(tree, cwd, args, pushVendored, {
-    verb: 'Pushed',
+    verb: isDryRun(args) ? 'Would push' : 'Pushed',
     selfFirst: false,
-    self: (own) => pushSelf(tree.repo, own),
+    self: (own) => pushSelf(tree.repo, own, target),
   });
 
 /** `mega/diff [<dir>...] [--stat] [--no-self]`: everything this tree has that its upstreams do not. */

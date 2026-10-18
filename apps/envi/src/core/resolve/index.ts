@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { loadProjectConfigs, type ProjectConfig } from '../../config/project';
-import { configStore, type EnviConfig } from '../../config/settings';
+import { configStore, type EnviConfig, stateStore } from '../../config/settings';
 import { readEnvFile } from '../envFile';
 import { isOpRef, type OpFailure, readOpRefs } from '../onePassword';
 import { type DotenvError, evaluate, expandText, parseDotenv } from '../parse';
@@ -97,6 +97,11 @@ export interface ResolveOptions {
   env?: Record<string, string | undefined>;
   /** Your config. Defaults to `~/.config/envi/config.json`; pass `false` to leave it out. */
   config?: EnviConfig | false;
+  /**
+   * Machine vars (`state.json`'s `vars`). Read from the state file when `config` is not given
+   * either; a caller passing its own config passes these too, so a test never reads the real one.
+   */
+  stateVars?: Record<string, string> | false;
   /** Skip every `env.config.ts`. */
   noProject?: boolean;
   override?: boolean;
@@ -171,6 +176,11 @@ export const resolveEnv = async (options: ResolveOptions = {}): Promise<Resoluti
   const base = shellBase(options.env ?? launchEnv());
   const config =
     options.config === false ? undefined : (options.config ?? (await configStore.load()));
+  const stateVars =
+    options.stateVars === false
+      ? {}
+      : (options.stateVars ??
+        (options.config === undefined ? (await stateStore.load()).vars : {}));
   const { root, configs: projects } = options.noProject
     ? { root: cwd, configs: [] }
     : await loadProjectConfigs(cwd, base);
@@ -216,6 +226,24 @@ export const resolveEnv = async (options: ResolveOptions = {}): Promise<Resoluti
     };
     layers.push(layer);
     for (const [key, raw] of Object.entries(config.vars)) {
+      apply(layer, key, expandText(raw, lookup, { expand }));
+    }
+  }
+
+  //? Machine vars: the same tier as your vars, after them — this machine's value wins — but in
+  //? the state file, so they never travel with dotfiles
+  if (Object.keys(stateVars).length) {
+    const layer: Layer = {
+      id: 'machine',
+      kind: 'user',
+      label: 'machine vars',
+      path: stateStore.path,
+      status: 'loaded',
+      entries: [],
+      errors: [],
+    };
+    layers.push(layer);
+    for (const [key, raw] of Object.entries(stateVars)) {
       apply(layer, key, expandText(raw, lookup, { expand }));
     }
   }

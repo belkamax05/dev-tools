@@ -57,8 +57,9 @@ const buildCommandPreview = (
   branch: string,
   enabledFlags: Set<string>,
   passthroughFlags: string[],
+  prefix = 'git push',
 ) => {
-  const parts = ['git', 'push'];
+  const parts = [prefix];
   if (remote) parts.push(remote);
   if (branch) parts.push(branch);
   for (const { flag } of GIT_FLAGS) {
@@ -77,14 +78,22 @@ interface BranchInfo {
   pendingCommits: CommitEntry[];
 }
 
+/** What the preview line names instead of `git push <remote> <branch>` — e.g. `giti send`. */
+interface Preview {
+  prefix: string;
+  remote: string;
+  branch: string;
+}
+
 interface AppProps {
   branchInfo: BranchInfo;
   initialFlags: string[];
   passthroughFlags: string[];
   onPush: (args: string[]) => void;
+  preview?: Preview;
 }
 
-const App = ({ branchInfo, initialFlags, passthroughFlags, onPush }: AppProps) => {
+const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview }: AppProps) => {
   const { exit } = useApp();
   const [enabledFlags, setEnabledFlags] = useState<Set<string>>(new Set(initialFlags));
   const [flagIndex, setFlagIndex] = useState(0);
@@ -101,7 +110,15 @@ const App = ({ branchInfo, initialFlags, passthroughFlags, onPush }: AppProps) =
   const hasForceWithLease = enabledFlags.has('--force-with-lease');
   const hasYes = enabledFlags.has('--yes');
 
-  const command = buildCommandPreview(remote, branch, enabledFlags, passthroughFlags);
+  const command = preview
+    ? buildCommandPreview(
+        preview.remote,
+        preview.branch,
+        enabledFlags,
+        passthroughFlags,
+        preview.prefix,
+      )
+    : buildCommandPreview(remote, branch, enabledFlags, passthroughFlags);
 
   //? Show first 5 commits collapsed, all when expanded
   const PREVIEW_COUNT = 5;
@@ -283,6 +300,14 @@ export interface RenderInkPushOptions {
   initialFlags: string[];
   passthroughFlags: string[];
   cwd: string;
+  /**
+   * Hand the flags picked here to this instead of running `git push` — how `giti send` puts this
+   * screen in front of a push of the whole tree. Called with the flags alone: the remote and
+   * branch stay the caller's, so a tracking branch shown here is not turned into a named target.
+   */
+  onConfirm?: (flags: string[]) => Promise<void>;
+  /** The command the preview line names when `onConfirm` runs it — `giti send`. */
+  previewCommand?: string;
 }
 
 const renderInkPush = async ({
@@ -291,6 +316,8 @@ const renderInkPush = async ({
   initialFlags,
   passthroughFlags,
   cwd,
+  onConfirm,
+  previewCommand = 'giti send',
 }: RenderInkPushOptions) => {
   const [currentBranch, remotes, stats, upstreamResult, logResult] = await Promise.all([
     getBranch(cwd).catch(() => 'HEAD'),
@@ -318,6 +345,9 @@ const renderInkPush = async ({
   //? `git push -u origin HEAD` is precisely the case where `@{u}` is missing and there is work.
   const hasUpstream = upstreamResult.exitCode === 0 && Boolean(upstreamResult.stdout);
   if (hasUpstream && !initialRemote && !initialBranch && stats.ahead === 0) {
+    //? The repository has nothing to send, but its vendored directories may — the caller's run
+    //? checks each of them and says so for the ones that are current too
+    if (onConfirm) return onConfirm([...initialFlags, ...passthroughFlags]);
     const behindNote =
       stats.behind > 0
         ? ` (${stats.behind} incoming ${stats.behind === 1 ? 'commit' : 'commits'} — run giti pull)`
@@ -355,6 +385,11 @@ const renderInkPush = async ({
       initialFlags={initialFlags}
       passthroughFlags={passthroughFlags}
       onPush={(args) => (gitArgs = args)}
+      preview={
+        onConfirm
+          ? { prefix: previewCommand, remote: initialRemote ?? '', branch: initialBranch ?? '' }
+          : undefined
+      }
     />,
     { exitOnCtrlC: false },
   );
@@ -362,6 +397,12 @@ const renderInkPush = async ({
   await waitUntilExit();
   clear();
   unmount();
+
+  if (gitArgs && onConfirm) {
+    //? Only the flags: the remote and branch were the screen's display, not the user's choice
+    await onConfirm((gitArgs as string[]).filter((arg) => arg.startsWith('-')));
+    return;
+  }
 
   if (gitArgs) {
     const result = await gitExec(gitArgs, cwd);

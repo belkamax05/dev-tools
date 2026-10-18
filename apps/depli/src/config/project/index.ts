@@ -94,6 +94,12 @@ export interface DepliProjectConfig {
   plugins?: ProviderPlugin<any>[];
   /** Seconds between connection probes; 0 switches polling off. */
   pollSeconds?: number;
+  /**
+   * The command that stores environment variables, given `KEY=VALUE` arguments — how a guided
+   * setup (the Jenkins login) saves what it asked for. `['dfs', 'env', 'set']` for dfs; envi's own
+   * `envi set` when unset. Either writes where envi's setTarget setting says.
+   */
+  envSet?: string[];
 }
 
 /** Typing help for a `depli.config.ts`; returns its argument. */

@@ -4,8 +4,8 @@
 
 `giti` is a Bun-powered git CLI: a set of opinionated wrappers around `git`, some of them
 backed by Ink TUIs. It ships as a `giti` binary on `PATH` plus a `.gitconfig` that maps every
-command onto a `git <name>` alias, so the same code is reachable as `giti status`,
-`git giti status`, or `git status` (the alias).
+command onto a `git <name>` alias, so the same code is reachable as `giti state`,
+`git giti state`, or `git state` (the alias).
 
 This lives at `apps/giti` inside `dev-tools`, as a subproject sharing `dev-tools`'s own libs
 directly rather than through a cross-repo alias. It is **not** its own repo: it is a member of
@@ -45,7 +45,7 @@ semicolons.
 
 `src/run.ts` resolves the first argv token straight onto a file path under
 `src/commands/`, so a command name maps 1:1 to a filename. Nested names work:
-`giti subrepo/install` → `src/commands/subrepo/install.ts`.
+`giti subrepos/install` → `src/commands/subrepos/install.ts`.
 
 Running bare `giti` opens the command picker instead of failing. The picker hands back a name in
 exactly the form the dispatcher below it resolves, so there is still only one dispatch path;
@@ -66,7 +66,14 @@ tree is never loaded for the flag-driven fast paths.
   file in `src/commands/**`, built from each module's exported `meta.description`.
 - **Adding or renaming a command requires re-running `bun scripts/generate-commands.ts`.**
   Nothing does this automatically.
-- Aliases flatten slashes: `subrepo/install` → alias `subrepo-install`, because git config keys
+- **No command or folder may be named like a git command.** git runs its own and ignores an alias
+  of the same name without a word, so `git <alias>` would never reach giti. `getGitCommands`'s
+  test checks every alias in `.gitconfig-commands` against `git --list-cmds=main,others` (built-ins
+  and `git-*` programs on PATH). That is why it is `save` (commit), `state` (status), `mark` /
+  `unmark` (stage / unstage), `hop` (switch), `send` / `receive` (push / pull), and plural folders
+  (`branches`, `remotes`, `submodules`, `subtrees`, `subrepos`). A command kept under a git name
+  for `giti <name>` only (`push`, `pull`) sets `meta.gitAlias: false` and gets no alias.
+- Aliases flatten slashes: `subrepos/install` → alias `subrepos-install`, because git config keys
   cannot contain `/`. The generator throws on alias collisions.
 - Commands without an exported `meta` still get an alias, just without a description comment.
   Every command carries one today, so a missing description means a new file was added without
@@ -133,7 +140,8 @@ If you add an action, add both.
 - **Destructive actions either ask first or can be undone.** Discarding a file or a hunk saves a
   patch under `.git/giti-undo/`, and dropping a stash keeps its hash. Ctrl+Z (or the footer Undo
   button) puts it back. An unmerged branch is deleted (`-D`) only after a question that says so,
-  and ^Z restores it at its old tip. Pull is `--ff-only`, and force-push is `--force-with-lease`.
+  and ^Z restores it at its old tip. Pull and Push run `giti receive` / `giti send` (the whole
+  tree, piped with `--yes`); a pull is `--ff-only`, and force-push is `--force-with-lease`.
 - **Rebase/merge/cherry-pick/revert in progress** shows a banner above the tabs: ^N continue,
   ^K skip, ^X abort. Conflicted files get their own section in Status, with O/T to take
   ours/theirs.
@@ -160,8 +168,8 @@ The palette (`:` in the dashboard) is a two-pane browser over `src/commands/**`.
   It takes an optional directory so it can be tested against a fixture instead of whichever
   commands happen to exist. `scripts/generate-commands.ts` reads the same listing, so the
   picker and the git aliases can never disagree about what a command is called or does.
-- `src/utils/getCommandPickerItems` — folds the flat listing into folders: `subrepo/install`
-  becomes an `install` row inside a `subrepo` folder. A leaf's `value` stays the full
+- `src/utils/getCommandPickerItems` — folds the flat listing into folders: `subrepos/install`
+  becomes an `install` row inside a `subrepos` folder. A leaf's `value` stays the full
   slash-separated name, which is exactly what the dispatcher resolves.
 - `src/ui/renderInkCommands` — hands those rows to `@/dev-tools/ui/dialogs/pickCommand` and
   returns the picked name.
@@ -200,7 +208,8 @@ deliberately never falls back to `process.cwd()`. It answers "where is giti inst
 
 ## Command argument convention
 
-Flag-taking commands (`commit`, `push`, `pull`, `switch`) all follow the same three-step shape:
+Flag-taking commands (`save`, `hop`) all follow the same three-step shape (`push`/`pull` are
+`send`/`receive` now — see below):
 
 1. A `KNOWN_FLAGS` set splits argv into flags the command understands vs. **passthrough flags**
    forwarded verbatim to git.
@@ -215,12 +224,12 @@ forwarded to git.
 
 `git status --porcelain` prints paths relative to the repository root, but a user types them
 relative to the folder they are in — and under a `!` alias git has already chdir'd to the root,
-leaving that folder in `GIT_PREFIX`. Commands that take paths (`stage`, `unstage`,
+leaving that folder in `GIT_PREFIX`. Commands that take paths (`mark`, `unmark`,
 `cancel-unstaged`) run them through `resolveRepoPaths`, which returns root-relative paths plus the
 root to run git from. Comparing a typed path against status output without it silently matches
 nothing from a subfolder.
 
-## The vendored families (`subrepo`, `submodule`, `subtree`, `mega`)
+## The vendored families (`subrepos`, `submodules`, `subtrees`, `mega`)
 
 Four command folders, one implementation each. `list`, `status`, `diff`, `pull`, `push` and
 `clean` ask the same questions of a directory whichever mechanism vendored it, so the *bodies*
@@ -249,13 +258,37 @@ shared per-entry bodies group by group and prints the grouped report. Its own co
 
 Adding an operation to one family means adding it to the shared body, not to the command file.
 
+### `send` / `receive`: giti's push and pull
+
+giti has one push and one pull, and both are the whole tree's: `giti send` (= `mega/push` as it
+was) and `giti receive` (= `mega/pull`). Named so they never read as `git push` / `git pull`.
+`giti push`, `giti pull`, `sync` (fetch, then receive) and `fast-push` (send `--no-verify`) all run
+them, as do the dashboard's Push / Pull buttons. `git push` / `git pull` themselves are untouched:
+an alias cannot shadow a built-in. One body, `src/utils/runTransferCommand`, over
+`runMegaPush` / `runMegaPull`:
+
+- **Everything `git push` / `git pull` take.** `[<remote> [<branch>]]` in front — a positional is a
+  remote only when the repository has one of that name, the next is the branch; other positionals
+  name vendored directories (`splitTransferTarget`). Every other flag reaches git unchanged.
+- **The screens.** With no flag at all, on a terminal, `renderInkPush` / `renderInkPull` open first
+  in their `onConfirm` mode: what is picked there runs the whole tree instead of one `git push`.
+  `--yes` skips them (and is never forwarded); the dashboard always passes it.
+- **The repository's own push** (`pushSelf`): a branch tracking nothing is pushed to `origin` (or the
+  named remote) and set to track it; nothing to send is said, not pushed (unless `--tags` or forced);
+  behind is refused up front unless `--force`/`--force-with-lease`. `--tags` pushes tags only, as git.
+- **Its own pull** (`pullSelf`): `--ff-only` unless the user named a strategy (the pull screen's
+  Merge is sent as `--no-rebase`); a dirty tree is left alone unless `--autostash`.
+- **Vendored pushes**: `--dry-run`/`-n` never reaches `git subrepo`/`git subtree push`, which have
+  no dry run — they say what they would push instead; `-u`/`--set-upstream` is the repository's
+  alone (to `git subrepo`, `-u` is --update).
+
 ### Flags: giti's own vs. everything else
 
 These families do **not** use the `KNOWN_FLAGS` + `parseArgs` shape above. `src/utils/vendoredArgs`
 splits argv into three: the positional directories, the handful of flags giti reads to decide what
 to do (`OWN_FLAGS` in `vendoredCommands` — `--no-self`, `--no-fetch`, `--remote=`, `--branch=`,
 `--dry-run`), and **everything else, which is forwarded to the git command that actually runs**. A
-flag giti has never heard of is passed on, not rejected: `--no-verify` on a `mega/push` means
+flag giti has never heard of is passed on, not rejected: `--no-verify` on a `send` means
 "skip the hooks" for every push the run makes.
 
 The three mechanisms cannot all take the same flags, so `forwardVendoredFlags(passthrough, target)`
@@ -296,7 +329,7 @@ against" — it returns valid for every email unless a config is passed in expli
 `bun:test`, tests as `index.test.ts` siblings of the code they cover: the `src/core` areas and
 most `src/utils` units (`find src -name index.test.ts` lists them). Command files and Ink UIs
 have no tests, which is why a command's logic belongs in a util — `runStageCommand` is the body of
-`stage`/`unstage` for exactly that reason.
+`mark`/`unmark` for exactly that reason.
 
 The git-touching ones build a throwaway repository under `os.tmpdir()` in `beforeAll` — a bare
 "remote" and a clone of it when an upstream is needed — and remove it in `afterAll`, so nothing
@@ -325,7 +358,7 @@ than fixed values.
   repo) — a leftover, not a signal that anything here runs in a server context.
 - Renderers differ in how they end: `renderInkStatus` is a one-shot render that calls
   `process.exit(0)` itself (code after it in the command never runs), while the interactive
-  ones (`commit`/`push`/`pull`/`switch`) `await waitUntilExit()`, unmount, then run the git
+  ones (`save`/`hop`, and the push/pull screens `send`/`receive` open) `await waitUntilExit()`, unmount, then run the git
   command they built.
 - `package.json`'s `module` field points at `src/run.ts`; the executable shim that calls it is
   `../../bin/giti`.

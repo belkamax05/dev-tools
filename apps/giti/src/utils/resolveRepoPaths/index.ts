@@ -9,7 +9,7 @@ import gitExec from '../gitExec';
  *
  * Typed paths are relative to the folder the command was typed in. Under a `!` alias git has
  * already chdir'd to the top level and left the original subfolder in `GIT_PREFIX`, so that is
- * joined back on first (`prefix`, defaulting to the env var). Without it `giti stage x.ts` from a
+ * joined back on first (`prefix`, defaulting to the env var). Without it `giti mark x.ts` from a
  * subfolder would look for `x.ts` at the root.
  *
  * @throws GitError when `cwd` is not inside a repository.

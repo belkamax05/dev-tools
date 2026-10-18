@@ -65,6 +65,26 @@ describe('resolveEnv', () => {
     expect(mine?.shadowed.map((source) => source.label)).toEqual(['your vars']);
   });
 
+  test('machine vars sit on your vars — this machine wins — and under every env file', async () => {
+    const result = await resolveEnv({
+      cwd: app,
+      env: {},
+      config: config({ vars: { GLOBAL: 'g', BOTH: 'config' } }),
+      stateVars: { BOTH: 'machine', PORT: 'machine' },
+    });
+    expect(result.env.GLOBAL).toBe('g');
+    expect(result.env.BOTH).toBe('machine');
+    expect(result.env.PORT).toBe('4000');
+    const both = result.vars.find((entry) => entry.key === 'BOTH');
+    expect(both?.source.label).toBe('machine vars');
+    expect(both?.shadowed.map((source) => source.label)).toEqual(['your vars']);
+  });
+
+  test('a caller passing its own config gets no machine vars unless it passes them too', async () => {
+    const result = await resolveEnv({ cwd: app, env: {}, config: config() });
+    expect(result.layers.some((layer) => layer.id === 'machine')).toBe(false);
+  });
+
   test("the shell's own value wins unless override is on", async () => {
     const off = await resolveEnv({ cwd: app, env: { SHELL_HAS: 'shell' }, config: config() });
     expect(off.env.SHELL_HAS).toBe('shell');

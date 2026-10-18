@@ -1,9 +1,9 @@
 import type { CommandRun } from '../types/CommandRun';
 import fetch from '../utils/fetch';
 import getWorkingDir from '../utils/getWorkingDir';
-import pull from '../utils/pull';
+import runTransferCommand from '../utils/runTransferCommand';
 
-const run: CommandRun = async () => {
+const run: CommandRun = async (args) => {
   const rootDir = getWorkingDir();
   console.log('🔄 Fetching from all remotes...');
   const fetchResult = await fetch(rootDir);
@@ -13,19 +13,14 @@ const run: CommandRun = async () => {
   }
   console.log('✅ Fetched.');
 
-  console.log('⬇️  Pulling changes...');
-  const pullResult = await pull(rootDir);
-  if (pullResult.exitCode !== 0) {
-    console.error('❌ Pull failed:', pullResult.stderr);
-    return;
-  }
-  console.log('✅ Pulled.');
-  console.log(pullResult.stdout);
+  //? Then the whole tree's pull, without its screen: sync is the no-questions path
+  await runTransferCommand('receive', ['--yes', ...args]);
 };
 
 export const meta = {
   name: 'sync',
-  description: 'Fetch from all remotes and pull the latest changes into the current branch',
+  description:
+    'Fetch from all remotes, then receive — pull this repository and everything vendored in it',
 };
 
 export default run;

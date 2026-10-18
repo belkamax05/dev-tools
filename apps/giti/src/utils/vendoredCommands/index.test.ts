@@ -47,7 +47,7 @@ describe('describeVendored', () => {
     );
 
     expect(plain(described.label)).toBe('3 commits to push');
-    expect(described.hint).toBe('giti submodule/push libs/giti');
+    expect(described.hint).toBe('giti submodules/push libs/giti');
   });
 
   test('orders pull, push and pointer update the way they have to happen', () => {
@@ -61,7 +61,7 @@ describe('describeVendored', () => {
       '1 commit behind, 2 commits to push, parent gitlink 2 commits behind',
     );
     expect(described.hint).toBe(
-      'giti submodule/pull libs/giti, then giti submodule/push libs/giti, then commit the moved gitlink in the parent',
+      'giti submodules/pull libs/giti, then giti submodules/push libs/giti, then commit the moved gitlink in the parent',
     );
   });
 
@@ -74,7 +74,7 @@ describe('describeVendored', () => {
     );
 
     expect(plain(described.label)).toBe('1 local change');
-    expect(described.hint).toBe('giti subrepo/push libs/utils');
+    expect(described.hint).toBe('giti subrepos/push libs/utils');
   });
 
   test('says nothing about upstream when it was never contacted', () => {

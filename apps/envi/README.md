@@ -8,6 +8,7 @@ It works from whatever folder you run it in.
 envi                              # dashboard
 envi shell|resolved|files|vars|settings   # open it on a tab
 envi list [search] [--json] [--reveal]    # what envi sets here, where from, vs the shell
+envi list --resolve [--only K,K]          # the same, op:// read and shown — what `run` hands a command
 envi shell [search] [--json]      # the current shell's variables, searched by name and value
 envi get API_URL                  # one resolved value; exits 1 when unset
 envi explain API_URL              # every layer that sets it, and which one wins
@@ -16,8 +17,8 @@ envi use -- npm start             # direnv-style: run a command with envi's vari
 envi use                          #   alone, print them for $SHELL — eval "$(envi use)"
 envi export [--shell zsh|bash|sh|fish|dotenv|json]   # eval "$(envi export)"
 envi hook zsh                     # keep them applied as you cd — see below
-envi set KEY=value [--file F | --global]   # .env.user here by default; --global: your vars
-envi unset KEY [--file F | --global]
+envi set KEY=value [--to T | --file F | --global | --state]   # where Settings says (.env.user by default)
+envi unset KEY [the same flags]                              # T: .env.user, .env, config, state
 envi files [add|remove|enable|disable <path>]
 envi check                        # exits 1 while a required variable is unset
 envi init                         # write an env.config.ts template here
@@ -31,7 +32,14 @@ envi config                       # where settings are kept
 Layers apply in this order, and a later one wins:
 
 1. **Your vars**: `vars` in `~/.config/envi/config.json`. These apply in every folder, under
-   everything else, so a project can still override them.
+   everything else, so a project can still override them. Then **machine vars**: `vars` in
+   `~/.local/state/envi/state.json`, the same in every folder but on this machine only (never in
+   dotfiles); a machine var beats a var of the same name in your config. `envi set --state` writes
+   them.
+
+Where a plain `envi set` (and `dfs env set`) writes is a setting, kept in your config:
+`setTarget` is `.env.user` (the default), `.env`, `config` or `state`. Pick it in the Settings
+tab; `--to`, `--file`, `--global` and `--state` override it for one call.
 2. **Env files**: your list, read from the current folder. It starts as `.env` then `.env.user`.
    After it come the files each `env.config.ts` adds (see below), relative to that config's folder.
    Any file can be switched off. A missing file is listed, not an error.
@@ -93,10 +101,10 @@ editor, run `envi reload`.
 | Tab | Keys |
 | --- | --- |
 | 🐚 Shell | the exported environment, with `◆` marking what the hook set. `/` searches names and values together (`k:`/`v:` restrict a word to one side). `c` copy · `C` copy `KEY=value` · `s` pin into `.env.user` · `g` pin into your vars |
-| 🧩 Resolved | what envi sets: the winning layer, the layers it beat, and the shell's value. Missing required variables are listed first. `/` search · `c` copy · `s` override here (`.env.user`) · `g` set in your vars · `o` open the source · `x` remove from the source |
+| 🧩 Resolved | what envi sets: the winning layer, the layers it beat, and the shell's value. Missing required variables are listed first. `/` search · `c` copy · `s` set where Settings says (`.env.user` by default) · `g` set in your vars · `o` open the source · `x` remove from the source |
 | 📄 Files | the env files in order, plus each `env.config.ts`. Space switches a file on or off · `a` add · `n` add a variable to it · `e` edit/create · `[`/`]` reorder · `x` unlist |
 | 👤 Your vars | the file they are saved in heads the tab — click it or `o` to open it. `a` add · `n` edit value · `R` rename · `x` delete · `c` copy · `p` preview a 1Password secret · `/` search |
-| 🔧 Settings | override, expansion, secret name patterns, the hook line to copy, theme, `e` edit the file |
+| 🔧 Settings | where `envi set` writes (`.env.user` here, `.env` here, your vars, machine vars), override, expansion, secret name patterns, the hook line to copy, theme, `e` edit the file |
 
 Everywhere: `1-5`/`Tab` switch tab, `r` refresh, `v` reveal secrets, `t` theme, `q` quit.
 Every button and row is clickable.
@@ -110,9 +118,10 @@ A value written as `op://vault/item/field`, in your vars or any env file, is a p
 1Password. It is shown as it is (never masked: it is not the secret), and read with the
 1Password CLI (`op read`) only when a command needs it:
 
-- `envi get KEY`, `envi run …` and `envi use <command>` read it; `envi run --only A,B -- cmd`
+- `envi get KEY`, `envi run …`, `envi use <command>` and `envi list --resolve` read it
+  (`list --resolve [--only A,B]` prints the values `run` would hand a command, unmasked); `envi run --only A,B -- cmd`
   hands the command just those variables on top of the shell's, so nothing else is asked for.
-- The dashboard, `envi list`, `envi export` and the shell hook keep the reference. In the Your
+- The dashboard, plain `envi list`, `envi export` and the shell hook keep the reference. In the Your
   vars and Resolved tabs, `p` reads it on demand (still masked until `v` for a secret name).
 - As a library, `config()` and `loadEnv()` read references, all of them or just `only: [...]`.
   One that cannot be read is left unset and reported in `resolution.secretErrors`.

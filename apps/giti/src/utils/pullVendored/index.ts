@@ -285,7 +285,7 @@ const pullVendored = async (
       ...(local.length > 0
         ? [`  This repository's copy differs from upstream in: ${local.join(', ')}`]
         : []),
-      "  To take upstream's version of those files: giti mega pull --theirs",
+      "  To take upstream's version of those files: giti receive --theirs",
     ].join('\n'),
     //? git-subrepo's own advice ("finish the pull by hand in .git/tmp/subrepo/...") describes a
     //? worktree that no longer exists — it was just thrown away

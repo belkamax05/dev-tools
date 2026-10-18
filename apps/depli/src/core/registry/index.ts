@@ -1,6 +1,7 @@
 import type { DepliProjectConfig, ProviderConfig } from '../../config/project';
 import githubPlugin from '../../plugins/github';
 import jenkinsPlugin from '../../plugins/jenkins';
+import { saveEnv } from '../envSet';
 import type { PluginContext, ProviderPlugin, Transport } from '../plugin';
 
 /** What ships with depli. Each is an ordinary plugin — nothing here is special-cased. */
@@ -67,4 +68,5 @@ export const contextFor = (
   options: provider.options,
   connection,
   choice: connection?.choice,
+  setEnv: (vars) => saveEnv(project, env, vars),
 });

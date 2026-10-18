@@ -7,6 +7,9 @@ import { plural } from '../vendored';
 import type { FlagTarget, VendoredArgs } from '../vendoredArgs';
 import { explainDroppedFlags, forwardVendoredFlags } from '../vendoredArgs';
 
+/** `git push` flags that are about the repository's own branch, not a vendored copy's. */
+const SELF_ONLY = new Set(['-u', '--set-upstream']);
+
 /**
  * Send one vendored directory's local work back upstream, whichever mechanism vendored it.
  *
@@ -78,16 +81,31 @@ const pushVendored = async (
     const rejected = kind === 'subrepo' ? 'unmerged' : 'non-fast-forward';
     console.error(
       `❌ ${dir}: upstream moved ${plural(behind, 'commit')} since the last pull, so the push ` +
-        `would be rejected as ${rejected}. Run \`giti ${kind}/pull ${dir}\` first.`,
+        `would be rejected as ${rejected}. Run \`giti receive ${dir}\` first.`,
     );
     return 'skipped';
+  }
+
+  //? `git subrepo push` and `git subtree push` have no dry run — forwarded, the flag would be
+  //? dropped and the push would really happen. So a dry run stops here and says what it would do;
+  //? a submodule is a plain `git push`, which takes --dry-run itself.
+  const dryRun = args.passthrough.some((flag) => flag === '--dry-run' || flag === '-n');
+  if (dryRun && kind !== 'submodule') {
+    const what =
+      localChanges && localChanges.length > 0 ? plural(localChanges.length, 'changed file') : 'its changes';
+    const to = kind === 'subtree' ? ` to ${upstream?.remote} ${upstream?.branch}` : '';
+    console.log(`🧪 ${dir}: dry run — would push ${what}${to}.`);
+    return 'done';
   }
 
   //? Whatever the user typed goes to the command that actually runs, so `--no-verify` on a mega
   //? push skips the hooks of every push it makes, not only the ones giti builds itself.
   const forwardTo: FlagTarget =
     kind === 'subrepo' ? 'subrepo' : kind === 'submodule' ? 'git' : 'subtree';
-  const { flags, config, dropped } = forwardVendoredFlags(args.passthrough, forwardTo);
+  //? Setting the upstream is about the repository's own branch, never a vendored push — and to
+  //? `git subrepo` `-u` is --update, which would rewrite the entry's .gitrepo remote
+  const forwardable = args.passthrough.filter((flag) => !SELF_ONLY.has(flag));
+  const { flags, config, dropped } = forwardVendoredFlags(forwardable, forwardTo);
   if (dropped.length > 0) console.warn(`   ${dir}: ${explainDroppedFlags(dropped, forwardTo)}`);
 
   //? A submodule's copy is a repository of its own and its own commits are what travel, so its

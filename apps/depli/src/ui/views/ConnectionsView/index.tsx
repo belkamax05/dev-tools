@@ -8,6 +8,7 @@ import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import { type ThemeColors, useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
+import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { copyToClipboard } from '@/dev-tools/utils/system/copyToClipboard';
 import { openUrl } from '@/dev-tools/utils/system/openUrl';
 
@@ -31,6 +32,8 @@ export interface ConnectionsViewProps {
   problems: string[];
   session: Session;
   notify: (text: string, tone?: Tone) => void;
+  /** True while a prompt here has the keyboard — the app's own keys stand down. */
+  onCaptureInput: (captured: boolean) => void;
 }
 
 /** A row of the list: a provider's "first that works", one of its transports, or one choice. */
@@ -262,9 +265,17 @@ const ScrollPane = ({
  * and how to fix them, and a setup guide for each. Enter on a row decides what is used: the first
  * that works, one transport pinned, or one SSH key.
  */
-export const ConnectionsView = ({ data, providers, problems, session, notify }: ConnectionsViewProps) => {
+export const ConnectionsView = ({
+  data,
+  providers,
+  problems,
+  session,
+  notify,
+  onCaptureInput,
+}: ConnectionsViewProps) => {
   const colors = useColors();
   const [selectedId, setSelectedId] = useState(session.selected.connections);
+  const prompt = usePrompt(onCaptureInput);
   const [showGuide, setShowGuide] = useState(false);
   const [scroll, setScroll] = useState(0);
   //? Choices tested here, by choiceKey — the main probe only ever tries the one picked
@@ -464,32 +475,81 @@ export const ConnectionsView = ({ data, providers, problems, session, notify }: 
     );
   };
 
+  /** Start a setup — asking its inputs in turn first (a user id, then a token), if it has any. */
   const startSetup = (provider: Provider) => {
     const transport = setupOf(provider);
-    if (!transport) return;
+    if (!transport?.setup) return;
     if (unavailable[provider.name]) return notify(unavailable[provider.name] ?? '', 'warn');
-    data.startSetup(provider.name, transport.id);
+    const inputs = transport.setup.inputs ?? [];
+    const context = data.setupContext(provider.name);
+    const ask = (at: number, values: Record<string, string>) => {
+      const input = inputs[at];
+      if (!input) return data.startSetup(provider.name, transport.id, values);
+      prompt.ask(
+        `${input.label}:`,
+        (value) => {
+          if (!value.trim()) return notify(`${input.label} is needed — nothing was saved`, 'warn');
+          ask(at + 1, { ...values, [input.id]: value });
+        },
+        { initial: (context && input.initial?.(context)) ?? '', secret: input.secret },
+      );
+    };
+    ask(0, {});
   };
 
-  /** The guided setup for the recommended way in — a sign-in run for the person, in the app. */
+  /**
+   * The guided setup for the recommended way in — a sign-in run for the person, in the app — in a
+   * frame of its own, so it reads as the one thing to do rather than more of the report.
+   */
   const renderSetup = (provider: Provider) => {
     const transport = setupOf(provider);
     const setup = transport?.setup;
     if (!transport || !setup) return null;
-    const running = data.setup?.key === `${provider.name}:${transport.id}` ? data.setup.progress : undefined;
+    const running =
+      data.setup?.key === `${provider.name}:${transport.id}` ? data.setup.progress : undefined;
     const active = running && (running.state === 'running' || running.state === 'waiting');
     const probe = data.connections[provider.name]?.probes.find(
       (entry) => entry.transport === transport.id,
     );
     const why = unavailable[provider.name];
+    const context = data.setupContext(provider.name);
+    const links = context && setup.links ? setup.links(context) : [];
+    const steps = (
+      <Box flexDirection="column" marginTop={1}>
+        {setup.steps.map((step, index) => (
+          <Box key={step}>
+            <Box width={3} flexShrink={0}>
+              <Text color={colors.accent} bold>
+                {index + 1}.
+              </Text>
+            </Box>
+            <Box flexShrink={1}>
+              <Text color={colors.text} wrap="wrap">
+                {step}
+              </Text>
+            </Box>
+          </Box>
+        ))}
+      </Box>
+    );
     return (
-      <Box flexDirection="column">
-        <Section title={setup.label} />
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={probe?.ok ? colors.muted : colors.accent}
+        paddingX={1}
+        marginTop={1}
+      >
+        <Text color={colors.accent} bold>
+          ⚙ {setup.label}
+        </Text>
         {!active ? (
           <>
             <Text color={colors.muted} wrap="wrap">
               {setup.detail}
             </Text>
+            {steps}
+            {links.length ? <Links links={links} /> : null}
             {why ? (
               <Text color={colors.warn} wrap="wrap">
                 ⚠ {why}
@@ -550,22 +610,7 @@ export const ConnectionsView = ({ data, providers, problems, session, notify }: 
                   </Box>
                   <ActionButton hotkey="X" label="Cancel" onPress={data.cancelSetup} />
                 </Box>
-                <Box flexDirection="column" marginTop={1}>
-                  {setup.steps.map((step, index) => (
-                    <Box key={step}>
-                      <Box width={3} flexShrink={0}>
-                        <Text color={colors.accent} bold>
-                          {index + 1}.
-                        </Text>
-                      </Box>
-                      <Box flexShrink={1}>
-                        <Text color={colors.text} wrap="wrap">
-                          {step}
-                        </Text>
-                      </Box>
-                    </Box>
-                  ))}
-                </Box>
+                {steps}
               </>
             ) : active ? (
               <ActionButton hotkey="X" label="Cancel" onPress={data.cancelSetup} />
@@ -669,7 +714,7 @@ export const ConnectionsView = ({ data, providers, problems, session, notify }: 
         notify(`Opened ${link.label}`, 'info');
       }
     }
-  });
+  }, { isActive: !prompt.isOpen });
 
   const renderAuto = (provider: Provider) => {
     const connection = data.connections[provider.name];
@@ -858,8 +903,11 @@ export const ConnectionsView = ({ data, providers, problems, session, notify }: 
   };
 
   return (
+    <Box flexDirection="column" flexGrow={1}>
+      {prompt.line ? <Box flexShrink={0}>{prompt.line}</Box> : null}
     <ListDetail
       title="Connections"
+      isInputActive={!prompt.isOpen}
       items={items}
       emptyText="No providers — add some to depli.config.ts"
       detailTitle={
@@ -917,6 +965,7 @@ export const ConnectionsView = ({ data, providers, problems, session, notify }: 
         );
       }}
     />
+    </Box>
   );
 };
 
