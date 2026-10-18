@@ -75,7 +75,7 @@ export const workspaceListPath = async (
 export const configStore = createConfigStore<BmiConfig>({
   appName: 'bmi',
   defaults: {
-    theme: 'classic',
+    theme: 'sakura',
     autoPreview: true,
     bookmarkLayout: 'list',
     showThumbnails: true,

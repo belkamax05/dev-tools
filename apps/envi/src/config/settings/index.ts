@@ -107,7 +107,7 @@ export const coerceVars = (raw: unknown): Record<string, string> => {
 export const configStore = createConfigStore<EnviConfig>({
   appName: 'envi',
   defaults: {
-    theme: 'classic',
+    theme: 'lagoon',
     setTarget: '.env.user',
     files: [...DEFAULT_FILES],
     disabled: [],

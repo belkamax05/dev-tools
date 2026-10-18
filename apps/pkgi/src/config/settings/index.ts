@@ -293,7 +293,7 @@ export const resolveSettings = (config: PkgiProjectConfig, state: FolderState): 
  */
 export const userConfigStore = createConfigStore({
   appName: 'pkgi',
-  defaults: { theme: 'classic' },
+  defaults: { theme: 'forest' },
 });
 
 /** `~/.local/state/pkgi/state.json`: the tab the dashboard was left on. */

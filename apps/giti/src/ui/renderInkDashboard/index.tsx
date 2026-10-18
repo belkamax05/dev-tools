@@ -9,6 +9,7 @@ import getCommandEntries from '../../utils/getCommandEntries';
 import getCommandPickerItems from '../../utils/getCommandPickerItems';
 import getWorkingDir from '../../utils/getWorkingDir';
 import App, { TABS, type TabId } from '../dashboard/App';
+import { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
 import { DEFAULT_REFRESH_SECONDS } from '../dashboard/views/SettingsView';
 
 /**
@@ -35,7 +36,7 @@ const renderInkDashboard = async (): Promise<string | undefined> => {
   //? anyone's dotfiles — not even when stow links the whole ~/.config/giti directory.
   const configStore = createConfigStore({
     appName: 'giti',
-    defaults: { theme: 'classic', refreshSeconds: DEFAULT_REFRESH_SECONDS },
+    defaults: { theme: GITI_DEFAULT_PALETTE, refreshSeconds: DEFAULT_REFRESH_SECONDS },
   });
   const stateStore = createConfigStore({
     appName: 'giti',

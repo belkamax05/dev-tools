@@ -2,6 +2,7 @@ import { Text } from 'ink';
 
 import Box from '@/dev-tools/ui/components/Box';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import terminalText from '@/dev-tools/ui/utils/terminalText';
 
 import type { FileDiff } from '../../../core/hunks';
 
@@ -43,7 +44,8 @@ export const DiffLines = ({ diff, activeHunk = 0 }: DiffLinesProps) => {
                   : colors.text
           }
         >
-          {header ? `${active ? '▶ ' : '  '}${line}` : line || ' '}
+          {/* A raw tab is wider on screen than Ink measures it, and breaks the frame */}
+          {header ? `${active ? '▶ ' : '  '}${terminalText(line)}` : terminalText(line) || ' '}
         </Text>
       ))}
     </Box>

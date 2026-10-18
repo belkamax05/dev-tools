@@ -27,7 +27,7 @@ export interface AgentiSettings {
 }
 
 const DEFAULTS: AgentiSettings = {
-  theme: 'classic',
+  theme: 'grape',
   defaultIde: '',
   repos: {},
   lastTab: 'agents',

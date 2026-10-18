@@ -17,7 +17,7 @@ import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import { getChanges } from '../../core/status';
 import saveCommit from '../../utils/saveCommit';
-import gitiTheme from '../dashboard/theme';
+import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
 import StatusView from '../dashboard/views/StatusView';
 
 const FLAGS = [
@@ -296,7 +296,7 @@ export const CommitForm = ({
 const renderInkCommit = async (options: RenderInkCommitOptions) => {
   const config = await createConfigStore({
     appName: 'giti',
-    defaults: { theme: 'classic' },
+    defaults: { theme: GITI_DEFAULT_PALETTE },
   }).load();
   let selection: { args: string[]; push: boolean } | undefined;
   await runTuiApp(

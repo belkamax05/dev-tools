@@ -27,7 +27,7 @@ export interface ProcessiState {
  */
 export const configStore = createConfigStore<ProcessiConfig>({
   appName: 'processi',
-  defaults: { theme: 'classic', refreshSeconds: DEFAULT_REFRESH_SECONDS },
+  defaults: { theme: 'midnight', refreshSeconds: DEFAULT_REFRESH_SECONDS },
 });
 
 /**

@@ -22,7 +22,7 @@ import {
   type OperationState,
   skipOperation,
 } from '../../../core/operation';
-import gitiTheme from '../theme';
+import gitiTheme, { GITI_DEFAULT_PALETTE } from '../theme';
 import type { GitViewProps, Tone, UndoOffer } from '../types';
 import useRepoSnapshot from '../useRepoSnapshot';
 import SpinnerGlyph from '../SpinnerGlyph';
@@ -153,7 +153,7 @@ export const App = ({
   notice,
   initialTab = 'overview',
   onTabChange,
-  initialPaletteId = 'classic',
+  initialPaletteId = GITI_DEFAULT_PALETTE,
   onThemeChange,
   initialRefreshSeconds = DEFAULT_REFRESH_SECONDS,
   onRefreshChange,

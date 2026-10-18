@@ -77,7 +77,7 @@ export const coercePorts = (raw: unknown): WatchedPort[] => {
  */
 export const configStore = createConfigStore<PortiConfig>({
   appName: 'porti',
-  defaults: { theme: 'classic', refreshSeconds: DEFAULT_REFRESH_SECONDS, ports: DEFAULT_PORTS },
+  defaults: { theme: 'lagoon', refreshSeconds: DEFAULT_REFRESH_SECONDS, ports: DEFAULT_PORTS },
   coerce: (raw, defaults) => ({
     theme: typeof raw.theme === 'string' ? raw.theme : defaults.theme,
     refreshSeconds:

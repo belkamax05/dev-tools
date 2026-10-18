@@ -2,6 +2,7 @@ import { Text } from 'ink';
 
 import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import terminalText from '@/dev-tools/ui/utils/terminalText';
 
 /** The scroll keys, for a view listing them in its hints. */
 export const PATCH_SCROLL_HINT = { key: 'PgUp/PgDn · ⇧↑/↓ · wheel', label: 'scroll diff' } as const;
@@ -23,7 +24,8 @@ export interface PatchLinesProps {
  */
 export const PatchLines = ({ text, isActive = true }: PatchLinesProps) => {
   const colors = useColors();
-  const lines = text.replace(/\n$/, '').split('\n');
+  //? Tabs expanded: a raw one is wider on screen than Ink measures it, and breaks the frame
+  const lines = text.replace(/\n$/, '').split('\n').map((line) => terminalText(line));
   if (!text.trim()) return <Text color={colors.muted}>No changes.</Text>;
   return (
     <ScrollPanel key={text} keyboardMode="preview" isActive={isActive}>

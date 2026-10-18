@@ -6,7 +6,7 @@ import { TuiThemeProvider } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import type { ClearIgnoredResult, IgnoredOptions } from '../../core/ignored';
-import gitiTheme from '../dashboard/theme';
+import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
 import { DEFAULT_REFRESH_SECONDS } from '../dashboard/views/SettingsView';
 import IgnoredView from '../dashboard/views/IgnoredView';
 
@@ -38,7 +38,7 @@ const renderInkClear = async (root: string, options?: IgnoredOptions) => {
   //? Only for the palette: the same file the dashboard reads, so `giti clear` looks like it
   const config = await createConfigStore({
     appName: 'giti',
-    defaults: { theme: 'classic', refreshSeconds: DEFAULT_REFRESH_SECONDS },
+    defaults: { theme: GITI_DEFAULT_PALETTE, refreshSeconds: DEFAULT_REFRESH_SECONDS },
   }).load();
 
   const results: ClearIgnoredResult[] = [];

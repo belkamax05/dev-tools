@@ -13,6 +13,9 @@ import { createTheme } from '@/dev-tools/ui/theme';
  * enough for a commit subject or a remote URL to say anything, and a pane that
  * can only show an ellipsis is worse than a terminal that admits it is too small.
  */
+/** The palette a fresh install opens in — git's own orange, so giti is told apart from its siblings. */
+export const GITI_DEFAULT_PALETTE = 'ember';
+
 export const gitiTheme = createTheme({
   sizes: {
     app: { minWidth: 72, minHeight: 18 },
