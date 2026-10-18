@@ -3,7 +3,7 @@ import { renderToString } from 'ink';
 
 import type { PreviewCache } from '../../core/preview';
 import { WORKSPACE_BADGE } from '../WorkspaceChip';
-import BookmarkCard from './index';
+import BookmarkCard, { CARD_HEIGHT } from './index';
 
 const cache: PreviewCache = {
   directory: '',
@@ -33,7 +33,7 @@ test('a card reserves its image area and shows its title and URL without a previ
   expect(output).toContain('No preview image');
   expect(output).toContain(entry.title);
   expect(output).toContain(entry.url);
-  expect(output.split('\n')).toHaveLength(12);
+  expect(output.split('\n')).toHaveLength(CARD_HEIGHT);
   expect(output.split('\n').every((line) => line.length <= 34)).toBe(true);
 });
 

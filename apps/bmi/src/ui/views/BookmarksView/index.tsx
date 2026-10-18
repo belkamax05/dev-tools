@@ -59,6 +59,8 @@ export interface BookmarksViewProps {
   onCaptureInput: (captured: boolean) => void;
   /** Step to the next (1) or previous (-1) tab — Tab still does that while the search has the keys. */
   onTabStep: (step: 1 | -1) => void;
+  /** The URL of the bookmark under the pointer, `undefined` once it leaves — for the footer. */
+  onHoverUrl?: (url: string | undefined) => void;
 }
 
 //? Ink hands over whatever arrived in one read; only printable characters belong in a query
@@ -155,8 +157,13 @@ export const BookmarksView = ({
   onConfigChange,
   onCaptureInput,
   onTabStep,
+  onHoverUrl,
 }: BookmarksViewProps) => {
   const colors = useColors();
+  //? A view that goes away under the pointer never reports it leaving
+  const onHoverUrlRef = useRef(onHoverUrl);
+  onHoverUrlRef.current = onHoverUrl;
+  useEffect(() => () => onHoverUrlRef.current?.(undefined), []);
   //? Search-first, the way rofi opens: the keys go to the query from the moment the tab shows.
   //? Esc hands them to the hotkeys; `/` or a click on the search line takes them back
   const [searching, setSearching] = useState(true);
@@ -500,7 +507,8 @@ export const BookmarksView = ({
         onPress: () => open(entry),
         tone: 'primary' as const,
       },
-      { hotkey: 'y', label: 'Copy URL', onPress: () => copy(entry) },
+      //? Shift+click on a bookmark or its URL does the same, so it is taught here beside the key
+      { hotkey: 'y', label: 'Copy URL · Shift+Click', onPress: () => copy(entry) },
       { hotkey: 'n', label: 'Title', onPress: () => rename(entry) },
       { hotkey: 'T', label: 'Tags', onPress: () => retag(entry) },
       { hotkey: 'd', label: 'Description', onPress: () => describe(entry) },
@@ -626,6 +634,10 @@ export const BookmarksView = ({
         isInputActive={!prompt.isOpen}
         hints={hints}
         onActivate={(item) => open(item.value)}
+        //? Chrome's status bar: the link under the pointer, before you click it
+        onHover={(item) => onHoverUrl?.(item?.value?.url)}
+        //? Copying never launches anything, so it needs no confirming first click
+        onShiftClick={(item) => copy(item.value)}
         onSelectionChange={(item) => {
           setCurrentId(item?.id);
           session.selected.bookmarks = item?.id;
@@ -646,7 +658,12 @@ export const BookmarksView = ({
               {/* Held at full height: on a short pane the preview below gives way, not these */}
               <Box flexDirection="column" flexShrink={0}>
               <Toolbar actions={actionsFor(entry)} />
-              <LinkRow label="url" value={entry.url} onOpen={() => open(entry)} />
+              <LinkRow
+                label="url"
+                value={entry.url}
+                onOpen={() => open(entry)}
+                onShiftOpen={() => copy(entry)}
+              />
               <LinkRow
                 label="in"
                 value={placementOf(entry, library).join(', ') || 'Unsorted'}

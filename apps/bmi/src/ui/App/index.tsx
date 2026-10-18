@@ -76,6 +76,7 @@ export const App = ({
     TAB_IDS.includes(session.tab as TabId) ? (session.tab as TabId) : 'bookmarks',
   );
   const [isInputCaptured, setIsInputCaptured] = useState(false);
+  const [hoveredUrl, setHoveredUrl] = useState<string>();
   const { status, notify } = useStatus(
     notice ?? (initialWorkspace.error ? { text: `Workspace list ignored: ${initialWorkspace.error}`, tone: 'error' } : undefined),
   );
@@ -154,10 +155,18 @@ export const App = ({
       onPaletteChange={(theme) => updateConfig({ ...config, theme })}
       isInputCaptured={isInputCaptured}
       footerHints="[r] reload"
+      //? The hint line truncates, so a long URL is cut at the footer's edge
+      footerTooltip={hoveredUrl}
       footerActions={footerActions}
     >
       {tab === 'bookmarks' && (
-        <BookmarksView key="bookmarks" cache={cache} onTabStep={stepTab} {...viewProps} />
+        <BookmarksView
+          key="bookmarks"
+          cache={cache}
+          onTabStep={stepTab}
+          onHoverUrl={setHoveredUrl}
+          {...viewProps}
+        />
       )}
       {tab === 'tags' && (
         <TagsView

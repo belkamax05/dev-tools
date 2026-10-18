@@ -1,6 +1,7 @@
 import { type DOMElement, measureElement, Text } from "ink";
 import { type ReactNode, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import useClickable from "../../hooks/useClickable";
+import useHoveredId from "../../hooks/useHoveredId";
 import useScrollWindow, {
 	windowEnd,
 	windowStart,
@@ -59,6 +60,33 @@ export interface PickItemControl {
 	color?: string;
 	onPress: () => void;
 }
+
+//? Rows are laid out in terminal cells, not UTF-16 units: `.length` counts a CJK character or
+//? an emoji as one cell when the terminal draws two, and a row that comes out wider than its
+//? column has its marker and checkbox squeezed by Yoga — or wrapped onto a line of their own
+const cells = (text: string): number => Bun.stringWidth(text);
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** `text` cut to at most `room` cells, never splitting a character. */
+const fitCells = (text: string, room: number): string => {
+	if (cells(text) <= room) return text;
+	let out = "";
+	let used = 0;
+	for (const { segment } of graphemes.segment(text)) {
+		const width = cells(segment);
+		if (used + width > room) break;
+		out += segment;
+		used += width;
+	}
+	return out;
+};
+
+/** `text` cut or padded to exactly `room` cells. */
+const padCells = (text: string, room: number): string => {
+	const fitted = fitCells(text, room);
+	return fitted + " ".repeat(Math.max(0, room - cells(fitted)));
+};
 
 /** The same hit test `useClickable` does, for a box that is not itself subscribed. */
 const isInside = (node: DOMElement | null, event: TerminalMouseEvent) => {
@@ -123,7 +151,7 @@ interface PickCellProps<T> {
 	isSelected: boolean;
 	isFocused: boolean;
 	onHover: (hovered: boolean) => void;
-	onClick: () => void;
+	onClick: (event: TerminalMouseEvent) => void;
 	/** Select without activating — what a click on one of the row's controls also does. */
 	onSelectOnly: () => void;
 	renderCell?: (
@@ -152,7 +180,7 @@ const PickCell = <T,>({
 			//? or open whatever the control was only meant to toggle
 			for (const node of controlNodes.current.values())
 				if (isInside(node, event)) return;
-			onClick();
+			onClick(event);
 		},
 		isActive: !item.isHeader && !item.disabled,
 	});
@@ -202,7 +230,7 @@ const PickCell = <T,>({
 	const indent = " ".repeat(item.indent ?? 0);
 	const controlsWidth =
 		indent.length +
-		controls.reduce((total, control) => total + control.glyph.length + 1, 0);
+		controls.reduce((total, control) => total + cells(control.glyph) + 1, 0);
 
 	//? Measured list: pad the label so the hints line up into a column. The
 	//? separating space is only spent when there is a hint to separate from —
@@ -217,27 +245,26 @@ const PickCell = <T,>({
 		const available = Math.max(
 			1,
 			width -
-				marker.length -
+				cells(marker) -
 				controlsWidth -
-				(item.prefix ? item.prefix.text.length + 1 : 0),
+				(item.prefix ? cells(item.prefix.text) + 1 : 0),
 		);
 		if (hint !== "") {
-			const hintRoom = available - fullLabel.length - 1;
-			if (hint.length > hintRoom)
-				hintText = hintRoom >= 2 ? `${hint.slice(0, hintRoom - 1)}…` : "";
+			const hintRoom = available - cells(fullLabel) - 1;
+			if (cells(hint) > hintRoom)
+				hintText = hintRoom >= 2 ? `${fitCells(hint, hintRoom - 1)}…` : "";
 		}
 		const room = Math.max(
 			1,
-			available - (hintText === "" ? 0 : hintText.length + 1),
+			available - (hintText === "" ? 0 : cells(hintText) + 1),
 		);
-		labelText =
-			fullLabel.length > room
-				? fullLabel.slice(0, room)
-				: fullLabel.padEnd(room);
+		labelText = padCells(fullLabel, room);
 	}
-	//? The tag (and the padding after it) is drawn dimmed; the label keeps the row's colour
-	const tagText = item.tag ? labelText.slice(item.label.length) : "";
-	if (item.tag) labelText = labelText.slice(0, item.label.length);
+	//? The tag (and the padding after it) is drawn dimmed; the label keeps the row's colour.
+	//? Split where the label ends, if the cut left that much of it
+	const labelEnd = labelText.startsWith(item.label) ? item.label.length : labelText.length;
+	const tagText = item.tag ? labelText.slice(labelEnd) : "";
+	if (item.tag) labelText = labelText.slice(0, labelEnd);
 
 	return (
 		<Box
@@ -248,9 +275,13 @@ const PickCell = <T,>({
 			//? instead of at the right edge. A measured cell must not, or it would
 			//? stretch past the column width it was given.
 			flexGrow={width === undefined ? 1 : 0}
+			//? One line, whatever is in it: the scroll window counts every option as a row, and
+			//? one that wrapped would push the frame past the terminal's last line
+			height={1}
+			overflow="hidden"
 			backgroundColor={highlight ? colors.accent : undefined}
 		>
-			<Text color={color} bold={isSelected || item.isCurrent}>
+			<Text color={color} bold={isSelected || item.isCurrent} wrap="truncate">
 				{marker}
 				{indent}
 			</Text>
@@ -274,7 +305,9 @@ const PickCell = <T,>({
 				/>
 			))}
 			{item.prefix && (
-				<Text color={item.prefix.color}>{item.prefix.text} </Text>
+				<Text color={item.prefix.color} wrap="truncate">
+					{item.prefix.text}{" "}
+				</Text>
 			)}
 			<Text color={color} bold={isSelected || item.isCurrent} wrap="truncate">
 				{labelText}
@@ -370,6 +403,13 @@ export interface PickListProps<T> {
 	onActivate: (index: number) => void;
 	onHover?: (index: number | null) => void;
 	/**
+	 * A click with Shift held: selects the row and calls this *instead* of activating it.
+	 * Unset, Shift makes no difference to a click.
+	 *
+	 * ! Many terminals keep Shift+click for their own text selection and never report it.
+	 */
+	onShiftClick?: (index: number) => void;
+	/**
 	 * Whether a click on a row activates it as well as selecting it. Off for a
 	 * list whose rows carry their own controls, where the row itself should only
 	 * ever be a selection and the controls are the actions.
@@ -412,6 +452,7 @@ export const PickList = <T,>({
 	onSelect,
 	onActivate,
 	onHover,
+	onShiftClick,
 	activateOnClick = true,
 	onWindowChange,
   scrollbar = true,
@@ -457,6 +498,15 @@ export const PickList = <T,>({
 	useEffect(() => {
 		onWindowChangeRef.current?.(windowFrom, windowTo);
 	}, [windowFrom, windowTo]);
+
+	//? Each row reports a bare boolean, and a leaver's `false` can land after the newcomer's
+	//? `true` — `useHoveredId` keeps it from clearing the row just entered
+	const [hoveredIndex, reportHover] = useHoveredId<number>();
+	const onHoverRef = useRef(onHover);
+	onHoverRef.current = onHover;
+	useEffect(() => {
+		onHoverRef.current?.(hoveredIndex);
+	}, [hoveredIndex]);
 
 	useClickable(ref, {
 		onWheel: (event) => {
@@ -518,9 +568,13 @@ export const PickList = <T,>({
 									width={item.isHeader ? inner : cellWidth}
 									isSelected={index === selected}
 									isFocused={isFocused}
-									onHover={(hovered) => onHover?.(hovered ? index : null)}
-									onClick={() => {
+									onHover={(hovered) => reportHover(index, hovered)}
+									onClick={(event) => {
 										onSelect(index);
+										if (event.shift && onShiftClick) {
+											onShiftClick(index);
+											return;
+										}
 										const activates =
 											typeof activateOnClick === "function"
 												? activateOnClick(item)

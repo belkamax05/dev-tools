@@ -40,9 +40,9 @@ const render = (props: Partial<Parameters<typeof BookmarkTile>[0]> = {}) =>
     ),
   ).split('\n');
 
-test('a tile is about half a card tall and a third of one wide', () => {
-  expect(TILE_HEIGHT).toBe(Math.floor(CARD_HEIGHT / 2));
-  expect(TILE_MIN_COLS * 3).toBeGreaterThanOrEqual(CARD_IMAGE_COLS + 2);
+test('a tile is shorter and narrower than a card', () => {
+  expect(TILE_HEIGHT).toBeLessThan(CARD_HEIGHT);
+  expect(TILE_MIN_COLS).toBeLessThan(CARD_IMAGE_COLS + 2);
 });
 
 test('shows the title and the host, never the preview image, in its height', () => {

@@ -144,6 +144,10 @@ export interface ListDetailProps<T> {
   activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
   /** See `PickList`'s own: which `items` are on screen, as the list scrolls. */
   onWindowChange?: (from: number, to: number) => void;
+  /** See `PickList`'s own: the row under the pointer, `null` once it has left them all. */
+  onHover?: (item: PickItem<T> | undefined, index: number | null) => void;
+  /** See `PickList`'s own: Shift+click selects and calls this instead of `onActivate`. */
+  onShiftClick?: (item: PickItem<T>, index: number) => void;
 }
 
 /**
@@ -181,6 +185,8 @@ export const ListDetail = <T,>({
   activateLabel = 'open',
   activateOnClick = true,
   onWindowChange,
+  onHover,
+  onShiftClick,
 }: ListDetailProps<T>) => {
   const colors = useColors();
   const theme = useTuiTheme();
@@ -320,6 +326,17 @@ export const ListDetail = <T,>({
           onSelect={setSelected}
           activateOnClick={activateOnClick}
           onWindowChange={onWindowChange}
+          onHover={
+            onHover &&
+            ((index) => onHover(index === null ? undefined : itemsRef.current[index], index))
+          }
+          onShiftClick={
+            onShiftClick &&
+            ((index) => {
+              const item = items[index];
+              if (item) onShiftClick(item, index);
+            })
+          }
           onActivate={(index) => {
             const item = items[index];
             if (!item) return;

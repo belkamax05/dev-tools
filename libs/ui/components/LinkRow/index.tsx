@@ -13,6 +13,8 @@ export interface LinkRowProps {
   isFocused?: boolean;
   /** Undefined for a row that is information only — drawn plain, not clickable. */
   onOpen?: () => void;
+  /** A click with Shift held, in place of `onOpen` — copying the link rather than following it. */
+  onShiftOpen?: () => void;
   /** Cells the label column takes. 8 fits the one-word labels of a detail pane. */
   labelWidth?: number;
 }
@@ -33,11 +35,15 @@ export const LinkRow = ({
   color,
   isFocused = false,
   onOpen,
+  onShiftOpen,
   labelWidth = 8,
 }: LinkRowProps) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
-  const { isHovered } = useClickable(ref, { onClick: () => onOpen?.(), isActive: Boolean(onOpen) });
+  const { isHovered } = useClickable(ref, {
+    onClick: (event) => (event.shift && onShiftOpen ? onShiftOpen() : onOpen?.()),
+    isActive: Boolean(onOpen),
+  });
   const lit = Boolean(onOpen) && (isHovered || isFocused);
 
   return (

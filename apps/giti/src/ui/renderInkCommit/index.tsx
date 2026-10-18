@@ -1,13 +1,18 @@
 import { TextInput } from '@inkjs/ui';
 import { render, Text, useApp, useInput } from 'ink';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
 import Panel from '@/dev-tools/ui/components/Panel';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
-import { TuiThemeProvider, useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import useTerminalSize from '@/dev-tools/ui/hooks/useTerminalSize';
+import {
+  TuiThemeProvider,
+  useColors,
+  useTuiTheme,
+} from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import { getChanges } from '../../core/status';
@@ -25,6 +30,9 @@ const FLAGS = [
 
 type Section = 'files' | 'message' | 'flags';
 
+//? How long the message pane stays red after an empty submit
+const MESSAGE_ERROR_MS = 2500;
+
 export interface RenderInkCommitOptions {
   initialMessage?: string;
   initialFlags: string[];
@@ -41,6 +49,10 @@ export const CommitForm = ({
 }: RenderInkCommitOptions & { onCommit: (args: string[], push: boolean) => void }) => {
   const { exit } = useApp();
   const colors = useColors();
+  //? No `AppShell` here to size the frame, so the form claims the terminal itself: without a
+  //? height, the panes stop at their content and the message and flags float up under them
+  const { rows } = useTerminalSize();
+  const height = Math.max(1, rows - useTuiTheme().sizes.app.heldBackRows);
   const [section, setSection] = useState<Section>('files');
   const [message, setMessage] = useState(initialMessage ?? '');
   const [flags, setFlags] = useState(new Set(initialFlags));
@@ -51,6 +63,19 @@ export const CommitForm = ({
   const [submitting, setSubmitting] = useState(false);
   const [staging, setStaging] = useState(false);
   const [quickMessage, setQuickMessage] = useState(false);
+  const [messageError, setMessageError] = useState(0);
+  //? `TextInput` re-runs `onChange` on every render once edited (its effect depends on our
+  //? inline callback), so only a real change may clear the notice — not any re-render
+  const lastMessage = useRef(message);
+  useEffect(() => {
+    if (!messageError) return;
+    const timer = setTimeout(() => setMessageError(0), MESSAGE_ERROR_MS);
+    return () => clearTimeout(timer);
+  }, [messageError]);
+  const requireMessage = () => {
+    setNotice('Enter a commit message.');
+    setMessageError(Date.now());
+  };
   const toggle = (flag: string) =>
     setFlags((previous) => {
       const next = new Set(previous);
@@ -62,7 +87,7 @@ export const CommitForm = ({
   const submit = async () => {
     if (submitting || staging || captured) return;
     if (!message.trim() && !flags.has('--amend')) {
-      setNotice('Enter a commit message.');
+      requireMessage();
       setSection('message');
       return;
     }
@@ -116,8 +141,9 @@ export const CommitForm = ({
   const advance = () => {
     if (captured || submitting || staging) return;
     if (needsMessage) {
-      setNotice('Enter a commit message.');
-      setSection('message');
+      //? From another pane Enter only walks to the message; the error is for an empty one submitted
+      if (section === 'message') requireMessage();
+      else setSection('message');
     } else if (section === 'flags') {
       void submit();
     } else {
@@ -131,7 +157,7 @@ export const CommitForm = ({
     if (quickMessage) {
       if (key.escape) setQuickMessage(false);
       else if (key.return) {
-        if (needsMessage) setNotice('Enter a commit message.');
+        if (needsMessage) requireMessage();
         else void submit();
       }
       return;
@@ -139,6 +165,8 @@ export const CommitForm = ({
     if (filePreviewOpen) return;
     if (key.escape) return exit();
     if (captured || submitting || staging) return;
+    //? Only while no text field has the keys: in the message, `q` is a letter of it
+    if (input === 'q' && !key.ctrl && !key.meta && section !== 'message') return exit();
     if (key.return && key.shift) return quickCommit();
     if (key.tab) {
       const sections: Section[] = ['files', 'message', 'flags'];
@@ -150,23 +178,32 @@ export const CommitForm = ({
     }
   });
 
+  const showMessageError = Boolean(messageError) && !message;
   const messageInput = (
-    <TextInput
-      defaultValue={message}
-      placeholder="Commit message…"
-      onChange={(value) => {
-        setMessage(value);
-        setNotice('');
-      }}
-      isDisabled={(!quickMessage && section !== 'message') || captured || submitting}
-    />
+    <Box>
+      <TextInput
+        defaultValue={message}
+        placeholder={showMessageError ? '' : 'Commit message…'}
+        onChange={(value) => {
+          if (value === lastMessage.current) return;
+          lastMessage.current = value;
+          setMessage(value);
+          setNotice('');
+          setMessageError(0);
+        }}
+        isDisabled={(!quickMessage && section !== 'message') || captured || submitting}
+      />
+      {/* In the placeholder's place: `TextInput` greys its own placeholder, so it cannot go red */}
+      {showMessageError && <Text color={colors.error}>Commit message required</Text>}
+    </Box>
   );
+  const messageColor = messageError ? colors.error : undefined;
 
   if (quickMessage) {
     return (
-      <Box flexGrow={1} justifyContent="center" alignItems="center" paddingX={1}>
+      <Box height={height} justifyContent="center" alignItems="center" paddingX={1}>
         <Box width={72} maxWidth="100%" flexDirection="column">
-          <Panel title="Commit message" isFocused>
+          <Panel title="Commit message" isFocused color={messageColor}>
             {messageInput}
             {notice && <Text color={colors.warn}>{notice}</Text>}
             <Toolbar
@@ -182,9 +219,9 @@ export const CommitForm = ({
   }
 
   return (
-    <Box flexDirection="column" flexGrow={1} paddingX={1}>
+    <Box flexDirection="column" height={height} paddingX={1}>
       {!filePreviewOpen && (
-        <>
+        <Box flexDirection="column" flexShrink={0}>
           <Toolbar
             actions={[
               {
@@ -195,12 +232,16 @@ export const CommitForm = ({
                     section === 'files' ? 'message' : section === 'message' ? 'flags' : 'files',
                   ),
               },
-              { hotkey: 'Esc', label: 'Cancel', onPress: exit },
+              {
+                hotkey: section === 'message' ? 'Esc' : 'Esc/q',
+                label: 'Cancel',
+                onPress: exit,
+              },
               { hotkey: 'Shift+Enter', label: 'Commit now', onPress: quickCommit },
             ]}
           />
           <Text color={colors.accent}>Enter → {nextStep}</Text>
-        </>
+        </Box>
       )}
       <StatusView
         root={cwd}
@@ -217,8 +258,13 @@ export const CommitForm = ({
         isInputActive={section === 'files' && !submitting}
       />
       {!filePreviewOpen && (
-        <>
-          <Panel title="Commit message" isFocused={section === 'message'}>
+        //? Pinned at their own height: on a short terminal the panes above give way, not these
+        <Box flexDirection="column" flexShrink={0}>
+          <Panel
+            title="Commit message"
+            isFocused={section === 'message'}
+            color={messageColor}
+          >
             <ActionButton hotkey="Tab" label="Edit message" onPress={() => setSection('message')} />
             {messageInput}
           </Panel>
@@ -241,7 +287,7 @@ export const CommitForm = ({
           <Text color={colors.muted} wrap="truncate">
             {notice || `Space stage/unstage · Tab change focus · Enter → ${nextStep}`}
           </Text>
-        </>
+        </Box>
       )}
     </Box>
   );

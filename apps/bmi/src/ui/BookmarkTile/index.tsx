@@ -5,7 +5,6 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import { displayTitle, type Entry, hostOf, isFromWorkspace } from '../../core/bookmarks';
 import { renderIcon } from '../../core/icon';
 import type { PreviewCache } from '../../core/preview';
-import { CARD_HEIGHT, CARD_IMAGE_COLS } from '../BookmarkCard';
 import Favicon from '../Favicon';
 import usePreview from '../usePreview';
 import useOverlayId from '../useOverlayId';
@@ -13,13 +12,13 @@ import WorkspaceChip from '../WorkspaceChip';
 
 const ICON_COLS = 4;
 const ICON_ROWS = 2;
-/** Half a card's height: the border, the favicon, the title and the host. */
-export const TILE_HEIGHT = Math.floor(CARD_HEIGHT / 2);
+/** Exactly what it holds: the border, the favicon, the title and the host. */
+export const TILE_HEIGHT = 2 + ICON_ROWS + 2;
 /**
- * The narrowest a tile gets, about a third of a card. It is a minimum, not a size: the grid fits
- * as many as the row holds and shares out what is left, so tiles stretch to fill each row.
+ * The narrowest a tile gets. It is a minimum, not a size: the grid fits as many as the row holds
+ * and shares out what is left, so tiles stretch to fill each row.
  */
-export const TILE_MIN_COLS = Math.ceil((CARD_IMAGE_COLS + 2) / 3);
+export const TILE_MIN_COLS = 12;
 
 /** A launcher-style tile: the favicon over the title and host, centred, no preview image. */
 export const BookmarkTile = ({

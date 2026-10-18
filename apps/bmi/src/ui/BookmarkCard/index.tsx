@@ -11,8 +11,9 @@ import usePreview from '../usePreview';
 import useOverlayId from '../useOverlayId';
 import WorkspaceChip from '../WorkspaceChip';
 
-export const CARD_IMAGE_COLS = 32;
-export const CARD_IMAGE_ROWS = 8;
+//? About 60% of the 32×8 it started at: more cards to a screen, the picture still readable
+export const CARD_IMAGE_COLS = 19;
+export const CARD_IMAGE_ROWS = 5;
 /** The favicon's size, and so the height of the title-and-URL block beside it. */
 const ICON_COLS = 4;
 const ICON_ROWS = 2;
