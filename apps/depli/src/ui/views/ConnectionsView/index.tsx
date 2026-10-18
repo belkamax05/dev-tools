@@ -290,6 +290,7 @@ export const ConnectionsView = ({
   for (const provider of providers) {
     const connection = data.connections[provider.name];
     const preference = data.preferences[provider.name] ?? {};
+    const selectedTransport = preference.transport ?? connection?.transport;
     const inUse = provider.transports.find((transport) => transport.id === connection?.transport);
     items.push({
       id: `${provider.name}:header`,
@@ -324,7 +325,7 @@ export const ConnectionsView = ({
         disabled: state === 'disabled',
         prefix: {
           text:
-            preference.transport === transport.id && state !== 'disabled'
+            selectedTransport === transport.id && state !== 'disabled'
               ? '◉ '
               : transport.planned || state === 'disabled'
                 ? '  '
@@ -349,7 +350,10 @@ export const ConnectionsView = ({
         items.push({
           id: `${provider.name}:${transport.id}:${choice.id ?? '-'}`,
           label: `${transport.choiceLabel.toLowerCase()}: ${choice.label}`,
-          prefix: { text: choice.id === picked ? '◉ ' : '○ ', color: colors.accent },
+          prefix: {
+            text: selectedTransport === transport.id && choice.id === picked ? '◉ ' : '○ ',
+            color: colors.accent,
+          },
           hint:
             tested === 'running'
               ? '… testing'
@@ -876,15 +880,18 @@ export const ConnectionsView = ({
   };
 
   const renderChoice = (row: Extract<Row, { kind: 'choice' }>) => {
-    const picked = data.preferences[row.provider.name]?.choices?.[row.transport.id];
+    const preference = data.preferences[row.provider.name] ?? {};
+    const picked = preference.choices?.[row.transport.id];
+    const selectedTransport = preference.transport ?? data.connections[row.provider.name]?.transport;
+    const inUse = selectedTransport === row.transport.id && row.choice === picked;
     const tested = tests[choiceKey(row.provider.name, row.transport.id, row.choice)];
     const probe = probeFor(row);
     return (
       <Box flexDirection="column">
         <Text color={colors.text} bold>
-          {row.choice === picked ? '◉ in use for ' : '○ '}
+          {inUse ? '◉ in use for ' : '○ '}
           {row.transport.label}
-          {row.choice === picked ? '' : ' — not in use'}
+          {inUse ? '' : ' — not in use'}
         </Text>
         <Text color={row.tone === 'warn' ? colors.warn : colors.muted} wrap="wrap">
           {row.choice ? row.detail : 'No key forced: ssh offers whatever ~/.ssh/config and the agent have, in its order, and GitHub takes the first it knows.'}

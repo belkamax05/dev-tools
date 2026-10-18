@@ -64,6 +64,9 @@ git = "!git giti git"
 # Print the full commit hash of HEAD
 hash = "!git giti hash"
 
+# List giti commands (alias for giti list)
+help = "!git giti help"
+
 # Switch branches with interactive TUI — search local & remote branches, preview divergence
 hop = "!git giti hop"
 
@@ -131,7 +134,7 @@ remotes-rename = "!git giti remotes/rename"
 # Change a remote URL: giti remotes set-url <name> <url>; --push sets a separate push URL
 remotes-set-url = "!git giti remotes/set-url"
 
-# Commit with interactive TUI for message and flags; TUI is skipped when a message or any flag is provided
+# Commit with interactive TUI for message and flags; select changes, message and flags together; --push sends after success (off by default); message or flags skip TUI when changes are already staged
 save = "!git giti save"
 
 # Push every subrepo, submodule and subtree upstream, then this repository — takes all git push flags and [<remote> [<branch>]]; a screen to pick flags when none are given (--yes skips it, --no-self)

@@ -1,305 +1,29 @@
 import { TextInput } from '@inkjs/ui';
-import { Box, render, Text, useApp, useInput } from 'ink';
-import { useCallback, useEffect, useState } from 'react';
-import getStatus from '../../utils/getStatus';
-import gitExec from '../../utils/gitExec';
+import { render, Text, useApp, useInput } from 'ink';
+import { useState } from 'react';
 
-interface CommitFlag {
-  flag: string;
-  description: string;
-  isUiOnly?: boolean;
-}
+import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
+import ActionButton from '@/dev-tools/ui/components/ActionButton';
+import Box from '@/dev-tools/ui/components/Box';
+import Panel from '@/dev-tools/ui/components/Panel';
+import Toolbar from '@/dev-tools/ui/components/Toolbar';
+import { TuiThemeProvider, useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
-const COMMIT_FLAGS: CommitFlag[] = [
-  { flag: '--no-verify', description: 'Skip pre-commit and commit-msg hooks' },
-  { flag: '--amend', description: 'Amend the last commit' },
-  { flag: '--allow-empty', description: 'Allow recording an empty commit' },
-  { flag: '--signoff', description: 'Add Signed-off-by trailer' },
-  {
-    flag: '--yes',
-    description: 'Bypass this TUI next run (shu flag, not passed to git)',
-    isUiOnly: true,
-  },
-];
+import { getChanges } from '../../core/status';
+import saveCommit from '../../utils/saveCommit';
+import gitiTheme from '../dashboard/theme';
+import StatusView from '../dashboard/views/StatusView';
 
-const GIT_FLAGS = COMMIT_FLAGS.filter((f) => !f.isUiOnly);
+const FLAGS = [
+  ['--no-verify', 'Skip hooks'],
+  ['--amend', 'Amend'],
+  ['--allow-empty', 'Allow empty'],
+  ['--signoff', 'Sign off'],
+  ['--push', 'Push after commit'],
+] as const;
 
-//? Porcelain XY status codes that indicate a staged change (index column)
-const STATUS_LABELS: Record<string, string> = {
-  A: 'added',
-  M: 'modified',
-  D: 'deleted',
-  R: 'renamed',
-  C: 'copied',
-  T: 'type-changed',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  A: 'green',
-  M: 'yellow',
-  D: 'red',
-  R: 'cyan',
-  C: 'cyan',
-  T: 'magenta',
-};
-
-interface StagedFile {
-  code: string;
-  path: string;
-}
-
-const parseStagedFiles = (porcelain: string): StagedFile[] =>
-  porcelain
-    .split('\n')
-    .filter(Boolean)
-    .filter((line) => line[0] !== ' ' && line[0] !== '?')
-    .map((line) => ({
-      code: line[0] ?? '?',
-      //? For renames git outputs "R old -> new"; take the last part
-      path: line.slice(3).split(' -> ').pop() ?? line.slice(3),
-    }));
-
-const truncatePath = (path: string, max = 48) =>
-  path.length > max ? `…${path.slice(-(max - 1))}` : path;
-
-const truncateMsg = (msg: string, max = 60) =>
-  msg.length > max ? `${msg.slice(0, max - 1)}…` : msg;
-
-const buildGitArgs = (message: string, enabledFlags: Set<string>, passthroughFlags: string[]) => {
-  const args = ['commit'];
-  if (message) args.push('-m', message);
-  for (const { flag } of GIT_FLAGS) {
-    if (enabledFlags.has(flag)) args.push(flag);
-  }
-  args.push(...passthroughFlags);
-  return args;
-};
-
-const buildCommandPreview = (
-  message: string,
-  enabledFlags: Set<string>,
-  passthroughFlags: string[],
-) => {
-  const parts = ['git', 'commit'];
-  if (message) parts.push('-m', `"${message}"`);
-  for (const { flag } of GIT_FLAGS) {
-    if (enabledFlags.has(flag)) parts.push(flag);
-  }
-  parts.push(...passthroughFlags);
-  return parts.join(' ');
-};
-
-interface AppProps {
-  initialMessage?: string;
-  initialFlags: string[];
-  passthroughFlags: string[];
-  stagedFiles: StagedFile[];
-  onCommit: (args: string[]) => void;
-}
-
-const App = ({
-  initialMessage,
-  initialFlags,
-  passthroughFlags,
-  stagedFiles,
-  onCommit,
-}: AppProps) => {
-  const { exit } = useApp();
-  const [message, setMessage] = useState(initialMessage ?? '');
-  const [enabledFlags, setEnabledFlags] = useState<Set<string>>(new Set(initialFlags));
-  const [section, setSection] = useState<'message' | 'flags'>(initialMessage ? 'flags' : 'message');
-  const [flagIndex, setFlagIndex] = useState(0);
-  const [error, setError] = useState('');
-  //? Toggle showing all staged files vs just first few
-  const [expandedFiles, setExpandedFiles] = useState(false);
-  const [isExited, setIsExited] = useState(false);
-
-  useEffect(() => {
-    if (isExited) exit();
-  }, [isExited, exit]);
-
-  const command = buildCommandPreview(message, enabledFlags, passthroughFlags);
-  const hasYes = enabledFlags.has('--yes');
-
-  //? How many to show in collapsed state
-  const PREVIEW_COUNT = 5;
-  const visibleFiles = expandedFiles ? stagedFiles : stagedFiles.slice(0, PREVIEW_COUNT);
-  const hiddenCount = stagedFiles.length - PREVIEW_COUNT;
-
-  const handleCommit = useCallback(() => {
-    if (!message.trim() && !enabledFlags.has('--amend')) {
-      setError('Message required (or enable --amend)');
-      setSection('message');
-      return;
-    }
-    onCommit(buildGitArgs(message.trim(), enabledFlags, passthroughFlags));
-    setIsExited(true);
-  }, [message, enabledFlags, passthroughFlags, onCommit]);
-
-  useInput((input, key) => {
-    if (key.ctrl && input === 'c') {
-      setIsExited(true);
-      return;
-    }
-    if (key.tab) {
-      setSection((s) => (s === 'message' ? 'flags' : 'message'));
-      setError('');
-      return;
-    }
-
-    if (section === 'flags' && key.escape) {
-      setSection('message');
-      setError('');
-      return;
-    }
-
-    if (section === 'message' && key.return) {
-      setSection('flags');
-      setError('');
-      return;
-    }
-
-    if (section === 'flags') {
-      if (key.upArrow) {
-        setFlagIndex((i) => Math.max(0, i - 1));
-        return;
-      }
-      if (key.downArrow) {
-        setFlagIndex((i) => Math.min(COMMIT_FLAGS.length - 1, i + 1));
-        return;
-      }
-      if (input === ' ') {
-        const flag = COMMIT_FLAGS[flagIndex]?.flag;
-        if (flag) {
-          setEnabledFlags((prev) => {
-            const next = new Set(prev);
-            if (next.has(flag)) next.delete(flag);
-            else next.add(flag);
-            return next;
-          });
-        }
-        return;
-      }
-      if (input === 'e') {
-        if (stagedFiles.length > PREVIEW_COUNT) setExpandedFiles((v) => !v);
-        return;
-      }
-      if (key.return) {
-        handleCommit();
-        return;
-      }
-    }
-  });
-
-  const stagedColor = stagedFiles.length === 0 ? 'red' : 'green';
-
-  if (isExited) return null;
-
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Text bold color="cyan">
-        git commit
-      </Text>
-
-      {/* Staged files summary */}
-      <Box
-        flexDirection="column"
-        marginTop={1}
-        borderStyle="round"
-        borderColor="gray"
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <Box gap={1}>
-          <Text color={stagedColor} bold>
-            {stagedFiles.length} {stagedFiles.length === 1 ? 'file' : 'files'} staged
-          </Text>
-          {stagedFiles.length > PREVIEW_COUNT && (
-            <Text dimColor>{'(e to ' + (expandedFiles ? 'collapse' : 'expand all') + ')'}</Text>
-          )}
-        </Box>
-        {stagedFiles.length === 0 && (
-          <Text dimColor>Nothing staged — stage files with git add first</Text>
-        )}
-        {visibleFiles.map((f) => (
-          <Box key={f.path} gap={1}>
-            <Text color={STATUS_COLORS[f.code] ?? 'gray'} bold>
-              {f.code}
-            </Text>
-            <Text color={STATUS_COLORS[f.code] ?? 'gray'}>{truncatePath(f.path)}</Text>
-            <Text dimColor>{STATUS_LABELS[f.code] ?? ''}</Text>
-          </Box>
-        ))}
-        {!expandedFiles && hiddenCount > 0 && (
-          <Text dimColor> …and {hiddenCount} more (press e to expand)</Text>
-        )}
-      </Box>
-
-      {/* Message section */}
-      <Box
-        flexDirection="column"
-        marginTop={1}
-        borderStyle="round"
-        borderColor={section === 'message' ? 'cyan' : 'gray'}
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <Text dimColor={section !== 'message'}>Message</Text>
-        <TextInput
-          placeholder="Commit message..."
-          defaultValue={initialMessage}
-          onChange={setMessage}
-          isDisabled={section !== 'message'}
-        />
-        {error ? <Text color="red">{error}</Text> : null}
-      </Box>
-
-      {/* Flags section */}
-      <Box
-        flexDirection="column"
-        marginTop={1}
-        borderStyle="round"
-        borderColor={section === 'flags' ? 'cyan' : 'gray'}
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <Text dimColor={section !== 'flags'}>
-          Flags <Text dimColor>Space to toggle</Text>
-        </Text>
-        {COMMIT_FLAGS.map((f, i) => {
-          const isEnabled = enabledFlags.has(f.flag);
-          const isFocused = section === 'flags' && i === flagIndex;
-          return (
-            <Box key={f.flag} gap={1}>
-              <Text color={isFocused ? 'cyan' : undefined}>{isFocused ? '▶' : ' '}</Text>
-              <Text color={isEnabled ? 'green' : 'gray'}>{isEnabled ? '✓' : '○'}</Text>
-              <Text
-                color={f.isUiOnly ? (isEnabled ? 'yellow' : 'gray') : isEnabled ? 'white' : 'gray'}
-              >
-                {f.flag}
-              </Text>
-              <Text dimColor>{f.description}</Text>
-            </Box>
-          );
-        })}
-      </Box>
-
-      {/* Footer */}
-      <Box marginTop={1} flexDirection="column">
-        <Box gap={1}>
-          <Text color="magenta">{command}</Text>
-          {hasYes && <Text color="yellow">--yes</Text>}
-        </Box>
-        {hasYes && <Text dimColor>--yes is a shu flag and will not be passed to git</Text>}
-        <Text dimColor>
-          Tab switch •{' '}
-          {section === 'flags' ? 'Esc/Tab back • Space toggle • Enter commit' : 'Enter next'} •
-          Ctrl+C cancel
-        </Text>
-      </Box>
-    </Box>
-  );
-};
+type Section = 'files' | 'message' | 'flags';
 
 export interface RenderInkCommitOptions {
   initialMessage?: string;
@@ -308,38 +32,190 @@ export interface RenderInkCommitOptions {
   cwd: string;
 }
 
-const renderInkCommit = async ({
+const CommitForm = ({
+  cwd,
   initialMessage,
   initialFlags,
   passthroughFlags,
-  cwd,
-}: RenderInkCommitOptions) => {
-  const [porcelain] = await Promise.all([getStatus(cwd).catch(() => '')]);
-  const stagedFiles = parseStagedFiles(porcelain);
+  onCommit,
+}: RenderInkCommitOptions & { onCommit: (args: string[], push: boolean) => void }) => {
+  const { exit } = useApp();
+  const colors = useColors();
+  const [section, setSection] = useState<Section>('files');
+  const [message, setMessage] = useState(initialMessage ?? '');
+  const [flags, setFlags] = useState(new Set(initialFlags));
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [notice, setNotice] = useState('');
+  const [captured, setCaptured] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [staging, setStaging] = useState(false);
+  const toggle = (flag: string) =>
+    setFlags((previous) => {
+      const next = new Set(previous);
+      if (next.has(flag)) next.delete(flag);
+      else next.add(flag);
+      return next;
+    });
 
-  let gitArgs: string[] | null = null;
+  const submit = async () => {
+    if (submitting || staging || captured) return;
+    if (!message.trim() && !flags.has('--amend')) {
+      setNotice('Enter a commit message.');
+      setSection('message');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const changes = await getChanges(cwd);
+      if (changes.some((change) => change.conflicted)) {
+        setNotice('Resolve conflicts before committing.');
+        setSection('files');
+        return;
+      }
+      if (
+        !flags.has('--allow-empty') &&
+        !flags.has('--amend') &&
+        !changes.some((change) => change.staged)
+      ) {
+        setNotice('Select changes to stage before committing.');
+        setSection('files');
+        return;
+      }
+      const args = [
+        'commit',
+        ...[...flags].filter((flag) => flag !== '--push'),
+        ...passthroughFlags,
+      ];
+      if (message.trim()) args.push('-m', message.trim());
+      else if (flags.has('--amend')) args.push('--no-edit');
+      onCommit(args, flags.has('--push'));
+      exit();
+    } catch (error) {
+      setNotice(String(error));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-  const { waitUntilExit, unmount, clear } = render(
-    <App
-      initialMessage={initialMessage}
-      initialFlags={initialFlags}
-      passthroughFlags={passthroughFlags}
-      stagedFiles={stagedFiles}
-      onCommit={(args) => (gitArgs = args)}
-    />,
-    { exitOnCtrlC: false },
+  const needsMessage = !message.trim() && !flags.has('--amend');
+  const nextStep = needsMessage
+    ? 'Enter commit message'
+    : section === 'flags'
+      ? 'Save'
+      : 'Review flags';
+  const advance = () => {
+    if (captured || submitting || staging) return;
+    if (needsMessage) {
+      setNotice('Enter a commit message.');
+      setSection('message');
+    } else if (section === 'flags') {
+      void submit();
+    } else {
+      setNotice('Review flags, then press Enter to save.');
+      setSection('flags');
+    }
+  };
+
+  useInput((input, key) => {
+    if (key.escape || (key.ctrl && input === 'c')) return exit();
+    if (captured || submitting || staging) return;
+    if (key.tab) {
+      const sections: Section[] = ['files', 'message', 'flags'];
+      setSection(sections[(sections.indexOf(section) + (key.shift ? 2 : 1)) % 3] ?? 'files');
+    } else if (key.return) advance();
+    else if (section === 'flags') {
+      const flag = FLAGS[Number(input) - 1]?.[0];
+      if (flag) toggle(flag);
+    }
+  });
+
+  return (
+    <Box flexDirection="column" flexGrow={1} paddingX={1}>
+      <Toolbar
+        actions={[
+          {
+            hotkey: 'Tab',
+            label: `Focus: ${section}`,
+            onPress: () =>
+              setSection(
+                section === 'files' ? 'message' : section === 'message' ? 'flags' : 'files',
+              ),
+          },
+          { hotkey: 'Esc', label: 'Cancel', onPress: exit },
+        ]}
+      />
+      <Text color={colors.accent}>Enter → {nextStep}</Text>
+      <StatusView
+        root={cwd}
+        refreshKey={refreshKey}
+        reload={() => setRefreshKey((key) => key + 1)}
+        notify={setNotice}
+        onCaptureInput={setCaptured}
+        handoff={() => {}}
+        offerUndo={() => {}}
+        reservedChrome={[]}
+        stagingOnly
+        onBusyChange={setStaging}
+        isInputActive={section === 'files' && !submitting}
+      />
+      <Panel title="Commit message" isFocused={section === 'message'}>
+        <ActionButton hotkey="Tab" label="Edit message" onPress={() => setSection('message')} />
+        <TextInput
+          defaultValue={initialMessage}
+          placeholder="Commit message…"
+          onChange={(value) => {
+            setMessage(value);
+            setNotice('');
+          }}
+          isDisabled={section !== 'message' || captured || submitting}
+        />
+      </Panel>
+      <Panel title="Flags · 1–5 toggle · Enter to save" isFocused={section === 'flags'}>
+        <Box flexDirection="row" flexWrap="wrap">
+          {FLAGS.map(([flag, label], index) => (
+            <ActionButton
+              key={flag}
+              hotkey={String(index + 1)}
+              label={label}
+              isOn={flags.has(flag)}
+              onPress={() => {
+                setSection('flags');
+                toggle(flag);
+              }}
+            />
+          ))}
+        </Box>
+      </Panel>
+      <Text color={colors.muted} wrap="truncate">
+        {notice || `Space stage/unstage · Tab change focus · Enter → ${nextStep}`}
+      </Text>
+    </Box>
   );
+};
 
-  await waitUntilExit();
-  clear();
-  unmount();
-
-  if (gitArgs) {
-    const result = await gitExec(gitArgs, cwd, { stream: true });
-    if (result.exitCode !== 0) process.exit(result.exitCode ?? 1);
+const renderInkCommit = async (options: RenderInkCommitOptions) => {
+  const config = await createConfigStore({
+    appName: 'giti',
+    defaults: { theme: 'classic' },
+  }).load();
+  let selection: { args: string[]; push: boolean } | undefined;
+  await runTuiApp(
+    <TuiThemeProvider theme={gitiTheme} palette={config.theme}>
+      <CommitForm
+        {...options}
+        onCommit={(args, push) => {
+          selection = { args, push };
+        }}
+      />
+    </TuiThemeProvider>,
+    { render, keepProcessAlive: true },
+  );
+  if (!selection) return;
+  const result = await saveCommit(options.cwd, selection.args, selection.push, { stream: true });
+  if (result.exitCode !== 0) {
+    process.exitCode = result.exitCode ?? 1;
+    return;
   }
 };
 
 export default renderInkCommit;
-// truncatePath and truncateMsg exported for potential reuse
-export { truncateMsg, truncatePath };

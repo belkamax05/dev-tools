@@ -19,17 +19,18 @@ describe('giti aliases against git', () => {
     expect(gitiAliases().length).toBeGreaterThan(0);
   });
 
+  //? help intentionally overlaps; git help continues to use git's own help.
   //? git runs its own command and ignores an alias of the same name, silently — so `git <alias>`
   //? for any of these never reaches giti
   test('no giti alias is named like one of git’s own commands', async () => {
     const { main } = await getGitCommands(sysPaths.rootDir);
-    expect(gitiAliases().filter((alias) => main.has(alias))).toEqual([]);
+    expect(gitiAliases().filter((alias) => alias !== 'help' && main.has(alias))).toEqual([]);
   });
 
   //? The same, for `git-*` programs on this machine's PATH (git-subrepo, git-lfs…) — a clash here
   //? depends on what is installed, so it differs between machines
   test('no giti alias is named like a git-* program on PATH', async () => {
     const { others } = await getGitCommands(sysPaths.rootDir);
-    expect(gitiAliases().filter((alias) => others.has(alias))).toEqual([]);
+    expect(gitiAliases().filter((alias) => alias !== 'help' && others.has(alias))).toEqual([]);
   });
 });

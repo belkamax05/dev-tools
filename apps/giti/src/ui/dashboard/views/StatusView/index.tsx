@@ -73,6 +73,10 @@ const hintFor = ({ change, side }: Row) =>
 export interface StatusViewProps extends GitViewProps {
   /** `I`: open the ignored-files tree in this view's place. Owned by Overview, which hosts both. */
   onShowIgnored?: () => void;
+  /** Standalone commit forms own commit actions and keyboard focus. */
+  stagingOnly?: boolean;
+  onBusyChange?: (busy: boolean) => void;
+  isInputActive?: boolean;
 }
 
 export const StatusView = ({
@@ -85,6 +89,9 @@ export const StatusView = ({
   offerUndo,
   reservedChrome,
   onShowIgnored,
+  stagingOnly = false,
+  onBusyChange,
+  isInputActive = true,
 }: StatusViewProps) => {
   const colors = useColors();
   const viewport = useViewport();
@@ -120,11 +127,13 @@ export const StatusView = ({
   const run = async (action: () => Promise<OperationResult>) => {
     if (busy) return;
     setBusy(true);
+    onBusyChange?.(true);
     try {
       const result = await action();
       notify(result.message, result.ok ? 'ok' : 'error');
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
       reload();
     }
   };
@@ -217,18 +226,31 @@ export const StatusView = ({
     );
 
   useInput(
-    (input) => {
-      if (busy) return;
+    (input, key) => {
+      if (busy || key.ctrl || key.meta) return;
       if (input === 'a') {
         return counts.unstaged ? run(() => stageAll(root)) : notify('Nothing to stage', 'info');
       }
       if (input === 'A') return unstageAll();
+      if (stagingOnly) {
+        if (input === ' ' && current) toggle(current);
+        else if (input === 's') hunkAction('stage');
+        else if (input === 'n')
+          setHunk((at) => Math.min(at + 1, Math.max(0, diff.hunks.length - 1)));
+        else if (input === 'N') setHunk((at) => Math.max(0, at - 1));
+        return;
+      }
       if (!counts.staged) {
         if (input === 'C') return commitEmpty();
       } else {
         if (input === 'c') return commitWith();
         if (input === 'C')
-          return handoff({ type: 'run', command: ['git', 'commit'], cwd: root, label: 'git commit' });
+          return handoff({
+            type: 'run',
+            command: ['git', 'commit'],
+            cwd: root,
+            label: 'git commit',
+          });
       }
       if (input === 'M') return void amend();
       if (input === 'W') return wip();
@@ -248,7 +270,7 @@ export const StatusView = ({
         );
       }
     },
-    { isActive: !prompt.isOpen },
+    { isActive: isInputActive && !prompt.isOpen },
   );
 
   const counts = {
@@ -293,6 +315,7 @@ export const StatusView = ({
 
   const actionsFor = (row: Row): ToolbarAction[] => {
     if (row.side === 'conflict') {
+      if (stagingOnly) return [];
       return [
         {
           hotkey: 'e',
@@ -342,7 +365,7 @@ export const StatusView = ({
             },
           ]
         : []),
-      ...(!staged
+      ...(!staged && !stagingOnly
         ? [
             ...(hunks
               ? [
@@ -362,15 +385,20 @@ export const StatusView = ({
             },
           ]
         : []),
-      {
-        hotkey: 'e',
-        label: 'Edit',
-        onPress: () => handoff({ type: 'edit', path: join(root, row.change.path) }),
-      },
+      ...(!stagingOnly
+        ? [
+            {
+              hotkey: 'e',
+              label: 'Edit',
+              onPress: () => handoff({ type: 'edit', path: join(root, row.change.path) }),
+            },
+          ]
+        : []),
     ];
   };
 
   const hints: Hint[] = [
+    { key: 'Space', label: 'stage / unstage' },
     //? Gray, not hidden, with nothing to stage — it stays where the hand expects it
     {
       key: 'a',
@@ -425,11 +453,13 @@ export const StatusView = ({
           current ? `${current.change.path}${current.side === 'staged' ? ' (staged)' : ''}` : 'Diff'
         }
         reservedChrome={['viewHeader', ...reservedChrome]}
-        activateLabel="stage / unstage"
         activateOnClick={false}
-        isInputActive={!prompt.isOpen}
-        hints={hints}
-        onActivate={(item) => item.value && toggle(item.value)}
+        isInputActive={isInputActive && !prompt.isOpen}
+        hints={
+          stagingOnly
+            ? hints.filter((hint) => hint.key === 'Space' || hint.key === 'a' || hint.key === 'A')
+            : hints
+        }
         onSelectionChange={(item) => setCurrentId(item?.id)}
         renderDetail={(item) => {
           const row = item?.value;

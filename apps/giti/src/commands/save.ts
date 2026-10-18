@@ -1,11 +1,10 @@
 import { parseArgs } from 'node:util';
-import { confirm, isCancel } from '@clack/prompts';
 import { z } from 'zod';
 import type { CommandRun } from '../types/CommandRun';
 import getStatus from '../utils/getStatus';
 import getWorkingDir from '../utils/getWorkingDir';
 import gitExec from '../utils/gitExec';
-import stageAll from '../utils/stageAll';
+import saveCommit from '../utils/saveCommit';
 
 //? Flags the TUI knows how to toggle; everything else is passthrough to git.
 //? --yes/-y is a shu-only flag: never forwarded to git, bypasses the TUI.
@@ -16,6 +15,7 @@ const KNOWN_FLAGS = new Set([
   '--allow-empty',
   '--signoff',
   '-s',
+  '--push',
   '--yes',
   '-y',
 ]);
@@ -25,6 +25,7 @@ const CommitArgs = z.object({
   amend: z.boolean().default(false),
   allowEmpty: z.boolean().default(false),
   signoff: z.boolean().default(false),
+  push: z.boolean().default(false),
   yes: z.boolean().default(false),
   message: z.string().optional(),
 });
@@ -42,6 +43,7 @@ const run: CommandRun = async (rawArgs) => {
       amend: { type: 'boolean' },
       'allow-empty': { type: 'boolean' },
       signoff: { type: 'boolean', short: 's' },
+      push: { type: 'boolean' },
       yes: { type: 'boolean', short: 'y' },
     },
     allowPositionals: true,
@@ -53,42 +55,10 @@ const run: CommandRun = async (rawArgs) => {
     amend: values.amend,
     allowEmpty: values['allow-empty'],
     signoff: values.signoff,
+    push: values.push,
     yes: values.yes,
     message: positionals.join(' ') || undefined,
   });
-
-  if (!parsed.allowEmpty && !parsed.amend) {
-    const staged = await gitExec(['diff', '--cached', '--name-only'], cwd);
-    if (!staged.stdout.trim()) {
-      //? "Nothing staged" is only half the answer, and the useful half is already in hand: either
-      //? there is nothing to commit at all, or the files are right there and staging them is the
-      //? single step between here and the commit that was asked for.
-      const unstaged = (await getStatus(cwd)).split('\n').filter(Boolean);
-
-      if (unstaged.length === 0) {
-        console.log('ℹ️  Nothing to commit — working tree is clean.');
-        process.exit(0);
-      }
-
-      console.log(`Nothing staged, but ${unstaged.length} file(s) have changes:`);
-      for (const line of unstaged.slice(0, 10)) console.log(`  ${line}`);
-      if (unstaged.length > 10) console.log(`  …and ${unstaged.length - 10} more`);
-
-      if (!process.stdin.isTTY) {
-        console.log('\nStage them with `git add -A`, or commit everything with `giti wip`.');
-        process.exit(0);
-      }
-
-      const stage = await confirm({ message: 'Stage all of them and continue?' });
-      if (isCancel(stage) || !stage) {
-        console.log('Cancelled — nothing staged.');
-        process.exit(0);
-      }
-
-      await stageAll(cwd);
-      console.log('📦 Staged all changes.');
-    }
-  }
 
   //? Bypass TUI when a message is provided or any flag is set.
   //? --yes is shu-only (never forwarded to git); any other flag makes it irrelevant.
@@ -98,9 +68,26 @@ const run: CommandRun = async (rawArgs) => {
     parsed.allowEmpty ||
     parsed.signoff ||
     parsed.yes ||
+    parsed.push ||
     passthroughFlags.length > 0;
 
-  if (parsed.message || hasAnyFlag) {
+  //? A supplied message still belongs in the combined form when files need staging.
+  const staged = await gitExec(['diff', '--cached', '--name-only'], cwd);
+  if (staged.exitCode !== 0) throw new Error(staged.stderr);
+  const needsStaging = !staged.stdout.trim() && !parsed.allowEmpty && !parsed.amend;
+  const selectChanges = needsStaging && process.stdin.isTTY && !parsed.yes;
+  if (!selectChanges && (parsed.message || hasAnyFlag || !process.stdin.isTTY)) {
+    if (!parsed.allowEmpty && !parsed.amend) {
+      if (!staged.stdout.trim()) {
+        const status = await getStatus(cwd);
+        console.log(
+          status.trim()
+            ? 'Nothing staged. Run giti save interactively to select changes, or use git add first.'
+            : 'ℹ️  Nothing to commit — working tree is clean.',
+        );
+        return;
+      }
+    }
     const flags: string[] = [];
     if (parsed.noVerify) flags.push('--no-verify');
     if (parsed.amend) flags.push('--amend');
@@ -111,7 +98,7 @@ const run: CommandRun = async (rawArgs) => {
     const args = ['commit', ...flags];
     if (parsed.message) args.push('-m', parsed.message);
 
-    const result = await gitExec(args, cwd);
+    const result = await saveCommit(cwd, args, parsed.push);
     if (result.stdout) console.log(result.stdout);
     if (result.stderr) console.error(result.stderr);
     if (result.exitCode !== 0) process.exit(result.exitCode ?? 1);
@@ -123,6 +110,7 @@ const run: CommandRun = async (rawArgs) => {
   if (parsed.amend) initialFlags.push('--amend');
   if (parsed.allowEmpty) initialFlags.push('--allow-empty');
   if (parsed.signoff) initialFlags.push('--signoff');
+  if (parsed.push) initialFlags.push('--push');
 
   const { default: renderInkCommit } = await import('../ui/renderInkCommit');
   await renderInkCommit({
@@ -136,7 +124,7 @@ const run: CommandRun = async (rawArgs) => {
 export const meta = {
   name: 'save',
   description:
-    'Commit with interactive TUI for message and flags; TUI is skipped when a message or any flag is provided',
+    'Commit with interactive TUI for message and flags; select changes, message and flags together; --push sends after success (off by default); message or flags skip TUI when changes are already staged',
 };
 
 export default run;
