@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import formatArg from '@/dev-tools/utils/format/formatArg';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import sysPaths from './config/sysPaths';
 import type { CommandRun } from './types/CommandRun';
@@ -31,7 +31,13 @@ const openDashboard = async () => {
   return renderInkDashboard();
 };
 
-const run = async (...[firstArg, ...args]: string[]) => {
+/** A name giti cannot resolve: said in one line, exit 1 — not a stack trace. */
+const notFound = (message: string) => {
+  console.error(`❌ ${message}`);
+  process.exitCode = 1;
+};
+
+const run = async (...[firstArg, ...args]: string[]): Promise<void> => {
   //? No command means the interactive path: the dashboard hands back a name in exactly the form
   //? this function resolves, so a pick goes through the dispatch below like any typed command
   const command = firstArg ?? (await openDashboard());
@@ -53,14 +59,23 @@ const run = async (...[firstArg, ...args]: string[]) => {
     if (existsSync(folderPath)) {
       const [nextArg, ...rest] = args;
       if (nextArg !== undefined && !nextArg.startsWith('-')) {
-        return run(`${command}/${nextArg}`, ...rest);
+        const sub = join(sysPaths.commandsDir, command, nextArg);
+        if (existsSync(`${sub}.ts`) || existsSync(sub)) return run(`${command}/${nextArg}`, ...rest);
+        //? A giti folder means nothing to git, so an unknown sub-command is giti's to report
+        const known = readdirSync(folderPath)
+          .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
+          .map((file) => file.slice(0, -3));
+        return notFound(`No ${formatArg(`${command}/${nextArg}`)} — ${command}/ has ${known.join(', ')}`);
       }
       const subCommand = await pickCommand([command]);
       if (!subCommand) return;
       return run(subCommand, ...args);
     }
 
-    throw new Error(`Command ${formatArg(command)} is not found at ${formatArg(modulePath)}`);
+    //? Not a giti command: hand it to git as it is — `giti log -3`, `giti rebase -i`, an alias
+    //? of the user's own — the same raw pass-through as `giti git <args>`, subfolder included
+    if (command.includes('/')) return notFound(`No giti command ${formatArg(command)} — giti list shows them all`);
+    return run('git', command, ...args);
   }
 
   //? Commands are typed `CommandRun`, which takes the arg list as a single array — the same

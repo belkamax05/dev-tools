@@ -1,9 +1,10 @@
 import { basename } from 'node:path';
-import { Text, useApp, useInput } from 'ink';
+import { type DOMElement, Text, useApp, useInput } from 'ink';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import AppShell from '@/dev-tools/ui/components/AppShell';
+import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import useStatus from '@/dev-tools/ui/hooks/useStatus';
 import Box from '@/dev-tools/ui/components/Box';
 import type { ClearResult, ClearTarget } from '@/dev-tools/ui/components/ClearDataDialog';
@@ -116,6 +117,23 @@ const OperationBanner = ({
       <ActionButton hotkey="^N" label="Continue" color={colors.accent} onPress={onContinue} />
       {op.canSkip && <ActionButton hotkey="^K" label="Skip" onPress={onSkip} />}
       <ActionButton hotkey="^X" label="Abort" color={colors.error} onPress={onAbort} />
+    </Box>
+  );
+};
+
+/**
+ * The way to every giti command, on every tab right above its panel — drawn like the views'
+ * own "press / to search" line, and clickable as well as `:`. The footer button stays too.
+ */
+const CommandsLine = ({ open, onPress }: { open: boolean; onPress: () => void }) => {
+  const colors = useColors();
+  const ref = useRef<DOMElement>(null);
+  const { isHovered } = useClickable(ref, { onClick: onPress });
+  return (
+    <Box ref={ref} flexShrink={0}>
+      <Text color={isHovered ? colors.highlight : colors.muted}>
+        {open ? '— press : or Esc to close the commands' : '— press : for every giti command'}
+      </Text>
     </Box>
   );
 };
@@ -345,6 +363,9 @@ export const App = ({
       isInputCaptured={isInputCaptured || paletteOpen}
       footerHints="[:] commands"
       footerActions={footerActions}
+      underTabs={
+        <CommandsLine open={paletteOpen} onPress={() => setPaletteOpen((open) => !open)} />
+      }
     >
       {op && (
         <OperationBanner

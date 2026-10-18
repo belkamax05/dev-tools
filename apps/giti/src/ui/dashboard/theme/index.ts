@@ -18,7 +18,8 @@ export const gitiTheme = createTheme({
     app: { minWidth: 72, minHeight: 18 },
   },
   chrome: {
-    appShell: { bordered: 12, plain: 8 },
+    //? The stock price plus the commands line under the tabs and its blank row (`underTabs`)
+    appShell: { bordered: 14, plain: 10 },
     summaryBar: { bordered: 4, plain: 2 },
     hintBar: { bordered: 4, plain: 2 },
     panelFrame: 6,

@@ -47,6 +47,12 @@ semicolons.
 `src/commands/`, so a command name maps 1:1 to a filename. Nested names work:
 `giti subrepos/install` → `src/commands/subrepos/install.ts`.
 
+**Anything that is not a giti command goes to git**: `giti log -3`, `giti rebase -i`, `giti status`
+(git's own, since giti's is `state`) all run as `giti git <args>` would — a raw pass-through with the
+`GIT_PREFIX` subfolder fix, git's exit code and its own "not a git command" for a typo. giti's
+commands always win. Only a name inside one of giti's folders (`giti remotes foo`) is giti's to
+report, with the folder's commands listed.
+
 Running bare `giti` opens the command picker instead of failing. The picker hands back a name in
 exactly the form the dispatcher below it resolves, so there is still only one dispatch path;
 backing out with Ctrl+C returns nothing and the CLI exits quietly.
@@ -147,7 +153,9 @@ If you add an action, add both.
   ours/theirs.
 - **Auto-refresh**: `useRepoWatch` watches the work tree recursively, falling back to `.git`
   alone, with a 300ms debounce; `r` still reloads by hand.
-- **The command picker** described below is the palette: `:` or Ctrl+P opens it over any tab.
+- **The command picker** described below is the palette: `:` or Ctrl+P opens it over any tab, as
+  does the clickable "— press : for every giti command" line under the tabs (`underTabs`, priced
+  into `appShell` in the theme). `giti list` prints the same listing in a shell.
 - **Ignored files** (`I` on Overview) swap the Status pane for `views/IgnoredView`, the same tree
   `giti clear` opens full screen. `core/ignored` lists with `git status --ignored=matching
   --untracked-files=normal` (never `ls-files --directory`, which also names untracked folders

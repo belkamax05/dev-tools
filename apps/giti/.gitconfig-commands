@@ -67,6 +67,9 @@ hash = "!git giti hash"
 # Switch branches with interactive TUI — search local & remote branches, preview divergence
 hop = "!git giti hop"
 
+# Every giti command with what it does, grouped by folder — giti list <word> narrows it
+list = "!git giti list"
+
 # Stage paths, or every change of a kind: --modified, --deleted, --renamed, --untracked, --all. Bare: count what is unstaged
 mark = "!git giti mark"
 
