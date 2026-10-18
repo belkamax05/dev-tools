@@ -113,7 +113,7 @@ export const ResolvedView = ({
         hint:
           entry.status === 'kept'
             ? STATUS_TEXT.kept
-            : `${preview(entry.value, secret, reveal).slice(0, 60)}`,
+            : `${preview(entry.value, secret, reveal || secrets.isRevealed(entry.key)).slice(0, 60)}`,
         hintColor: statusColor(entry.status),
         value: { kind: 'var' as const, entry },
       };
@@ -198,6 +198,25 @@ export const ResolvedView = ({
     notify(`Copied the value of ${row.entry.key}`, 'ok');
   };
 
+  /** The secret itself — a reference read from 1Password first — onto the clipboard. */
+  const copySecret = (row: Row | undefined) => {
+    if (row?.kind !== 'var') return;
+    const { key, value } = row.entry;
+    secrets
+      .secretOf(value)
+      .then((secret) => {
+        copyToClipboard(secret);
+        notify(`Copied ${key}'s secret${isOpRef(value) ? ' (read from 1Password)' : ''}`, 'ok');
+      })
+      .catch((error: Error) => notify(error.message, 'error'));
+  };
+
+  const toggleReveal = (row: Row | undefined) => {
+    if (row?.kind !== 'var') return;
+    const shown = secrets.toggleReveal(row.entry.key, row.entry.value);
+    notify(`${row.entry.key} ${shown ? 'shown' : 'masked again'}`, 'info');
+  };
+
   const keyOf = (row: Row | undefined) => (row?.kind === 'var' ? row.entry.key : row?.key);
   const rowValue = (row: Row | undefined) => (row?.kind === 'var' ? row.entry.value : '');
 
@@ -208,6 +227,8 @@ export const ResolvedView = ({
       else if (key.escape && search) clear();
       else if (!name) return;
       else if (input === 'c') copy(current);
+      else if (input === 'C') copySecret(current);
+      else if (input === 'u') toggleReveal(current);
       else if (input === 's') setHere(name, rowValue(current));
       else if (input === 'g') setGlobal(name, rowValue(current));
       else if (input === 'x' && current?.kind === 'var') removeSource(current.entry);
@@ -235,10 +256,21 @@ export const ResolvedView = ({
       ];
     }
     const { entry } = row;
+    const hidden = isOpRef(entry.value) || isSecretKey(entry.key, config.maskPatterns);
     return [
-      { hotkey: 'c', label: 'Copy', onPress: () => copy(row), tone: 'primary' },
+      { hotkey: 'c', label: isOpRef(entry.value) ? 'Copy reference' : 'Copy', onPress: () => copy(row), tone: 'primary' },
       ...(isOpRef(entry.value)
         ? [{ hotkey: 'p', label: 'Preview secret', onPress: () => secrets.preview(entry.value) }]
+        : []),
+      ...(hidden
+        ? [
+            {
+              hotkey: 'u',
+              label: secrets.isRevealed(entry.key) ? 'Hide' : 'Reveal',
+              onPress: () => toggleReveal(row),
+            },
+            { hotkey: 'C', label: 'Copy secret', onPress: () => copySecret(row) },
+          ]
         : []),
       {
         hotkey: 's',
@@ -281,7 +313,7 @@ export const ResolvedView = ({
             name={entry.key}
             value={entry.value}
             secret={secret}
-            reveal={reveal}
+            reveal={reveal || secrets.isRevealed(entry.key)}
             maxLines={6}
             {...secrets.blockProps(entry.value)}
           />

@@ -54,7 +54,7 @@ export const VarsView = ({
     ...entries.map(([key, value]) => ({
       id: `var:${key}`,
       label: key,
-      hint: preview(value, isSecretKey(key, config.maskPatterns), reveal),
+      hint: preview(value, isSecretKey(key, config.maskPatterns), reveal || secrets.isRevealed(key)),
       value: { kind: 'var' as const, key, value },
     })),
     { id: 'add', label: '+ Add a variable…', value: { kind: 'add' as const } },
@@ -115,6 +115,21 @@ export const VarsView = ({
     notify(`Copied the value of ${key}`, 'ok');
   };
 
+  /** The secret itself — a reference read from 1Password first — onto the clipboard. */
+  const copySecret = (value: string, key: string) =>
+    secrets
+      .secretOf(value)
+      .then((secret) => {
+        copyToClipboard(secret);
+        notify(`Copied ${key}'s secret${isOpRef(value) ? ' (read from 1Password)' : ''}`, 'ok');
+      })
+      .catch((error: Error) => notify(error.message, 'error'));
+
+  const toggleReveal = (value: string, key: string) => {
+    const shown = secrets.toggleReveal(key, value);
+    notify(`${key} ${shown ? 'shown' : 'masked again'}`, 'info');
+  };
+
   useInput(
     (input, key) => {
       if (input === 'a') add();
@@ -126,6 +141,8 @@ export const VarsView = ({
         else if (input === 'R') rename(current.key, current.value);
         else if (input === 'x' || input === 'd') remove(current.key);
         else if (input === 'c') copy(current.value, current.key);
+        else if (input === 'C') copySecret(current.value, current.key);
+        else if (input === 'u') toggleReveal(current.value, current.key);
         else if (input === 'p') secrets.preview(current.value);
       }
     },
@@ -142,7 +159,17 @@ export const VarsView = ({
     ...(isOpRef(value)
       ? [{ hotkey: 'p', label: 'Preview secret', onPress: () => secrets.preview(value) }]
       : []),
-    { hotkey: 'c', label: 'Copy', onPress: () => copy(value, key) },
+    { hotkey: 'c', label: isOpRef(value) ? 'Copy reference' : 'Copy', onPress: () => copy(value, key) },
+    ...(isOpRef(value) || isSecretKey(key, config.maskPatterns)
+      ? [
+          {
+            hotkey: 'u',
+            label: secrets.isRevealed(key) ? 'Hide' : 'Reveal',
+            onPress: () => toggleReveal(value, key),
+          },
+          { hotkey: 'C', label: 'Copy secret', onPress: () => copySecret(value, key) },
+        ]
+      : []),
     { hotkey: 'R', label: 'Rename', onPress: () => rename(key, value) },
     { hotkey: 'x', label: 'Delete', onPress: () => remove(key), tone: 'danger' },
   ];
@@ -184,7 +211,7 @@ export const VarsView = ({
             name={row.key}
             value={row.value}
             secret={isSecretKey(row.key, config.maskPatterns)}
-            reveal={reveal}
+            reveal={reveal || secrets.isRevealed(row.key)}
             {...secrets.blockProps(row.value)}
           />
         </Box>
