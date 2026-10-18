@@ -12,7 +12,9 @@ import runTuiApp from '../runTuiApp';
  */
 export type Handoff =
   | { type: 'edit'; path: string }
-  | { type: 'run'; command: string[]; cwd: string; label: string };
+  | { type: 'run'; command: string[]; cwd: string; label: string }
+  /** Open another TUI using the same process, after releasing the current screen. */
+  | { type: 'screen'; open: () => Promise<void>; label: string };
 
 export interface SessionFrame {
   /** Record what to do once the app has unmounted. The app then calls Ink's `exit()`. */
@@ -63,6 +65,8 @@ export const runTuiSession = async (
 
     if (handoff.type === 'edit') {
       editFile(handoff.path);
+    } else if (handoff.type === 'screen') {
+      await handoff.open();
     } else {
       const [bin = '', ...args] = handoff.command;
       spawnSync(bin, args, { cwd: handoff.cwd, stdio: 'inherit' });

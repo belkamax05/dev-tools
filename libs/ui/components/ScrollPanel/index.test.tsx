@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import { type DOMElement, Box, measureElement, render, Text } from 'ink';
 import { createRef } from 'react';
 
-import StepPanel from '.';
+import ScrollPanel from '.';
 
 test('scrolling reaches the last row without moving the panel or footer', async () => {
   const stdout = Object.assign(new PassThrough(), { columns: 50, rows: 20, isTTY: true });
@@ -23,13 +23,13 @@ test('scrolling reaches the last row without moving the panel or footer', async 
     <Box height={12} width={40} flexDirection="column">
       <Box ref={panel} flexGrow={1} flexDirection="column" borderStyle="round">
         <Text>Step</Text>
-        <StepPanel isActive>
+        <ScrollPanel isActive>
           <Box flexDirection="column" flexShrink={0}>
             {Array.from({ length: 30 }, (_, row) => (
               <Text key={row}>ROW-{row}</Text>
             ))}
           </Box>
-        </StepPanel>
+        </ScrollPanel>
       </Box>
       <Box ref={footer} flexShrink={0}>
         <Text>FOOTER</Text>
@@ -66,9 +66,9 @@ test('scrolling reaches the last row without moving the panel or footer', async 
 
 test('the scrollbar drags outside its track, consumes the release and supports track clicks', async () => {
   const { emitMouseEvent, isMouseReporting, setMouseReporting } = await import(
-    '@/dev-tools/ui/terminal/mouse'
+    '../../terminal/mouse'
   );
-  const { default: ActionButton } = await import('@/dev-tools/ui/components/ActionButton');
+  const { default: ActionButton } = await import('../ActionButton');
   const stdout = Object.assign(new PassThrough(), { columns: 50, rows: 20, isTTY: true });
   const stdin = Object.assign(new PassThrough(), {
     isTTY: true,
@@ -83,7 +83,7 @@ test('the scrollbar drags outside its track, consumes the release and supports t
   });
   const app = render(
     <Box height={8} width={40}>
-      <StepPanel isActive>
+      <ScrollPanel isActive>
         <Box flexDirection="column" flexShrink={0}>
           {Array.from({ length: 29 }, (_, row) => (
             <Text key={row}>ROW-{row}</Text>
@@ -95,7 +95,7 @@ test('the scrollbar drags outside its track, consumes the release and supports t
             }}
           />
         </Box>
-      </StepPanel>
+      </ScrollPanel>
     </Box>,
     {
       stdout: stdout as unknown as NodeJS.WriteStream,
@@ -131,6 +131,38 @@ test('the scrollbar drags outside its track, consumes the release and supports t
     expect(Bun.stripANSI(output)).toContain('ROW-0');
   } finally {
     setMouseReporting(reporting);
+    app.unmount();
+  }
+});
+
+test('a list scrollbar uses the full panel height rather than the initial row estimate', async () => {
+  const { default: PickList } = await import('../PickList');
+  const stdout = Object.assign(new PassThrough(), { columns: 60, rows: 30, isTTY: true });
+  let output = '';
+  stdout.on('data', (chunk) => {
+    output = Bun.stripANSI(chunk.toString());
+  });
+  const app = render(
+    <Box height={20} width={50} flexDirection="row">
+      <PickList
+        title="Files"
+        scrollbar
+        visibleRows={3}
+        width={50}
+        selected={0}
+        items={Array.from({ length: 30 }, (_, row) => ({ id: String(row), label: `FILE-${row}` }))}
+        onSelect={() => {}}
+        onActivate={() => {}}
+      />
+    </Box>,
+    { stdout: stdout as unknown as NodeJS.WriteStream, debug: true, patchConsole: false },
+  );
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(output).toContain('FILE-16');
+    expect(output).not.toContain('FILE-17');
+    expect(output).not.toContain('more rows');
+  } finally {
     app.unmount();
   }
 });

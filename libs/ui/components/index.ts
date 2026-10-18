@@ -39,6 +39,10 @@ export {
 } from './PickList';
 export type { PopoverProps } from './Popover';
 export { default as Popover } from './Popover';
+export type { ScrollPanelProps } from './ScrollPanel';
+export { default as ScrollPanel } from './ScrollPanel';
+export type { ScrollbarProps } from './Scrollbar';
+export { default as Scrollbar } from './Scrollbar';
 export type { ResizeOverlayProps } from './ResizeOverlay';
 export { default as ResizeOverlay } from './ResizeOverlay';
 export type { Stat, StatListProps } from './StatList';

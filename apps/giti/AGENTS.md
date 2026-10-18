@@ -127,8 +127,17 @@ src/config/                 systemConfig / sysPaths mirrors of shulker-controlle
 
 ## The dashboard
 
-`giti` with no arguments opens a tabbed dashboard: Overview, Log, Branches, Stash, Remotes,
-Vendored. Overview is also the old Status tab: a sync line (branch → upstream, ↑/↓, last fetch,
+`giti` with no arguments opens a tabbed dashboard: Overview and Settings.
+Commit (`c`, or its button) opens the same full-screen form as `giti save`, including staging,
+message and flags. Esc or completing the commit returns to the dashboard through a screen
+handoff; standalone `save` still exits. Empty commits open this form with Allow empty selected.
+Overview's navigation row opens Log (`l`), Stashes (`S`) and Remotes (`R`) as full two-pane
+views, alongside Branches (`b`). Their existing actions remain available; Esc dismisses a
+prompt first, then returns to Overview. Each navigation button also works with the mouse.
+Branches opens from Overview with `b` or the Branches button beside the current branch. It keeps
+the full two-pane branch tools; `/` starts search, and Esc cancels search or a prompt before
+closing the picker back to Overview. After switching, the selection follows the checked-out
+branch when it moves to the first row. Overview is also the old Status tab: a sync line (branch → upstream, ↑/↓, last fetch,
 Fetch/Pull/Push buttons), then the stage/diff/commit working area. `+`/`-` open and fold four
 detail lines (HEAD, identity, refs) between the two, and the choice is kept in giti's
 `state.json`. Opening the dashboard fetches once in the background (`useRemoteSync`), so ↑/↓
@@ -140,6 +149,12 @@ If you add an action, add both.
   `notify` for the footer message, `onCaptureInput` while a prompt owns the keyboard, `handoff`
   to give the terminal to `$EDITOR` or `git commit`, `offerUndo` to register an undo, and
   `reservedChrome` for rows that App draws above the view (the operation banner).
+- **Staging previews** use shared `ui/components/ScrollPanel`, also used by depli's chain
+  detail. The file list and preview share `ui/components/Scrollbar` for track clicks and dragging.
+  PgUp/PgDn, Shift+↑/↓ and the wheel scroll the preview; Space still stages or unstages.
+  `v` / Side by side opens complete before/after revisions with syntax highlighting and aligned
+  context/change blocks. Scrolling is synced by default; `s` / Sync scroll toggles independent
+  scrolling. Tab selects the keyboard side; Esc returns to staging without changing files.
 - **Git goes through `src/core`, never straight from a view.** Views only compose core calls and
   prompts. `core/run` sets `GIT_OPTIONAL_LOCKS=0` (so a background refresh never takes the index
   lock from a git that the user is running) and `GIT_TERMINAL_PROMPT=0`.

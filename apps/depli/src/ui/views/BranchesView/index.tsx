@@ -27,8 +27,6 @@ export interface BranchesViewProps {
   /** `branches.recent` is set: the list is its pick, not the watch patterns. */
   recent?: { limit?: number };
   session: Session;
-  /** Arrived here with `b` from the chain: open the filter at once. */
-  startFiltering: boolean;
   onCaptureInput: (captured: boolean) => void;
   /** A branch was picked: show its chain. */
   onPicked: () => void;
@@ -47,7 +45,6 @@ export const BranchesView = ({
   watch,
   recent,
   session,
-  startFiltering,
   onCaptureInput,
   onPicked,
   onClose,
@@ -74,11 +71,6 @@ export const BranchesView = ({
       initial: filter,
       onChange: changeFilter,
     });
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on arrival
-  useEffect(() => {
-    if (startFiltering) askFilter();
-  }, []);
 
   useInput(
     (input, key) => {

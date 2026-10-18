@@ -33,7 +33,7 @@ import ChainGraph, { ago } from '../../graphics/ChainGraph';
 import { StatusText, TRIGGER_ICON, TRIGGER_LABEL } from '../../graphics/StatusIcon';
 import HistoryStrip from '../../graphics/HistoryStrip';
 import LogPanel from '../LogPanel';
-import StepPanel from '../StepPanel';
+import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import StageTimings from '../StageTimings';
 import OtherRuns from '../OtherRuns';
 import { envLine } from '../EnvsPanel';
@@ -1130,12 +1130,12 @@ export const ChainView = ({
               isActive={!prompt.isOpen && !pickerOpen}
             />
           ) : selected ? (
-            <StepPanel
+            <ScrollPanel
               key={`${selected.step.id}:${data.branch}:${data.targetEnv}`}
               isActive={!prompt.isOpen && !pickerOpen && !fixing}
             >
               {detail(selected)}
-            </StepPanel>
+            </ScrollPanel>
           ) : (
             <Text color={colors.muted}>Nothing selected.</Text>
           )}

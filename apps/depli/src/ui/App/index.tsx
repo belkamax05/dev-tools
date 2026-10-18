@@ -140,7 +140,7 @@ export const App = ({
   );
   const [isInputCaptured, setIsInputCaptured] = useState(false);
   //? The branch picker: the Chain tab's whole area while open — `filter` opens with the filter
-  const [branchPicker, setBranchPicker] = useState<{ filter: boolean }>();
+  const [branchPicker, setBranchPicker] = useState(false);
   //? Bumped to open the Chain's environments panel from the status row
   const [envOpenRequest, setEnvOpenRequest] = useState(0);
   const { status, notify, setStatus } = useStatus(notice ?? project.problems[0]);
@@ -226,10 +226,9 @@ export const App = ({
           watch={project.config.branches?.watch ?? []}
           recent={project.config.branches?.recent}
           session={session}
-          startFiltering={branchPicker.filter}
           onCaptureInput={setIsInputCaptured}
-          onPicked={() => setBranchPicker(undefined)}
-          onClose={() => setBranchPicker(undefined)}
+          onPicked={() => setBranchPicker(false)}
+          onClose={() => setBranchPicker(false)}
         />
       )}
       {tab === 'chain' && !branchPicker && (
@@ -241,7 +240,7 @@ export const App = ({
           session={session}
           notify={notify}
           onCaptureInput={setIsInputCaptured}
-          onPickBranch={() => setBranchPicker({ filter: true })}
+          onPickBranch={() => setBranchPicker(true)}
           envOpenRequest={envOpenRequest}
         />
       )}

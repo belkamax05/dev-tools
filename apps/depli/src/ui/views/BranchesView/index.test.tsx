@@ -33,7 +33,6 @@ for (const delayed of [false, true])
         data={dataFor(loaded)}
         session={session}
         watch={['main']}
-        startFiltering={false}
         onCaptureInput={() => {}}
         onPicked={() => {}}
       />
@@ -56,3 +55,47 @@ for (const delayed of [false, true])
       app.unmount();
     }
   });
+
+test('the branch picker starts with arrow navigation and searches only after slash', async () => {
+  const stdout = Object.assign(new PassThrough(), { columns: 100, rows: 30, isTTY: true });
+  stdout.on('data', () => {});
+  const stdin = Object.assign(new PassThrough(), {
+    isTTY: true, setRawMode: () => {}, ref: () => {}, unref: () => {},
+  });
+  const session: Session = { tab: 'chain', selected: {} };
+  let captured = false;
+  const app = render(
+    <BranchesView
+      data={{ ...dataFor(true), branches: [remote, local] }}
+      session={session} watch={['main']}
+      onCaptureInput={(value) => { captured = value; }}
+      onPicked={() => {}}
+    />,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      patchConsole: false,
+    },
+  );
+  const settle = () => Bun.sleep(80);
+  try {
+    await settle();
+    expect(captured).toBe(false);
+    expect(session.selected.branches).toBe(remote.name);
+    stdin.write('\u001b[B');
+    await settle();
+    expect(session.selected.branches).toBe(local.name);
+    stdin.write('/');
+    await settle();
+    expect(captured).toBe(true);
+    stdin.write('fix');
+    await settle();
+    expect(session.branchFilter).toBe('fix');
+    stdin.write('\r');
+    await settle();
+    expect(captured).toBe(false);
+    expect(session.selected.branches).toBe(local.name);
+  } finally {
+    app.unmount();
+  }
+});

@@ -38,6 +38,8 @@ export const gitiTheme = createTheme({
     operationBanner: 1,
     /** Overview's sync line: branch, upstream, ↑↓, last fetch, and Fetch / Pull / Push. */
     syncBar: 1,
+    /** Overview's branch, log, stash and remote navigation buttons. */
+    overviewTools: 1,
     /** Overview's expanded details (`+`): four fixed lines between the sync line and Status. */
     overviewDetails: 4,
   },

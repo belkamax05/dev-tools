@@ -7,7 +7,7 @@ import { emitFrame } from '@/dev-tools/ui/terminal/frames';
 import { emitMouseEvent, isMouseReporting, setMouseReporting } from '@/dev-tools/ui/terminal/mouse';
 
 import type { RunTimings } from '../../../core/plugin';
-import StepPanel from '../StepPanel';
+import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import StageTimings from '.';
 
 const TestTimings = (
@@ -48,13 +48,13 @@ test('timings start compact, expand on click, remain scrollable and collapse wit
   };
   const app = render(
     <Box width={50} height={8} flexDirection="column">
-      <StepPanel isActive>
+      <ScrollPanel isActive>
         <TestTimings
           run={{ id: '2', label: '#2', state: 'success' }}
           runKey="build:2"
           read={read}
         />
-      </StepPanel>
+      </ScrollPanel>
     </Box>,
     {
       stdout: stdout as unknown as NodeJS.WriteStream,

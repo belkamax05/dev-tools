@@ -47,6 +47,7 @@ const CommitForm = ({
   const [refreshKey, setRefreshKey] = useState(0);
   const [notice, setNotice] = useState('');
   const [captured, setCaptured] = useState(false);
+  const [filePreviewOpen, setFilePreviewOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [staging, setStaging] = useState(false);
   const toggle = (flag: string) =>
@@ -117,7 +118,9 @@ const CommitForm = ({
   };
 
   useInput((input, key) => {
-    if (key.escape || (key.ctrl && input === 'c')) return exit();
+    if (key.ctrl && input === 'c') return exit();
+    if (filePreviewOpen) return;
+    if (key.escape) return exit();
     if (captured || submitting || staging) return;
     if (key.tab) {
       const sections: Section[] = ['files', 'message', 'flags'];
@@ -131,20 +134,24 @@ const CommitForm = ({
 
   return (
     <Box flexDirection="column" flexGrow={1} paddingX={1}>
-      <Toolbar
-        actions={[
-          {
-            hotkey: 'Tab',
-            label: `Focus: ${section}`,
-            onPress: () =>
-              setSection(
-                section === 'files' ? 'message' : section === 'message' ? 'flags' : 'files',
-              ),
-          },
-          { hotkey: 'Esc', label: 'Cancel', onPress: exit },
-        ]}
-      />
-      <Text color={colors.accent}>Enter → {nextStep}</Text>
+      {!filePreviewOpen && (
+        <>
+          <Toolbar
+            actions={[
+              {
+                hotkey: 'Tab',
+                label: `Focus: ${section}`,
+                onPress: () =>
+                  setSection(
+                    section === 'files' ? 'message' : section === 'message' ? 'flags' : 'files',
+                  ),
+              },
+              { hotkey: 'Esc', label: 'Cancel', onPress: exit },
+            ]}
+          />
+          <Text color={colors.accent}>Enter → {nextStep}</Text>
+        </>
+      )}
       <StatusView
         root={cwd}
         refreshKey={refreshKey}
@@ -155,40 +162,45 @@ const CommitForm = ({
         offerUndo={() => {}}
         reservedChrome={[]}
         stagingOnly
+        onPreviewModeChange={setFilePreviewOpen}
         onBusyChange={setStaging}
         isInputActive={section === 'files' && !submitting}
       />
-      <Panel title="Commit message" isFocused={section === 'message'}>
-        <ActionButton hotkey="Tab" label="Edit message" onPress={() => setSection('message')} />
-        <TextInput
-          defaultValue={initialMessage}
-          placeholder="Commit message…"
-          onChange={(value) => {
-            setMessage(value);
-            setNotice('');
-          }}
-          isDisabled={section !== 'message' || captured || submitting}
-        />
-      </Panel>
-      <Panel title="Flags · 1–5 toggle · Enter to save" isFocused={section === 'flags'}>
-        <Box flexDirection="row" flexWrap="wrap">
-          {FLAGS.map(([flag, label], index) => (
-            <ActionButton
-              key={flag}
-              hotkey={String(index + 1)}
-              label={label}
-              isOn={flags.has(flag)}
-              onPress={() => {
-                setSection('flags');
-                toggle(flag);
+      {!filePreviewOpen && (
+        <>
+          <Panel title="Commit message" isFocused={section === 'message'}>
+            <ActionButton hotkey="Tab" label="Edit message" onPress={() => setSection('message')} />
+            <TextInput
+              defaultValue={initialMessage}
+              placeholder="Commit message…"
+              onChange={(value) => {
+                setMessage(value);
+                setNotice('');
               }}
+              isDisabled={section !== 'message' || captured || submitting}
             />
-          ))}
-        </Box>
-      </Panel>
-      <Text color={colors.muted} wrap="truncate">
-        {notice || `Space stage/unstage · Tab change focus · Enter → ${nextStep}`}
-      </Text>
+          </Panel>
+          <Panel title="Flags · 1–5 toggle · Enter to save" isFocused={section === 'flags'}>
+            <Box flexDirection="row" flexWrap="wrap">
+              {FLAGS.map(([flag, label], index) => (
+                <ActionButton
+                  key={flag}
+                  hotkey={String(index + 1)}
+                  label={label}
+                  isOn={flags.has(flag)}
+                  onPress={() => {
+                    setSection('flags');
+                    toggle(flag);
+                  }}
+                />
+              ))}
+            </Box>
+          </Panel>
+          <Text color={colors.muted} wrap="truncate">
+            {notice || `Space stage/unstage · Tab change focus · Enter → ${nextStep}`}
+          </Text>
+        </>
+      )}
     </Box>
   );
 };

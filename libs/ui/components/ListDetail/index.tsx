@@ -125,6 +125,8 @@ export interface ListDetailProps<T> {
    * Falls back to the first selectable row when it is gone.
    */
   initialSelectedId?: string;
+  /** Show the shared draggable scrollbar in the list pane. */
+  listScrollbar?: boolean;
   /** What Enter is called in the hints, when "open" is not what it does. */
   activateLabel?: string;
   /**
@@ -166,6 +168,7 @@ export const ListDetail = <T,>({
   confirmClick = false,
   reservedChrome = [],
   initialSelectedId,
+  listScrollbar = false,
   activateLabel = 'open',
   activateOnClick = true,
   onWindowChange,
@@ -290,6 +293,8 @@ export const ListDetail = <T,>({
           items={items}
           selected={selected}
           visibleRows={listRows}
+          scrollbar={listScrollbar}
+          isFocused={isInputActive}
           width={listWidth}
           columns={columns}
           cellHeight={layout === 'grid' ? Math.min(gridCellHeight, listRows) : 1}

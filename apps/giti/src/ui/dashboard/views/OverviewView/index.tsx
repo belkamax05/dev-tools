@@ -1,12 +1,15 @@
-import { Text, useInput } from 'ink';
-import { useState } from 'react';
+import { type DOMElement, Text, useInput } from 'ink';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
+import Popover from '@/dev-tools/ui/components/Popover';
+import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
 import type { GitViewProps } from '../../types';
+import copyToClipboard from '../../clipboard';
 import SpinnerGlyph from '../../SpinnerGlyph';
 import type { LastFetch, RemoteSync } from '../../useRemoteSync';
 import IgnoredView from '../IgnoredView';
@@ -21,6 +24,10 @@ export interface OverviewViewProps extends GitViewProps {
   onToggleDetails: () => void;
   /** True while something else owns the keyboard (a prompt, the palette): the keys below stand down. */
   isInputCaptured: boolean;
+  onPickBranch: () => void;
+  onOpenLog: () => void;
+  onOpenStash: () => void;
+  onOpenRemotes: () => void;
 }
 
 const clock = (at: Date) =>
@@ -46,20 +53,33 @@ const SyncBar = ({
   sync,
   details,
   onToggleDetails,
-}: Pick<OverviewViewProps, 'snapshot' | 'sync' | 'details' | 'onToggleDetails'>) => {
+  onPickBranch,
+}: Pick<
+  OverviewViewProps,
+  'snapshot' | 'sync' | 'details' | 'onToggleDetails' | 'onPickBranch'
+>) => {
   const colors = useColors();
   const { branch, detached, headShort, upstream, remote, ahead, behind } = snapshot;
   const busy = Boolean(sync.progress);
+  const branchRef = useRef<DOMElement>(null);
+  const { isHovered } = useClickable(branchRef, { onClick: onPickBranch });
   //? A mega pull brings in the vendored directories too, so their waiting commits count here
   const incoming = behind + sync.vendoredBehind;
 
   return (
     <Box flexDirection="row" flexShrink={0}>
-      <Box flexShrink={1} flexGrow={1} overflow="hidden">
-        <Text wrap="truncate">
-          <Text color={detached ? colors.warn : colors.accent} bold>
+      <Box flexDirection="row" flexShrink={1} flexGrow={1} overflow="hidden">
+        <Box ref={branchRef} flexShrink={1}>
+          <Text
+            color={isHovered ? colors.highlight : detached ? colors.warn : colors.accent}
+            bold
+            underline={isHovered}
+            wrap="truncate"
+          >
             {detached ? `detached @ ${headShort}` : branch || '—'}
           </Text>
+        </Box>
+        <Text wrap="truncate">
           <Text color={colors.muted}> → </Text>
           <Text color={upstream ? colors.text : colors.warn}>
             {upstream ? `${remote || 'origin'}/${upstream}` : 'no upstream'}
@@ -116,8 +136,20 @@ const SyncBar = ({
  * is, who commits go out as, and the rest of the repository's inventory. Four fixed lines, so
  * the file list below can budget for them exactly (`overviewDetails` in the theme).
  */
-const Details = ({ snapshot }: { snapshot: RepoSnapshot }) => {
+const Details = ({
+  snapshot,
+  headRef,
+  onCopy,
+}: {
+  snapshot: RepoSnapshot;
+  headRef: RefObject<DOMElement | null>;
+  onCopy: () => void;
+}) => {
   const colors = useColors();
+  const { isHovered } = useClickable(headRef, {
+    onClick: onCopy,
+    isActive: Boolean(snapshot.headFull),
+  });
   const {
     root,
     headFull,
@@ -139,10 +171,15 @@ const Details = ({ snapshot }: { snapshot: RepoSnapshot }) => {
   return (
     <Box flexDirection="column" flexShrink={0}>
       {/* The full hash, uncut: the one value here someone is going to copy. */}
-      <Text wrap="truncate">
+      <Box flexDirection="row">
         {label('HEAD')}
-        <Text color={colors.heading}>{headFull || '—'}</Text>
-      </Text>
+        <Box ref={headRef}>
+          <Text color={isHovered ? colors.highlight : colors.heading} underline={isHovered}>
+            {headFull || '—'}
+          </Text>
+        </Box>
+        <Text color={colors.muted}> [H] copy</Text>
+      </Box>
       <Text wrap="truncate">
         {label('last')}
         <Text>{headSubject || '—'}</Text>
@@ -185,17 +222,41 @@ export const OverviewView = ({
   details,
   onToggleDetails,
   isInputCaptured,
+  onPickBranch,
+  onOpenLog,
+  onOpenStash,
+  onOpenRemotes,
   ...viewProps
 }: OverviewViewProps) => {
   //? The ignored-files tree takes Status's place rather than getting a tab of its own: it is a
   //? rare cleanup over the same work tree, not somewhere anyone goes every day
   const [showIgnored, setShowIgnored] = useState(false);
+  const [filePreviewOpen, setFilePreviewOpen] = useState(false);
+  const colors = useColors();
+  const containerRef = useRef<DOMElement>(null);
+  const headRef = useRef<DOMElement>(null);
+  const [copied, setCopied] = useState(0);
+  const copyHead = () => {
+    if (!snapshot.headFull) return;
+    copyToClipboard(snapshot.headFull);
+    setCopied((count) => count + 1);
+  };
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(0), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
 
   useInput(
     (input, key) => {
       //? Ctrl+P arrives as input 'p' too, and it belongs to the command palette
       if (key.ctrl) return;
       if (input === 'I') setShowIgnored(true);
+      else if (input === 'b') onPickBranch();
+      else if (input === 'l') onOpenLog();
+      else if (input === 'S') onOpenStash();
+      else if (input === 'R') onOpenRemotes();
+      else if (input === 'H' && details) copyHead();
       else if (input === 'f') sync.fetch();
       else if (input === 'p') sync.pull();
       else if (input === 'P') sync.push();
@@ -210,19 +271,34 @@ export const OverviewView = ({
 
   const reservedChrome = [
     ...viewProps.reservedChrome,
-    'syncBar',
-    ...(details ? ['overviewDetails'] : []),
+    ...(!filePreviewOpen
+      ? ['syncBar', 'overviewTools', ...(details ? ['overviewDetails'] : [])]
+      : []),
   ];
 
   return (
-    <Box flexDirection="column" flexGrow={1} overflow="hidden">
-      <SyncBar
-        snapshot={snapshot}
-        sync={sync}
-        details={details}
-        onToggleDetails={onToggleDetails}
-      />
-      {details && <Details snapshot={snapshot} />}
+    <Box ref={containerRef} flexDirection="column" flexGrow={1} overflow="hidden">
+      {!filePreviewOpen && (
+        <>
+          <SyncBar
+            snapshot={snapshot}
+            sync={sync}
+            details={details}
+            onToggleDetails={onToggleDetails}
+            onPickBranch={onPickBranch}
+          />
+          <Box flexDirection="row" flexShrink={0}>
+            <ActionButton hotkey="b" label="Branches" onPress={onPickBranch} />
+            <Text> </Text>
+            <ActionButton hotkey="l" label="Log" onPress={onOpenLog} />
+            <Text> </Text>
+            <ActionButton hotkey="S" label="Stashes" onPress={onOpenStash} />
+            <Text> </Text>
+            <ActionButton hotkey="R" label="Remotes" onPress={onOpenRemotes} />
+          </Box>
+          {details && <Details snapshot={snapshot} headRef={headRef} onCopy={copyHead} />}
+        </>
+      )}
       {showIgnored ? (
         <IgnoredView
           root={viewProps.root}
@@ -239,7 +315,15 @@ export const OverviewView = ({
           {...viewProps}
           reservedChrome={reservedChrome}
           onShowIgnored={() => setShowIgnored(true)}
+          onPreviewModeChange={setFilePreviewOpen}
         />
+      )}
+      {details && copied > 0 && (
+        <Popover anchorRef={headRef} containerRef={containerRef} width={25}>
+          <Box borderStyle="round" borderColor={colors.ok} paddingX={1}>
+            <Text color={colors.ok}>Copied to clipboard</Text>
+          </Box>
+        </Popover>
       )}
     </Box>
   );

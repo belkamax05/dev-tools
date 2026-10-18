@@ -36,7 +36,8 @@ import RemotesView from '../views/RemotesView';
 import SettingsView, { DEFAULT_REFRESH_SECONDS } from '../views/SettingsView';
 import StashView from '../views/StashView';
 
-export type TabId = 'overview' | 'log' | 'branches' | 'stash' | 'remotes' | 'settings';
+export type TabId = 'overview' | 'settings';
+type OverviewPanel = 'branches' | 'log' | 'stash' | 'remotes';
 
 /**
  * The tab strip.
@@ -50,11 +51,6 @@ export type TabId = 'overview' | 'log' | 'branches' | 'stash' | 'remotes' | 'set
 export const TABS: readonly TabDefinition<TabId>[] = [
   //? Overview is also where Status used to be: see OverviewView for why the two were merged.
   { id: 'overview', icon: '📊', label: '📊 Overview' },
-  { id: 'log', icon: '🕒', label: '🕒 Log' },
-  { id: 'branches', icon: '🌿', label: '🌿 Branches' },
-  { id: 'stash', icon: '📥', label: '📥 Stash' },
-  //? Remotes also lists the vendored directories — both are what a fetch and a pull sync with
-  { id: 'remotes', icon: '📡', label: '📡 Remotes' },
   { id: 'settings', icon: '🔧', label: '🔧 Settings' },
 ];
 
@@ -171,6 +167,7 @@ export const App = ({
   const [paletteId, setPaletteId] = useState<string>(initialPaletteId);
   const [isInputCaptured, setIsInputCaptured] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [overviewPanel, setOverviewPanel] = useState<OverviewPanel>();
   const { status, setStatus } = useStatus(notice);
   const [undo, setUndo] = useState<UndoOffer | undefined>(undefined);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -252,6 +249,7 @@ export const App = ({
   const changeTab = (tab: TabId) => {
     setActiveTab(tab);
     setPaletteOpen(false);
+    setOverviewPanel(undefined);
     onTabChange?.(tab);
   };
 
@@ -292,12 +290,25 @@ export const App = ({
       if (op && key.ctrl && input === 'x') return void opAction(abortOperation);
       if (op && key.ctrl && input === 'k') return void opAction(skipOperation);
       if (paletteOpen && key.escape) return setPaletteOpen(false);
-      if (input === 'r') reload();
+      if (key.escape && overviewPanel && overviewPanel !== 'branches')
+        return setOverviewPanel(undefined);
+      if (input === 'r' && overviewPanel !== 'branches') reload();
     },
     { isActive: !isInputCaptured },
   );
 
   const footerActions: FooterAction[] = [
+    ...(overviewPanel
+      ? [
+          {
+            id: 'close-panel',
+            label: 'Back',
+            hotkey: 'Esc',
+            onPress: () => setOverviewPanel(undefined),
+            tooltip: 'Close this view and return to Overview',
+          },
+        ]
+      : []),
     ...(undo
       ? [
           {
@@ -360,7 +371,7 @@ export const App = ({
       theme={gitiTheme}
       palette={paletteId}
       onPaletteChange={changeTheme}
-      isInputCaptured={isInputCaptured || paletteOpen}
+      isInputCaptured={isInputCaptured || paletteOpen || Boolean(overviewPanel)}
       footerHints="[:] commands"
       footerActions={footerActions}
       underTabs={
@@ -414,7 +425,15 @@ export const App = ({
         </Box>
       ) : (
         <>
-          {activeTab === 'overview' && (
+          {overviewPanel === 'branches' ? (
+            <BranchesView {...viewProps} sync={sync} onClose={() => setOverviewPanel(undefined)} />
+          ) : overviewPanel === 'log' ? (
+            <LogView {...viewProps} />
+          ) : overviewPanel === 'stash' ? (
+            <StashView {...viewProps} />
+          ) : overviewPanel === 'remotes' ? (
+            <RemotesView {...viewProps} sync={sync} snapshot={snapshot} onRunCommand={runCommand} />
+          ) : activeTab === 'overview' ? (
             <OverviewView
               {...viewProps}
               snapshot={snapshot}
@@ -422,14 +441,12 @@ export const App = ({
               details={details}
               onToggleDetails={toggleDetails}
               isInputCaptured={isInputCaptured || paletteOpen}
+              onPickBranch={() => setOverviewPanel('branches')}
+              onOpenLog={() => setOverviewPanel('log')}
+              onOpenStash={() => setOverviewPanel('stash')}
+              onOpenRemotes={() => setOverviewPanel('remotes')}
             />
-          )}
-          {activeTab === 'log' && <LogView {...viewProps} />}
-          {activeTab === 'branches' && <BranchesView {...viewProps} sync={sync} />}
-          {activeTab === 'stash' && <StashView {...viewProps} />}
-          {activeTab === 'remotes' && (
-            <RemotesView {...viewProps} sync={sync} snapshot={snapshot} onRunCommand={runCommand} />
-          )}
+          ) : null}
         </>
       )}
     </AppShell>

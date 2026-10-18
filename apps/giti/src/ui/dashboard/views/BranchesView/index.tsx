@@ -1,14 +1,11 @@
 import { Text, useInput } from 'ink';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import Toolbar, {
-  type ToolbarAction,
-  toolbarExtraRows,
-} from '@/dev-tools/ui/components/Toolbar';
+import Toolbar, { type ToolbarAction, toolbarExtraRows } from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
@@ -38,6 +35,8 @@ import type { RemoteSync } from '../../useRemoteSync';
 export interface BranchesViewProps extends GitViewProps {
   /** Pull, shared with Overview and Remotes so a pull in flight is one state across tabs. */
   sync: RemoteSync;
+  /** Close the branch picker and return to the view that opened it. */
+  onClose?: () => void;
 }
 
 const trackHint = (branch: Branch) =>
@@ -71,6 +70,7 @@ export const BranchesView = ({
   offerUndo,
   reservedChrome,
   sync,
+  onClose,
 }: BranchesViewProps) => {
   const colors = useColors();
   const viewport = useViewport();
@@ -80,6 +80,7 @@ export const BranchesView = ({
   const [sort, setSort] = useState<BranchSort>('time');
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const lastClick = useRef<{ id: string; at: number } | undefined>(undefined);
 
   const { data: branches = [], isLoading } = useLoader(() => getBranches(root), [root, refreshKey]);
   const checkedOut = branches.find((b) => b.isCurrent);
@@ -191,6 +192,7 @@ export const BranchesView = ({
         return;
       }
       if (key.escape && query) return setQuery('');
+      if (key.escape) return onClose?.();
       //? Ctrl+P arrives as input 'p' too, and it belongs to the command palette
       if (input === 'p' && !key.ctrl) return pull();
       if (input === 'n') return create(current);
@@ -297,6 +299,7 @@ export const BranchesView = ({
       onPress: toggleSort,
     },
     ...(query ? [{ key: 'Esc', label: 'clear', onPress: () => setQuery('') }] : []),
+    ...(!query && onClose ? [{ key: 'Esc', label: 'back', onPress: onClose }] : []),
   ];
 
   const rows = Math.max(
@@ -330,15 +333,28 @@ export const BranchesView = ({
         )}
       </Box>
       <ListDetail
+        key={`${root}:${checkedOut?.name ?? ''}`}
+        initialSelectedId={checkedOut ? `l:${checkedOut.name}` : undefined}
         title={`Branches (${shown.length})`}
         items={items}
         emptyText={
-          query ? `No branch matches "${query}".` : 'No branches — this repository has no commits yet.'
+          query
+            ? `No branch matches "${query}".`
+            : 'No branches — this repository has no commits yet.'
         }
         detailTitle={current?.name ?? 'Branch'}
         reservedChrome={['viewHeader', ...reservedChrome]}
         activateLabel="switch"
-        activateOnClick={false}
+        activateOnClick={(item) => {
+          const now = Date.now();
+          const previous = lastClick.current;
+          if (previous?.id === item.id && now - previous.at < 400) {
+            lastClick.current = undefined;
+            return true;
+          }
+          lastClick.current = { id: item.id, at: now };
+          return false;
+        }}
         isInputActive={!prompt.isOpen && !isSearching}
         hints={hints}
         onActivate={(item) => item.value && switchTo(item.value)}

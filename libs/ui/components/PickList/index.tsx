@@ -1,5 +1,5 @@
 import { type DOMElement, measureElement, Text } from "ink";
-import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import useClickable from "../../hooks/useClickable";
 import useScrollWindow, {
 	windowEnd,
@@ -8,6 +8,7 @@ import useScrollWindow, {
 import { useColors } from "../../providers/TuiThemeProvider";
 import type { TerminalMouseEvent } from "../../terminal/mouse";
 import Box from "../Box";
+import Scrollbar from "../Scrollbar";
 
 /**
  * One row of a `PickList`.
@@ -378,6 +379,8 @@ export interface PickListProps<T> {
 	 * checkbox is the action.
 	 */
 	activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
+  /** Use the shared draggable scrollbar instead of a hidden-row count. */
+  scrollbar?: boolean;
 	/**
 	 * Told which `items` are on screen — `from` inclusive, `to` exclusive — whenever the window
 	 * scrolls or resizes, for a caller that lays its labels out to fit what is actually visible.
@@ -411,6 +414,7 @@ export const PickList = <T,>({
 	onHover,
 	activateOnClick = true,
 	onWindowChange,
+  scrollbar = false,
 }: PickListProps<T>) => {
 	const colors = useColors();
 	const rows = useMemo(() => packRows(items, columns), [items, columns]);
@@ -426,7 +430,14 @@ export const PickList = <T,>({
 	const heights = rows.map((row) =>
 		items[row[0] ?? -1]?.isHeader ? 1 : cellHeight,
 	);
-	const budget = Math.max(1, visibleRows);
+	const ref = useRef<DOMElement>(null);
+  const [measuredRows, setMeasuredRows] = useState<number>();
+  useLayoutEffect(() => {
+    if (!scrollbar || !ref.current) return;
+    const available = Math.max(1, Math.floor(measureElement(ref.current).height) - 2 - (title === undefined ? 0 : 1));
+    setMeasuredRows((previous) => previous === available ? previous : available);
+  });
+  const budget = Math.max(1, scrollbar ? Math.max(visibleRows, measuredRows ?? 0) : visibleRows);
 	const [offset, setStart] = useScrollWindow(
 		rows.length,
 		selectedRow,
@@ -447,7 +458,6 @@ export const PickList = <T,>({
 		onWindowChangeRef.current?.(windowFrom, windowTo);
 	}, [windowFrom, windowTo]);
 
-	const ref = useRef<DOMElement>(null);
 	useClickable(ref, {
 		onWheel: (event) => {
 			setStart((at) =>
@@ -459,7 +469,7 @@ export const PickList = <T,>({
 	//? Two columns of border and two of padding are not available to the text.
 	//? Unknown until the caller says how wide it is — a flexing list lets Yoga
 	//? place its cells rather than padding them into a column that may not exist.
-	const inner = width === undefined ? undefined : Math.max(4, width - 4);
+	const inner = width === undefined ? undefined : Math.max(4, width - 4 - (scrollbar ? 1 : 0));
 	const cellWidth =
 		inner === undefined ? undefined : Math.max(6, Math.floor(inner / columns));
 	const frameColor = borderColor ?? (isFocused ? colors.accent : colors.muted);
@@ -489,6 +499,8 @@ export const PickList = <T,>({
 				</Box>
 			)}
 
+      <Box flexDirection="row">
+        <Box flexDirection="column" flexGrow={1} minWidth={0}>
 			{items.length === 0 ? (
 				<Text color={colors.muted} wrap="truncate">
 					{emptyText}
@@ -523,7 +535,12 @@ export const PickList = <T,>({
 				))
 			)}
 
-			{hiddenRows > 0 && (
+        </Box>
+        {scrollbar && <Scrollbar offset={start} maxOffset={last} rows={budget}
+          total={heights.reduce((sum, height) => sum + height, 0)} onChange={setStart} isActive={isFocused} />}
+      </Box>
+
+			{!scrollbar && hiddenRows > 0 && (
 				<Text color={colors.muted} wrap="truncate">
 					{"  "}
 					{hiddenRows} more row{hiddenRows === 1 ? "" : "s"} ↓

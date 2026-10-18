@@ -5,11 +5,11 @@ import { useEffect, useState } from 'react';
 import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
+import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
-import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import revealPath from '@/dev-tools/utils/system/revealPath';
 
@@ -35,6 +35,7 @@ import {
 } from '../../../../core/status';
 import DiffLines from '../../DiffLines';
 import SpinnerGlyph from '../../SpinnerGlyph';
+import FileComparisonView from '../FileComparisonView';
 import type { GitViewProps } from '../../types';
 
 type Side = 'conflict' | 'staged' | 'unstaged';
@@ -77,6 +78,7 @@ export interface StatusViewProps extends GitViewProps {
   stagingOnly?: boolean;
   onBusyChange?: (busy: boolean) => void;
   isInputActive?: boolean;
+  onPreviewModeChange?: (open: boolean) => void;
 }
 
 export const StatusView = ({
@@ -92,13 +94,23 @@ export const StatusView = ({
   stagingOnly = false,
   onBusyChange,
   isInputActive = true,
+  onPreviewModeChange,
 }: StatusViewProps) => {
   const colors = useColors();
-  const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
   const [hunk, setHunk] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<Row>();
+  const openPreview = (row: Row) => {
+    if (row.side === 'conflict') return;
+    setPreview(row);
+    onPreviewModeChange?.(true);
+  };
+  const closePreview = () => {
+    setPreview(undefined);
+    onPreviewModeChange?.(false);
+  };
 
   const { data: changes = [], isLoading } = useLoader(() => getChanges(root), [root, refreshKey]);
 
@@ -190,16 +202,27 @@ export const StatusView = ({
     );
   };
 
-  const commitWith = () =>
-    prompt.ask('Commit message:', (message) => {
-      if (message.trim()) void run(() => commit(root, message));
+  //? Use save's entire screen and execution path. The session restores the dashboard after
+  //? either cancellation or commit, with terminal ownership released for hooks and push.
+  const openCommit = (initialFlags: string[] = []) =>
+    handoff({
+      type: 'screen',
+      label: 'Commit',
+      open: async () => {
+        const { default: renderInkCommit } = await import('../../../renderInkCommit');
+        const previousExitCode = process.exitCode;
+        try {
+          await renderInkCommit({ cwd: root, initialFlags, passthroughFlags: [] });
+        } finally {
+          //? A failed save reports its exit code when standalone; this session stays open.
+          process.exitCode = previousExitCode;
+        }
+      },
     });
+  const commitWith = () => openCommit();
   //? With nothing staged, the one commit that still makes sense is an empty one — a marker, or a
   //? nudge for CI — so that is what c/C offer instead of a commit that can only fail
-  const commitEmpty = () =>
-    prompt.ask('Empty commit message:', (message) => {
-      if (message.trim()) void run(() => commit(root, message, { allowEmpty: true }));
-    });
+  const commitEmpty = () => openCommit(['--allow-empty']);
 
   const amend = async () => {
     const pushed = await isHeadPushed(root);
@@ -228,6 +251,7 @@ export const StatusView = ({
   useInput(
     (input, key) => {
       if (busy || key.ctrl || key.meta) return;
+      if (input === 'v' && current) return openPreview(current);
       if (input === 'a') {
         return counts.unstaged ? run(() => stageAll(root)) : notify('Nothing to stage', 'info');
       }
@@ -270,7 +294,7 @@ export const StatusView = ({
         );
       }
     },
-    { isActive: isInputActive && !prompt.isOpen },
+    { isActive: isInputActive && !prompt.isOpen && !preview },
   );
 
   const counts = {
@@ -345,6 +369,7 @@ export const StatusView = ({
     const staged = row.side === 'staged';
     const hunks = !row.change.untracked && diff.hunks.length > 1;
     return [
+      { hotkey: 'v', label: 'Side by side', onPress: () => openPreview(row) },
       {
         hotkey: 'Space',
         label: staged ? 'Unstage' : 'Stage',
@@ -398,7 +423,13 @@ export const StatusView = ({
   };
 
   const hints: Hint[] = [
+    {
+      key: 'v',
+      label: 'side by side',
+      onPress: current && current.side !== 'conflict' ? () => openPreview(current) : undefined,
+    },
     { key: 'Space', label: 'stage / unstage' },
+    { key: 'PgUp/PgDn · ⇧↑/↓ · wheel', label: 'scroll preview' },
     //? Gray, not hidden, with nothing to stage — it stays where the hand expects it
     {
       key: 'a',
@@ -434,18 +465,23 @@ export const StatusView = ({
     </Text>
   );
 
-  const diffRows = Math.max(
-    3,
-    viewport.contentRows(
-      ['appShell', 'viewHints', 'panelFrame', 'viewHeader', ...reservedChrome],
-      3,
-    ) - 4,
-  );
+  if (preview && preview.side !== 'conflict')
+    return (
+      <FileComparisonView
+        root={root}
+        change={preview.change}
+        side={preview.side}
+        refreshKey={refreshKey}
+        onClose={closePreview}
+        onCaptureInput={onCaptureInput}
+      />
+    );
 
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        listScrollbar
         title={`Status (${rows.length})`}
         items={items}
         emptyText="Nothing to commit — the working tree is clean."
@@ -465,7 +501,7 @@ export const StatusView = ({
           const row = item?.value;
           if (!row) return <Text color={colors.ok}>Working tree clean.</Text>;
           return (
-            <Box flexDirection="column">
+            <Box flexDirection="column" flexGrow={1} minHeight={0}>
               <Toolbar actions={actionsFor(row)} />
               {row.side === 'conflict' ? (
                 <Text color={colors.text}>
@@ -473,7 +509,16 @@ export const StatusView = ({
                   or take one side whole.
                 </Text>
               ) : (
-                <DiffLines diff={diff} activeHunk={activeHunk} rows={diffRows} />
+                <ScrollPanel
+                  key={item?.id}
+                  keyboardMode="preview"
+                  isActive={isInputActive && !prompt.isOpen && !busy}
+                  scrollTo={diff.hunks
+                    .slice(0, activeHunk)
+                    .reduce((total, hunk) => total + hunk.lines.length, 0)}
+                >
+                  <DiffLines diff={diff} activeHunk={activeHunk} />
+                </ScrollPanel>
               )}
             </Box>
           );
