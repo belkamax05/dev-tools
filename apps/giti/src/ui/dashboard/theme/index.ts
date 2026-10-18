@@ -14,7 +14,7 @@ import { createTheme } from '@/dev-tools/ui/theme';
  * can only show an ellipsis is worse than a terminal that admits it is too small.
  */
 /** The palette a fresh install opens in — git's own orange, so giti is told apart from its siblings. */
-export const GITI_DEFAULT_PALETTE = 'ember';
+export const GITI_DEFAULT_PALETTE = 'mono';
 
 export const gitiTheme = createTheme({
   sizes: {

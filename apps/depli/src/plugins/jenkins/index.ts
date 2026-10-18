@@ -30,6 +30,7 @@ import {
   jobPath,
   buildCause,
 } from './api';
+import { stamp } from '../../core/time';
 import { logVersion } from './logVersion';
 import { probeJenkinsSsh, sshJobLatest, sshJobLog, sshJobStatus } from './ssh';
 import { addChoice, checkParams, jenkinsErrorText, jobParameters } from './params';
@@ -340,7 +341,7 @@ const jobStatus = async (
             ? 'failed'
             : 'done';
   const when = ok
-    ? new Date(ok.timestamp + ok.duration).toISOString().slice(0, 16).replace('T', ' ')
+    ? stamp(ok.timestamp + ok.duration)
     : '';
   return {
     ...base,

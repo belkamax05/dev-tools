@@ -22,7 +22,7 @@ usage:
   depli list-branches [glob…] [--json]
                                   branches matching the globs (branches.recent, else the
                                   watch list, when none) with their head commit
-  depli where [--json]            what every env runs now, whichever branch (Chain: [E])
+  depli where [--json]            what every env runs now, whichever branch (Chain: [e])
   depli plan <step> [--branch=B] [--env=E]
                                   the exact request a step's trigger would send — a dry run
   depli trigger <step> [--branch=B] [--env=E] --yes [--confirm-env=E]

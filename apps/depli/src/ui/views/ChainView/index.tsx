@@ -36,7 +36,8 @@ import LogPanel from '../LogPanel';
 import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import StageTimings from '../StageTimings';
 import OtherRuns from '../OtherRuns';
-import { envLine } from '../EnvsPanel';
+import { envHeader, envLegend, envLine, envTags } from '../EnvsPanel';
+import { stamp } from '../../../core/time';
 import type { Session, Tone } from '../../types';
 import type { DepliData } from '../../useDepli';
 
@@ -130,7 +131,6 @@ const FramedButton = ({
 
 const minutes = (ms?: number) =>
   !ms || ms <= 0 ? '' : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
-const stamp = (at: number) => new Date(at).toISOString().slice(0, 16).replace('T', ' ');
 
 interface SelectorRowProps {
   hotkey: string;
@@ -138,7 +138,10 @@ interface SelectorRowProps {
   value: string;
   valueColor: string;
   open?: boolean;
-  /** Dimmed, after the value: what it is now, what else the key does. */
+  /**
+   * Dimmed, after the value: what it is now, and other keys that act on it. Never the row's own
+   * key again — `[key]` before the label and the ▾ after the value already say what it does.
+   */
   note?: string;
   onPress: () => void;
 }
@@ -238,8 +241,18 @@ export const ChainView = ({
   const graphWidth = graphPaneWidth - 4;
   //? The auto-trigger panel takes its rows (frame, title, list) from the two above it
   const autoPanelRows = data.autos.length ? Math.min(data.autos.length, AUTO_ROWS) + 3 : 0;
-  //? Open, the environments panel stands above both panels: its frame, title and rows
-  const envPanelRows = picking !== undefined ? Math.min(envIds.length, ENV_ROWS) + 3 : 0;
+  //? Open, the environments panel stands above both panels and never shrinks: its frame (2) and
+  //? title, the list's own frame (2) and column names, the legend — 7 rows around the envs. On a
+  //? short terminal it lists fewer envs (and scrolls) rather than lose its bottom border
+  const envRowsShown = Math.max(
+    1,
+    Math.min(
+      envIds.length,
+      ENV_ROWS,
+      viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'chipRow'], 6) - autoPanelRows - 7 - 6,
+    ),
+  );
+  const envPanelRows = picking !== undefined ? envRowsShown + 7 : 0;
   const contentRows = Math.max(
     6,
     viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'chipRow'], 6) -
@@ -300,12 +313,22 @@ export const ChainView = ({
     data.setEnv(envIds[(at + delta + envIds.length) % envIds.length] ?? data.targetEnv);
   };
   //? The environments panel: closed by default, showing only the env chosen; open, every env
-  //? with what it runs. Picking one closes it again — the pick is saved, as `e` saves it
+  //? with what it runs. `e` opens it on the env chosen and moves on one env per press; Enter
+  //? closes it on the env under the cursor, which is saved — Esc closes it leaving the env as it was
   const openPicker = () => {
     data.loadEnvs();
     setPicking(Math.max(0, envIds.indexOf(data.targetEnv)));
   };
+  const closePicker = () => {
+    const env = envIds[picking ?? -1];
+    if (env && env !== data.targetEnv) data.setEnv(env);
+    setPicking(undefined);
+  };
+  //? A click on the Env row while open closes it as Esc does — a pick is a row clicked, or Enter
   const togglePicker = () => (picking === undefined ? openPicker() : setPicking(undefined));
+  /** The cursor one env on (or back), wrapping — what `e` does while the panel is open. */
+  const movePicker = (delta: number) =>
+    setPicking((at) => ((at ?? 0) + delta + envIds.length) % envIds.length);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a request from the status row
   useEffect(() => {
     if (envOpenRequest) openPicker();
@@ -317,6 +340,34 @@ export const ChainView = ({
   }, [data.branch]);
   const envRows = new Map((data.envs ?? []).map((row) => [row.env, row]));
   const envWidth = Math.max(4, ...envIds.map((env) => env.length));
+  //? Every env as a row of the table: its tags (current, behind… — all that apply, so the
+  //? current env still says it is behind) as a coloured first column, then what it runs
+  const envTable = envIds.map((env) => {
+    const row = envRows.get(env);
+    const line = row
+      ? envLine(row, data, envWidth)
+      : { text: `… ${env.padEnd(envWidth)}`, summary: '', mine: false, stale: false };
+    const isProtected = protectedEnvs.includes(env);
+    const tags = envTags(line, { protected: isProtected, current: env === data.targetEnv });
+    return { env, line, isProtected, tags: tags.join(' · ') };
+  });
+  const tagsWidth = Math.max(6, ...envTable.map((entry) => entry.tags.length));
+  const envItems = envTable.map(({ env, line, isProtected, tags }) => ({
+    id: env,
+    label: line.text,
+    prefix: {
+      text: tags.padEnd(tagsWidth),
+      color: isProtected
+        ? colors.error
+        : line.stale
+          ? colors.warn
+          : env === data.targetEnv
+            ? colors.accent
+            : colors.ok,
+    },
+    isCurrent: env === data.targetEnv,
+    value: env,
+  }));
 
   /** The next recommended step after the selected one, wrapping — `n` cycles through them all. */
   const jumpToNext = () => {
@@ -564,14 +615,12 @@ export const ChainView = ({
         return;
       }
       if (pickerOpen) {
-        if (key.escape) setPicking(undefined);
+        if (key.return) closePicker();
+        else if (key.escape) setPicking(undefined);
+        else if (input === 'e' || input === ']') movePicker(1);
+        else if (input === '[') movePicker(-1);
         else if (key.upArrow) setPicking((at) => Math.max(0, (at ?? 0) - 1));
         else if (key.downArrow) setPicking((at) => Math.min(envIds.length - 1, (at ?? 0) + 1));
-        else if (key.return) {
-          const env = envIds[picking ?? 0];
-          if (env) data.setEnv(env);
-          setPicking(undefined);
-        }
         return;
       }
       //? Shift+arrows belong to the log panel's scrolling
@@ -581,9 +630,9 @@ export const ChainView = ({
       else if (key.leftArrow) moveAcross(-1);
       else if (key.rightArrow) moveAcross(1);
       else if (key.return && selected) showPlan(selected);
-      else if (input === 'e' || input === ']') stepEnv(1);
+      else if (input === 'e') openPicker();
+      else if (input === ']') stepEnv(1);
       else if (input === '[') stepEnv(-1);
-      else if (input === 'E') togglePicker();
       else if (input === 'n') jumpToNext();
       else if (input === 'o') openStep(selected);
       else if (input === 'O') openLatestRun(selected);
@@ -999,24 +1048,25 @@ export const ChainView = ({
                 data.current && data.branch !== data.current
                   ? `checkout is on ${data.current} · [B] back to it`
                   : data.current
-                    ? "your checkout's branch · [b] pick another"
-                    : '[b] pick a branch'
+                    ? "your checkout's branch"
+                    : undefined
               }
               onPress={onPickBranch}
             />
             <SelectorRow
-              hotkey="E"
+              hotkey="e"
               label="Env"
               value={`${data.targetEnv}${protectedEnvs.includes(data.targetEnv) ? ' (protected)' : ''}`}
               valueColor={protectedEnvs.includes(data.targetEnv) ? colors.error : colors.accent}
               open={pickerOpen}
               note={(() => {
                 const row = envRows.get(data.targetEnv);
+                //? Open, the table says what each env runs; the row says how to leave it
                 return pickerOpen
-                  ? 'every environment below — Enter picks, Esc closes'
+                  ? `again for the next · ↑/↓ move · Enter picks · Esc keeps ${data.targetEnv}`
                   : row
-                    ? `${envLine(row, data).text.replace(/^\S+\s+\S+\s+/, '')} · [e] next`
-                    : '[E] every environment · [e] next';
+                    ? envLine(row, data).summary
+                    : undefined;
               })()}
               onPress={togglePicker}
             />
@@ -1024,51 +1074,31 @@ export const ChainView = ({
         )}
       </Box>
       {pickerOpen && (
-        <Panel
-          title={`Environments — ${data.branch ?? '(no branch)'} highlighted`}
-          badge={data.envs ? undefined : 'reading…'}
-          color={colors.accent}
-          width={appWidth}
-        >
-          <PickList
-            items={envIds.map((env) => {
-              const row = envRows.get(env);
-              const line = row
-                ? envLine(row, data, envWidth)
-                : { text: `… ${env.padEnd(envWidth)}`, mine: false, stale: false };
-              const isProtected = protectedEnvs.includes(env);
-              return {
-                id: env,
-                label: line.text,
-                hint: isProtected
-                  ? 'protected'
-                  : env === data.targetEnv
-                    ? 'current'
-                    : line.mine
-                      ? line.stale
-                        ? 'behind'
-                        : 'yours'
-                      : undefined,
-                hintColor: isProtected
-                  ? colors.error
-                  : line.stale
-                    ? colors.warn
-                    : env === data.targetEnv
-                      ? colors.accent
-                      : colors.ok,
-                value: env,
-              };
-            })}
-            selected={picking ?? 0}
-            visibleRows={Math.min(envIds.length, ENV_ROWS)}
-            onSelect={setPicking}
-            onActivate={(index) => {
-              const env = envIds[index];
-              if (env) data.setEnv(env);
-              setPicking(undefined);
-            }}
-          />
-        </Panel>
+        //? Panel shrinks (and clips) by default — this one is sized to its content instead
+        <Box flexShrink={0} flexDirection="column">
+          <Panel
+            title={`Environments — ${data.branch ?? '(no branch)'} highlighted`}
+            badge={data.envs ? undefined : 'reading…'}
+            color={colors.accent}
+            width={appWidth}
+          >
+            <PickList
+              title={envHeader(data.envs?.[0], envWidth, tagsWidth)}
+              items={envItems}
+              selected={picking ?? 0}
+              visibleRows={envRowsShown}
+              onSelect={setPicking}
+              onActivate={(index) => {
+                const env = envIds[index];
+                if (env) data.setEnv(env);
+                setPicking(undefined);
+              }}
+            />
+            <Text color={colors.muted} wrap="truncate-end">
+              {envLegend()}
+            </Text>
+          </Panel>
+        </Box>
       )}
       <Box flexDirection={sideBySide ? 'row' : 'column'} flexGrow={1} overflow="hidden">
         <Box width={graphPaneWidth} flexShrink={0} flexDirection="column">
@@ -1235,7 +1265,7 @@ export const ChainView = ({
                   },
                 ]
               : []),
-            { key: 'E', label: pickerOpen ? 'close envs' : 'all envs', onPress: togglePicker },
+            { key: 'e', label: pickerOpen ? 'next env' : 'envs', onPress: pickerOpen ? () => movePicker(1) : openPicker },
             { key: 'b', label: 'branch', onPress: onPickBranch },
             {
               key: 'l',
