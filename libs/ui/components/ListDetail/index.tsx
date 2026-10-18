@@ -11,6 +11,7 @@ import HintBar, { layoutHints } from '../HintBar';
 import Panel from '../Panel';
 import type { PickItem } from '../PickList';
 import PickList, { firstSelectable, moveInList } from '../PickList';
+import ScrollPanel from '../ScrollPanel';
 
 /** Share of the app's width the list gets, with the detail pane taking the rest. */
 const LIST_SHARE = 0.42;
@@ -124,8 +125,16 @@ export interface ListDetailProps<T> {
    * Falls back to the first selectable row when it is gone.
    */
   initialSelectedId?: string;
-  /** Show the shared draggable scrollbar in the list pane. */
+  /** The shared draggable scrollbar in the list pane; false falls back to a hidden-row count. */
   listScrollbar?: boolean;
+  /**
+   * Scroll the detail pane as one `ScrollPanel` — wheel, PgUp/PgDn, Shift+↑/↓ and a draggable
+   * scrollbar — so a detail taller than the pane is read in full rather than cut off.
+   *
+   * ! False for a detail that scrolls itself (a toolbar pinned above a diff): two scrollers
+   * ! under one pointer would both take the wheel.
+   */
+  detailScroll?: boolean;
   /** What Enter is called in the hints, when "open" is not what it does. */
   activateLabel?: string;
   /**
@@ -167,7 +176,8 @@ export const ListDetail = <T,>({
   confirmClick = false,
   reservedChrome = [],
   initialSelectedId,
-  listScrollbar = false,
+  listScrollbar = true,
+  detailScroll = true,
   activateLabel = 'open',
   activateOnClick = true,
   onWindowChange,
@@ -331,6 +341,11 @@ export const ListDetail = <T,>({
             <Text color={colors.muted} wrap="truncate">
               Nothing selected.
             </Text>
+          ) : detailScroll ? (
+            //? Keyed on the row: the next one is read from its top
+            <ScrollPanel key={current?.id} keyboardMode="preview" isActive={isInputActive}>
+              {renderDetail(current, selected)}
+            </ScrollPanel>
           ) : (
             renderDetail(current, selected)
           )}

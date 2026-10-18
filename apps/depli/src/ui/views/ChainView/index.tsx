@@ -1148,7 +1148,10 @@ export const ChainView = ({
           color={colors.accent}
           width={appWidth}
         >
-          {data.autos.slice(0, AUTO_ROWS).map((auto) => {
+          {/* The rows it was priced at; more scroll under the wheel and scrollbar, buttons and all */}
+          <Box height={Math.min(data.autos.length, AUTO_ROWS)} flexDirection="column">
+          <ScrollPanel isActive={false} isMouseActive={!prompt.isOpen}>
+          {data.autos.map((auto) => {
             const id = autoKey(auto);
             const decision = data.autoStatus[id];
             const here = auto.branch === data.branch && auto.env === data.targetEnv;
@@ -1199,9 +1202,8 @@ export const ChainView = ({
               </Box>
             );
           })}
-          {data.autos.length > AUTO_ROWS && (
-            <Text color={colors.muted}>+{data.autos.length - AUTO_ROWS} more</Text>
-          )}
+          </ScrollPanel>
+          </Box>
         </Panel>
       )}
       <Box marginTop={1} flexShrink={0}>

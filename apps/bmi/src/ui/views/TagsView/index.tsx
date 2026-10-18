@@ -31,9 +31,6 @@ const plural = (count: number, noun: string, nouns = `${noun}s`) =>
 /** Opening more pages than this at once asks first — a misfire would bury the browser. */
 const OPEN_ALL_WITHOUT_ASKING = 5;
 
-/** How many of a tag's pages the detail pane names before it says how many more there are. */
-const PAGES_LISTED = 12;
-
 export interface TagsViewProps {
   library: Library;
   config: BmiConfig;
@@ -258,7 +255,7 @@ export const TagsView = ({
                 <LinkRow label="holds" value={children.map((each) => each.name).join(', ')} />
               )}
               <Box flexDirection="column" marginTop={1}>
-                {tag.entries.slice(0, PAGES_LISTED).map((entry) => (
+                {tag.entries.map((entry) => (
                   <LinkRow
                     key={entry.id}
                     label="·"
@@ -267,11 +264,6 @@ export const TagsView = ({
                     onOpen={() => openUrl(entry.url)}
                   />
                 ))}
-                {tag.entries.length > PAGES_LISTED && (
-                  <Text color={colors.muted}>
-                    {`… ${tag.entries.length - PAGES_LISTED} more — [Enter] shows them all`}
-                  </Text>
-                )}
                 {!tag.entries.length && (
                   <Text color={colors.muted}>Empty — [Enter] then [a] adds a page.</Text>
                 )}

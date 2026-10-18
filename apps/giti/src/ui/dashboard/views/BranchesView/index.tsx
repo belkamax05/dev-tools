@@ -2,10 +2,11 @@ import { Text, useInput } from 'ink';
 import { useEffect, useRef, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
+import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import Toolbar, { type ToolbarAction, toolbarExtraRows } from '@/dev-tools/ui/components/Toolbar';
+import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
@@ -333,6 +334,7 @@ export const BranchesView = ({
         )}
       </Box>
       <ListDetail
+        detailScroll={false}
         key={`${root}:${checkedOut?.name ?? ''}`}
         initialSelectedId={checkedOut ? `l:${checkedOut.name}` : undefined}
         title={`Branches (${shown.length})`}
@@ -364,18 +366,17 @@ export const BranchesView = ({
           if (!branch) return null;
           const actions = actionsFor(branch);
           return (
-            <Box flexDirection="column">
+            <Box flexDirection="column" flexGrow={1} minHeight={0}>
               {/* The same shape whether Compare is on or off: it is the diff that gives up
                   rows, never the buttons that move. */}
               <Toolbar actions={actions} maxRows={rows - 1} />
               {compare && !branch.isCurrent ? (
                 <PatchLines
                   text={diff}
-                  rows={rows - toolbarExtraRows(actions.length, rows - 1)}
                   isActive={!prompt.isOpen && !isSearching}
                 />
               ) : (
-                <Box flexDirection="column">
+                <ScrollPanel key={branch.name} keyboardMode="preview" isActive={!prompt.isOpen && !isSearching}>
                   <Text bold color={branch.isCurrent ? colors.accent : colors.text}>
                     {branch.name}
                   </Text>
@@ -395,7 +396,7 @@ export const BranchesView = ({
                         : 'has commits HEAD does not'}
                     </Text>
                   )}
-                </Box>
+                </ScrollPanel>
               )}
             </Box>
           );

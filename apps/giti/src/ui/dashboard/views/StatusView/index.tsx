@@ -481,7 +481,7 @@ export const StatusView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
-        listScrollbar
+        detailScroll={false}
         title={`Status (${rows.length})`}
         items={items}
         emptyText="Nothing to commit — the working tree is clean."

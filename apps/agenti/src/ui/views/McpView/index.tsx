@@ -7,7 +7,6 @@ import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import { mcpTargetsFor } from '../../../core/ides';
@@ -85,7 +84,6 @@ export const McpView = ({
   refreshKey,
 }: ViewProps) => {
   const colors = useColors();
-  const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.mcp);
   const [tools, setTools] = useState<Record<string, McpToolsResult | 'loading'>>({});
@@ -445,12 +443,6 @@ export const McpView = ({
       <Text color={colors.muted}>{error ?? 'Reading MCP configs…'}</Text>
     ));
 
-  const detailRows = Math.max(
-    3,
-    //? less the toolbar and its rule
-    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 5,
-  );
-
   const lines = (row: Row): { text: string; color: string }[] => {
     if (row.kind === 'token') {
       const value = tokenValue(row.token.key);
@@ -544,13 +536,11 @@ export const McpView = ({
           item?.value ? (
             <Box flexDirection="column">
               <Toolbar actions={actionsFor(item.value)} />
-              {lines(item.value)
-                .slice(0, detailRows)
-                .map((line, index) => (
-                  <Text key={index} color={line.color} wrap="truncate">
-                    {line.text || ' '}
-                  </Text>
-                ))}
+              {lines(item.value).map((line, index) => (
+                <Text key={index} color={line.color} wrap="truncate">
+                  {line.text || ' '}
+                </Text>
+              ))}
             </Box>
           ) : null
         }

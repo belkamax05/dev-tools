@@ -7,7 +7,6 @@ import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { type ThemeColors, useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
@@ -209,7 +208,6 @@ export const AgentsView = ({
   refreshKey,
 }: ViewProps) => {
   const colors = useColors();
-  const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
   //? The id, not the node: the node object is replaced on every reload, and a
   //? kept reference would go on describing the file as it was before the action
@@ -686,26 +684,17 @@ export const AgentsView = ({
       <Text color={colors.muted}>{error ?? 'Reading .agents…'}</Text>
     ));
 
-  //? Rows the detail pane can give a preview: everything the chrome leaves,
-  //? less the toolbar, the status line and one line per IDE drawn above it
-  const previewRows = Math.max(
-    3,
-    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) -
-      6 -
-      ides.length,
-  );
-
   const previewLines = (body: string, diffing: boolean) => (
     <PreviewLines
       text={body}
-      rows={previewRows}
       diffing={diffing}
       isActive={isActive && !prompt.isOpen}
     />
   );
 
+  //? Grows to the pane so the preview at the bottom scrolls under a toolbar that stays put
   const renderInstructions = () => (
-    <Box flexDirection="column">
+    <Box flexDirection="column" flexGrow={1} minHeight={0}>
       <Toolbar actions={instructionsActions()} />
       <Text color={colors.muted} wrap="truncate">
         source {relative(root, scope.instructionsPath)}
@@ -757,7 +746,7 @@ export const AgentsView = ({
             );
 
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" flexGrow={1} minHeight={0}>
         <Toolbar actions={actionsFor(node)} />
         <Text color={statusColor(node.status, colors)} wrap="truncate">
           {CHECKBOX[node.status]} {DESCRIBE[node.status]}
@@ -812,6 +801,8 @@ export const AgentsView = ({
         emptyText={emptyText}
         detailTitle={onInstructions ? 'Instructions' : (current?.relativePath ?? 'Entry')}
         renderDetail={renderDetail}
+        //? The preview scrolls itself, below the toolbar and status lines
+        detailScroll={false}
         hints={hints}
         reservedChrome={['viewHeader']}
         activateLabel="fold / preview"

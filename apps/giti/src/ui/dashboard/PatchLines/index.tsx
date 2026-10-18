@@ -1,20 +1,13 @@
-import { type DOMElement, Text, useInput } from 'ink';
-import { useEffect, useRef, useState } from 'react';
+import { Text } from 'ink';
 
-import Box from '@/dev-tools/ui/components/Box';
-import useClickable from '@/dev-tools/ui/hooks/useClickable';
+import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
-/** Lines one wheel notch moves — the same step `PickList` scrolls by. */
-const WHEEL_STEP = 3;
-
 /** The scroll keys, for a view listing them in its hints. */
-export const PATCH_SCROLL_HINT = { key: 'PgUp/PgDn', label: 'scroll diff' } as const;
+export const PATCH_SCROLL_HINT = { key: 'PgUp/PgDn · ⇧↑/↓ · wheel', label: 'scroll diff' } as const;
 
 export interface PatchLinesProps {
   text: string;
-  /** Rows the pane has, the position line included. */
-  rows: number;
   /** False while a prompt owns the keyboard. The wheel works regardless. */
   isActive?: boolean;
 }
@@ -28,49 +21,15 @@ export interface PatchLinesProps {
  * use: PgUp/PgDn by a page, Shift+↑/↓ by a line, and the wheel over it. A new
  * text starts at the top again — the next commit is read from its beginning.
  */
-export const PatchLines = ({ text, rows, isActive = true }: PatchLinesProps) => {
+export const PatchLines = ({ text, isActive = true }: PatchLinesProps) => {
   const colors = useColors();
   const lines = text.replace(/\n$/, '').split('\n');
-  //? One row goes to the position line, but only when there is something to scroll
-  const scrolls = lines.length > rows;
-  const page = Math.max(1, scrolls ? rows - 1 : rows);
-  const last = Math.max(0, lines.length - page);
-  const [start, setStart] = useState(0);
-
-  useEffect(() => {
-    setStart(0);
-  }, [text]);
-
-  const scrollBy = (step: number) => setStart((at) => Math.max(0, Math.min(last, at + step)));
-
-  const ref = useRef<DOMElement>(null);
-  useClickable(ref, {
-    onWheel: (event) => scrollBy(event.wheel === 'down' ? WHEEL_STEP : -WHEEL_STEP),
-  });
-
-  useInput(
-    (_input, key) => {
-      if (key.pageDown) scrollBy(page - 1);
-      else if (key.pageUp) scrollBy(-(page - 1));
-      else if (key.shift && key.downArrow) scrollBy(1);
-      else if (key.shift && key.upArrow) scrollBy(-1);
-    },
-    { isActive: isActive && scrolls },
-  );
-
   if (!text.trim()) return <Text color={colors.muted}>No changes.</Text>;
-  const at = Math.min(start, last);
   return (
-    <Box ref={ref} flexDirection="column">
-      {/* On top: a toolbar that wraps above the pane takes its rows from the bottom */}
-      {scrolls && (
-        <Text color={colors.muted} wrap="truncate">
-          {`lines ${at + 1}–${Math.min(lines.length, at + page)} of ${lines.length} · PgUp/PgDn, Shift+↑/↓ or wheel`}
-        </Text>
-      )}
-      {lines.slice(at, at + page).map((line, index) => (
+    <ScrollPanel key={text} keyboardMode="preview" isActive={isActive}>
+      {lines.map((line, index) => (
         <Text
-          key={at + index}
+          key={index}
           wrap="truncate"
           bold={line.startsWith('diff --git')}
           color={
@@ -88,7 +47,7 @@ export const PatchLines = ({ text, rows, isActive = true }: PatchLinesProps) => 
           {line || ' '}
         </Text>
       ))}
-    </Box>
+    </ScrollPanel>
   );
 };
 

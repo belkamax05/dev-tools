@@ -379,7 +379,7 @@ export interface PickListProps<T> {
 	 * checkbox is the action.
 	 */
 	activateOnClick?: boolean | ((item: PickItem<T>) => boolean);
-  /** Use the shared draggable scrollbar instead of a hidden-row count. */
+  /** The shared draggable scrollbar; false falls back to a hidden-row count. */
   scrollbar?: boolean;
 	/**
 	 * Told which `items` are on screen — `from` inclusive, `to` exclusive — whenever the window
@@ -414,7 +414,7 @@ export const PickList = <T,>({
 	onHover,
 	activateOnClick = true,
 	onWindowChange,
-  scrollbar = false,
+  scrollbar = true,
 }: PickListProps<T>) => {
 	const colors = useColors();
 	const rows = useMemo(() => packRows(items, columns), [items, columns]);

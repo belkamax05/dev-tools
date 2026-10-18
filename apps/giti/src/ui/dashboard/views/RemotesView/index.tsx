@@ -2,6 +2,7 @@ import { Text, useInput } from 'ink';
 import { useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
+import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
@@ -242,6 +243,7 @@ export const RemotesView = ({
         )}
       </Box>
       <ListDetail
+        detailScroll={false}
         title={`Remotes (${remotes.length + vendored.length})`}
         items={items}
         emptyText="No remotes — add one with git remote add."
@@ -271,17 +273,17 @@ export const RemotesView = ({
           if (!row) return <Toolbar actions={actions} maxRows={toolbarRows + 3} />;
           if (row.kind === 'vendored') {
             return (
-              <Box flexDirection="column">
+              <Box flexDirection="column" flexGrow={1} minHeight={0}>
                 {/* The detail below takes eleven lines; what is left can hold the stack */}
                 <Toolbar actions={vendoredActions} maxRows={toolbarRows - 8} />
-                <VendoredDetail entry={row.entry} />
+                <ScrollPanel key={row.entry.dir} keyboardMode="preview" isActive={!prompt.isOpen}><VendoredDetail entry={row.entry} /></ScrollPanel>
               </Box>
             );
           }
           const { remote } = row;
           const url = remoteWebUrl(remote.fetchUrl);
           return (
-            <Box flexDirection="column">
+            <Box flexDirection="column" flexGrow={1} minHeight={0}>
               <Toolbar
                 maxRows={toolbarRows}
                 actions={[
@@ -295,6 +297,7 @@ export const RemotesView = ({
                   },
                 ]}
               />
+              <ScrollPanel key={remote.name} keyboardMode="preview" isActive={!prompt.isOpen}>
               <LinkRow label="fetch" value={remote.fetchUrl} />
               <LinkRow label="push" value={remote.pushUrl || remote.fetchUrl} />
               <LinkRow
@@ -302,6 +305,7 @@ export const RemotesView = ({
                 value={url ?? '—'}
                 onOpen={url ? () => openUrl(url) : undefined}
               />
+              </ScrollPanel>
             </Box>
           );
         }}

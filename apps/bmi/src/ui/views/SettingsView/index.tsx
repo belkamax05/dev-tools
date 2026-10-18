@@ -16,7 +16,6 @@ import ClearDataDialog, {
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
-import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
@@ -102,7 +101,6 @@ export const SettingsView = ({
   const [current, setCurrent] = useState<Setting | undefined>(undefined);
   const [clearing, setClearing] = useState(false);
   const [contents, setContents] = useState<FileContents | undefined>(undefined);
-  const viewport = useViewport();
 
   const filePath =
     current?.kind === 'file' ? (current.which === 'user' ? configPath : workspacePath) : undefined;
@@ -261,13 +259,7 @@ export const SettingsView = ({
       const isUser = setting.which === 'user';
       const path = isUser ? configPath : workspacePath;
       const shown = contents?.path === path ? contents : undefined;
-      //? What is left of the pane once the buttons, path and blurb have theirs
-      const budget = Math.max(
-        3,
-        viewport.contentRows(['appShell', 'viewHints', 'panelFrame'], 3) - 8,
-      );
       const lines = shown?.text?.trimEnd().split('\n') ?? [];
-      const hidden = Math.max(0, lines.length - budget);
       return (
         <Box flexDirection="column">
           <Toolbar
@@ -313,18 +305,11 @@ export const SettingsView = ({
                 }
               </Text>
             ) : (
-              <>
-                {lines.slice(0, budget).map((line, index) => (
-                  <Text key={index} color={colors.text} wrap="truncate">
-                    {line || ' '}
-                  </Text>
-                ))}
-                {hidden > 0 && (
-                  <Text
-                    color={colors.muted}
-                  >{`… ${hidden} more lines — [${isUser ? 'e' : 'E'}] to open`}</Text>
-                )}
-              </>
+              lines.map((line, index) => (
+                <Text key={index} color={colors.text} wrap="truncate">
+                  {line || ' '}
+                </Text>
+              ))
             )}
           </Box>
         </Box>

@@ -314,7 +314,6 @@ export const ResolvedView = ({
             value={entry.value}
             secret={secret}
             reveal={reveal || secrets.isRevealed(entry.key)}
-            maxLines={6}
             {...secrets.blockProps(entry.value)}
           />
         </Box>

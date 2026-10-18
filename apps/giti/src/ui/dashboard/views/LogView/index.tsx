@@ -2,12 +2,12 @@ import { Text, useInput } from 'ink';
 import { useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
+import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, {
   type ToolbarAction,
-  toolbarExtraRows,
 } from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
@@ -169,6 +169,7 @@ export const LogView = ({
         )}
       </Box>
       <ListDetail
+        detailScroll={false}
         title={`Log (${commits.length})`}
         items={items}
         emptyText="No commits yet."
@@ -188,15 +189,13 @@ export const LogView = ({
           const commit = item?.value;
           if (!commit) return null;
           const actions = actionsFor(commit);
-          //? What the toolbar leaves: it stacks past a few buttons, whichever side is showing
-          const left = rows - toolbarExtraRows(actions.length, rows - 1);
           return (
-            <Box flexDirection="column">
+            <Box flexDirection="column" flexGrow={1} minHeight={0}>
               <Toolbar actions={actions} maxRows={rows - 1} />
               {showDiff ? (
-                <PatchLines text={diff} rows={left} isActive={!prompt.isOpen} />
+                <PatchLines text={diff} isActive={!prompt.isOpen} />
               ) : (
-                <Box flexDirection="column">
+                <ScrollPanel key={commit.hash} keyboardMode="preview" isActive={!prompt.isOpen}>
                   <Text bold color={colors.text} wrap="truncate">
                     {detail?.subject ?? commit.subject}
                   </Text>
@@ -212,13 +211,13 @@ export const LogView = ({
                     </Box>
                   ) : null}
                   <Box flexDirection="column" marginTop={1}>
-                    {(detail?.stat ?? []).slice(0, Math.max(1, left - 6)).map((line, index) => (
+                    {(detail?.stat ?? []).map((line, index) => (
                       <Text key={index} color={colors.muted} wrap="truncate">
                         {line}
                       </Text>
                     ))}
                   </Box>
-                </Box>
+                </ScrollPanel>
               )}
             </Box>
           );

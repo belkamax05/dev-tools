@@ -1,5 +1,5 @@
-import { type DOMElement, Text, useInput } from 'ink';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Text, useInput } from 'ink';
+import { useEffect, useRef, useState } from 'react';
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
@@ -7,7 +7,6 @@ import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import { type ThemeColors, useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
-import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { copyToClipboard } from '@/dev-tools/utils/system/copyToClipboard';
 import { openUrl } from '@/dev-tools/utils/system/openUrl';
@@ -241,27 +240,6 @@ const ProbeDetail = ({ probe, showGuide, transport }: {
   );
 };
 
-/** The detail, moved up by `scroll` rows — the wheel over it scrolls, as Shift+↑/↓ does. */
-const ScrollPane = ({
-  scroll,
-  onScroll,
-  children,
-}: {
-  scroll: number;
-  onScroll: (delta: number) => void;
-  children: ReactNode;
-}) => {
-  const ref = useRef<DOMElement>(null);
-  useClickable(ref, { onWheel: (event) => onScroll(event.wheel === 'up' ? -3 : 3) });
-  return (
-    <Box ref={ref} flexDirection="column" flexGrow={1} overflow="hidden">
-      <Box flexDirection="column" marginTop={-scroll} flexShrink={0}>
-        {children}
-      </Box>
-    </Box>
-  );
-};
-
 /**
  * Each provider and the ways depli can reach it: which one is in use and how exactly it
  * connects (the remote, the host, the SSH key, where the token comes from), why the others fail
@@ -281,7 +259,6 @@ export const ConnectionsView = ({
   const prompt = usePrompt(onCaptureInput);
   const [showGuide, setShowGuide] = useState(false);
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({});
-  const [scroll, setScroll] = useState(0);
   //? Choices tested here, by choiceKey — the main probe only ever tries the one picked
   const [tests, setTests] = useState<Record<string, Probe | 'running'>>({});
   const testsRef = useRef(tests);
@@ -404,7 +381,6 @@ export const ConnectionsView = ({
   //? A choice is tested as soon as the cursor lands on it — what you see is what it would do
   // biome-ignore lint/correctness/useExhaustiveDependencies: the row id is the trigger
   useEffect(() => {
-    setScroll(0);
     setRevealedSecrets({});
     const setupTransport = selected && setupOf(selected.provider);
     if (setupTransport && selected && !askedUnavailable.current.has(selected.provider.name)) {
@@ -825,9 +801,7 @@ export const ConnectionsView = ({
       : undefined;
 
   useInput((input, key) => {
-    if (key.shift && key.upArrow) setScroll((at) => Math.max(0, at - 3));
-    else if (key.shift && key.downArrow) setScroll((at) => at + 3);
-    else if (input === 'P') {
+    if (input === 'P') {
       setTests({});
       data.reprobe();
     } else if (input === 'g') setShowGuide((on) => !on);
@@ -1076,7 +1050,7 @@ export const ConnectionsView = ({
         ...(firstLink()
           ? [{ key: 'o', label: 'open link', onPress: () => openUrl(firstLink()?.url ?? '') }]
           : []),
-        { key: '⇧↑/↓ · wheel', label: 'scroll' },
+        { key: 'PgUp/PgDn · ⇧↑/↓ · wheel', label: 'scroll' },
       ]}
       initialSelectedId={session.selected.connections}
       onSelectionChange={(item) => {
@@ -1087,10 +1061,7 @@ export const ConnectionsView = ({
         const row = item?.value;
         if (!row) return null;
         return (
-          <ScrollPane
-            scroll={scroll}
-            onScroll={(delta) => setScroll((at) => Math.max(0, at + delta))}
-          >
+          <Box flexDirection="column">
             {renderCredentials(row.provider)}
             {renderUseButton(row)}
             {row.kind === 'auto'
@@ -1098,7 +1069,7 @@ export const ConnectionsView = ({
               : row.kind === 'transport'
                 ? renderTransport(row)
                 : renderChoice(row)}
-          </ScrollPane>
+          </Box>
         );
       }}
     />

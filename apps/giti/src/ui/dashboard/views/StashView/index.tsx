@@ -7,7 +7,6 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
-import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
@@ -39,7 +38,6 @@ export const StashView = ({
   reservedChrome,
 }: GitViewProps) => {
   const colors = useColors();
-  const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
 
@@ -90,14 +88,6 @@ export const StashView = ({
     value: entry,
   }));
 
-  const rows = Math.max(
-    3,
-    viewport.contentRows(
-      ['appShell', 'viewHints', 'panelFrame', 'viewHeader', ...reservedChrome],
-      3,
-    ) - 4,
-  );
-
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>
@@ -111,6 +101,7 @@ export const StashView = ({
         )}
       </Box>
       <ListDetail
+        detailScroll={false}
         title={`Stash (${stashes.length})`}
         items={items}
         emptyText="No stashes — [s] puts your current changes aside."
@@ -128,7 +119,7 @@ export const StashView = ({
           const entry = item?.value;
           if (!entry) return null;
           return (
-            <Box flexDirection="column">
+            <Box flexDirection="column" flexGrow={1} minHeight={0}>
               <Toolbar
                 actions={[
                   {
@@ -145,7 +136,7 @@ export const StashView = ({
                   { hotkey: 'x', label: 'Drop', onPress: () => drop(entry), tone: 'danger' },
                 ]}
               />
-              <PatchLines text={diff} rows={rows} isActive={!prompt.isOpen} />
+              <PatchLines text={diff} isActive={!prompt.isOpen} />
             </Box>
           );
         }}

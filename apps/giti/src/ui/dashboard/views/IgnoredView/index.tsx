@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Box from '@/dev-tools/ui/components/Box';
 import HintBar from '@/dev-tools/ui/components/HintBar';
 import Panel from '@/dev-tools/ui/components/Panel';
+import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import useScrollWindow from '@/dev-tools/ui/hooks/useScrollWindow';
@@ -111,48 +112,24 @@ const TreeRow = ({
 /** Below this the preview sits under the tree rather than beside it — ListDetail's breakpoint. */
 const SIDE_BY_SIDE_COLUMNS = 96;
 
-/** Lines one wheel notch scrolls the preview — the step every other pane uses. */
-const WHEEL_STEP = 3;
-
-/** The secondary pane: whatever the cursor is on, read before deciding to delete it. */
-const PreviewPane = ({
-  title,
-  preview,
-  start,
-  rows,
-  width,
-  onWheel,
-}: {
+/** Full ignored-file preview, using the same measured scrollbar as diffs. */
+const PreviewPane = ({ title, preview, width, isActive }: {
   title: string;
   preview: IgnoredPreview | undefined;
-  start: number;
-  rows: number;
   width?: string;
-  onWheel: (step: number) => void;
+  isActive: boolean;
 }) => {
   const colors = useColors();
-  const ref = useRef<DOMElement>(null);
-  useClickable(ref, {
-    onWheel: (event) => onWheel(event.wheel === 'down' ? WHEEL_STEP : -WHEEL_STEP),
-  });
-  const lines = preview?.lines ?? [];
-  const shown = lines.slice(start, start + rows);
-  const position =
-    lines.length > rows
-      ? ` · ${start + 1}–${Math.min(lines.length, start + rows)} of ${lines.length}`
-      : '';
-
   return (
-    <Panel ref={ref} title={title} width={width} grow>
+    <Panel title={title} width={width} grow>
       <Text color={colors.muted} wrap="truncate">
-        {preview ? `${preview.summary}${position}` : 'Nothing selected'}
+        {preview?.summary ?? 'Nothing selected'}
       </Text>
-      {shown.map((line, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional; equal lines repeat
-        <Text key={start + index} color={colors.text} wrap="truncate">
-          {line || ' '}
-        </Text>
-      ))}
+      <ScrollPanel key={title} keyboardMode="preview" isActive={isActive}>
+        {(preview?.lines ?? []).map((line, index) => (
+          <Text key={index} color={colors.text} wrap="truncate">{line || ' '}</Text>
+        ))}
+      </ScrollPanel>
     </Panel>
   );
 };
@@ -306,10 +283,6 @@ export const IgnoredView = ({
     () => (current ? previewIgnored(root, current.node) : undefined),
     [root, previewPath, scan, entries],
   );
-  const [previewStart, setPreviewStart] = useState(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a different row is read from its top
-  useEffect(() => setPreviewStart(0), [previewPath]);
-
   const contentRows = Math.max(
     3,
     viewport.contentRows(['viewHeader', 'panelFrame', 'viewHints', ...reservedChrome], 3),
@@ -318,20 +291,11 @@ export const IgnoredView = ({
   //? same breakpoint ListDetail uses everywhere else in the dashboard
   const sideBySide = viewport.columns >= SIDE_BY_SIDE_COLUMNS;
   const listRows = sideBySide ? contentRows : Math.max(3, Math.floor((contentRows - 3) / 2));
-  //? One row of the preview pane is its summary line
-  const previewRows = Math.max(1, (sideBySide ? contentRows : contentRows - 3 - listRows) - 1);
-  const previewLines = preview?.lines ?? [];
-  const previewLast = Math.max(0, previewLines.length - previewRows);
-  const scrollPreview = (step: number) =>
-    setPreviewStart((was) => Math.max(0, Math.min(previewLast, was + step)));
 
   useInput((input, key) => {
     if (busy) return;
     if (key.escape || input === 'q') onClose();
-    else if (key.shift && key.upArrow) scrollPreview(-1);
-    else if (key.shift && key.downArrow) scrollPreview(1);
-    else if (key.pageUp) scrollPreview(-previewRows);
-    else if (key.pageDown) scrollPreview(previewRows);
+    else if (key.shift && (key.upArrow || key.downArrow)) return;
     else if (key.upArrow || input === 'k') setCursor(Math.max(0, at - 1));
     else if (key.downArrow || input === 'j') setCursor(Math.min(rows.length - 1, at + 1));
     else if (key.rightArrow || input === 'l') fold(current?.node, true);
@@ -345,8 +309,7 @@ export const IgnoredView = ({
     else if (key.return) void clear();
   });
 
-  const [start] = useScrollWindow(rows.length, at, listRows);
-  const shown = rows.slice(start, start + listRows);
+  const [start, setStart] = useScrollWindow(rows.length, at, listRows);
 
   const total = sizeOf(new Set(allPaths));
   const tickedSize = sizeOf(ticked);
@@ -381,32 +344,32 @@ export const IgnoredView = ({
               {isLoading ? 'Scanning…' : 'git ignores nothing here — nothing to clear.'}
             </Text>
           ) : (
-            shown.map((row, index) => (
+            <ScrollPanel isActive={false} isMouseActive={!busy} scrollOffset={start} onScroll={setStart}>
+            {rows.map((row, index) => (
               <TreeRow
                 key={row.node.path}
                 row={row}
                 tick={tickOf(row.node)}
-                isCursor={start + index === at}
+                isCursor={index === at}
                 isOpen={!collapsed.has(row.node.path)}
                 onTick={() => {
-                  setCursor(start + index);
+                  setCursor(index);
                   toggle(row.node);
                 }}
                 onFold={() => {
-                  setCursor(start + index);
+                  setCursor(index);
                   fold(row.node);
                 }}
               />
-            ))
+            ))}
+            </ScrollPanel>
           )}
         </Panel>
         <PreviewPane
           title={current ? `${current.node.name}${current.node.isDir ? '/' : ''}` : 'Preview'}
           preview={preview}
-          start={previewStart}
-          rows={previewRows}
           width={sideBySide ? '45%' : undefined}
-          onWheel={scrollPreview}
+          isActive={!busy}
         />
       </Box>
       <Box flexShrink={0} marginTop={1}>

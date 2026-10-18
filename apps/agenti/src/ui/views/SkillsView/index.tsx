@@ -6,7 +6,6 @@ import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
@@ -70,7 +69,6 @@ export const SkillsView = ({
   refreshKey,
 }: ViewProps) => {
   const colors = useColors();
-  const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.skills);
   const [busy, setBusy] = useState<string | undefined>(undefined);
@@ -262,12 +260,6 @@ export const SkillsView = ({
       </Text>
     ));
 
-  const detailRows = Math.max(
-    3,
-    //? less the toolbar and its rule
-    viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'viewHeader'], 3) - 4,
-  );
-
   const renderDetail = (item: PickItem<Row> | undefined) => {
     const row = item?.value;
     if (!row) return null;
@@ -332,7 +324,7 @@ export const SkillsView = ({
           </Text>
         ))}
         <Box flexDirection="column" marginTop={1}>
-          {body.slice(0, Math.max(1, detailRows - facts.length - 1)).map((line, index) => (
+          {body.map((line, index) => (
             <Text
               key={index}
               color={index === 0 && description ? colors.text : colors.muted}

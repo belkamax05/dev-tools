@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import { renderToString } from 'ink';
 
+import Box from '@/dev-tools/ui/components/Box';
+
 import type { Connection } from '../../../core/plugin';
 import type { Provider } from '../../../core/registry';
 import jenkins from '../../../plugins/jenkins';
@@ -36,6 +38,8 @@ const view = (ok: boolean, configured: boolean, row = 'jenkins:auto') => {
   } as unknown as DepliData;
   return Bun.stripANSI(
     renderToString(
+      //? A terminal's height: the detail pane clips and scrolls, so it needs rows to show them
+      <Box height={50} flexDirection="column">
       <ConnectionsView
         data={data}
         providers={[provider]}
@@ -43,7 +47,8 @@ const view = (ok: boolean, configured: boolean, row = 'jenkins:auto') => {
         session={{ tab: 'connections', selected: { connections: row } }}
         notify={() => {}}
         onCaptureInput={() => {}}
-      />,
+      />
+      </Box>,
       { columns: 180 },
     ),
   );
