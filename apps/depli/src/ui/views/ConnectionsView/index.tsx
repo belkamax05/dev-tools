@@ -97,6 +97,9 @@ const setupOf = (provider: Provider) =>
   provider.transports.find((transport) => transport.recommended && transport.setup) ??
   provider.transports.find((transport) => transport.setup);
 
+const hasCredentials = (provider: Provider) =>
+  Boolean(setupOf(provider)?.setup?.inputs?.some((input) => input.secret));
+
 /** The transport does less than another of the provider's — SSH beside the API. */
 const isLimited = (provider: Provider, transport: Transport<any>) =>
   provider.transports.some(
@@ -507,50 +510,119 @@ export const ConnectionsView = ({
     const transport = setupOf(provider);
     const setup = transport?.setup;
     const context = data.setupContext(provider.name);
-    if (!transport || !setup || !context) return null;
-    const running = data.setup?.key === `${provider.name}:${transport.id}`
-      ? data.setup.progress : undefined;
+    if (!transport || !setup || !context || !hasCredentials(provider)) return null;
+    const running =
+      data.setup?.key === `${provider.name}:${transport.id}` ? data.setup.progress : undefined;
     const active = running && (running.state === 'running' || running.state === 'waiting');
     const why = unavailable[provider.name];
+    const probe = data.connections[provider.name]?.probes.find(
+      (entry) => entry.transport === transport.id,
+    );
+    const missing = setup.inputs?.some((input) => !input.initial?.(context)?.trim());
+    const ready = !missing && !why && running?.state !== 'failed' && probe?.ok;
+    const color = ready && !active ? colors.ok : colors.error;
+    const links = setup.links?.(context) ?? [];
     return (
-      <Box flexDirection="column" marginBottom={1}>
-        {setup.inputs?.filter((input) => input.secret && input.initial).map((input) => {
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={color}
+        paddingX={1}
+        marginBottom={1}
+      >
+        <Text color={color} bold>
+          {active
+            ? '… Saving credentials'
+            : ready
+              ? '✓ API credentials verified'
+              : '✗ API configuration required'}
+        </Text>
+        <Box marginTop={1}>
+          <ActionButton
+            hotkey="L"
+            label={ready ? 'Update Jenkins API credentials' : 'Configure Jenkins API'}
+            color={color}
+            disabled={Boolean(active) || Boolean(why)}
+            onPress={() => startSetup(provider)}
+          />
+        </Box>
+        {why ? (
+          <Text color={colors.error} wrap="wrap">
+            {why}
+          </Text>
+        ) : null}
+        {setup.inputs?.map((input) => {
           const value = input.initial?.(context) ?? '';
           const key = `${provider.name}:${transport.id}:${input.id}`;
           const revealed = revealedSecrets[key];
           return (
             <Box key={input.id} flexDirection="column" marginTop={1}>
               <Text color={colors.text} wrap="wrap">
-                {input.label}: {value ? (revealed ? value : '••••••••') : 'not set'}
+                {input.label}: {value ? (input.secret && !revealed ? '••••••••' : value) : 'not set'}
               </Text>
-              <Box>
-                <ActionButton
-                  label={revealed ? 'Hide token' : 'Reveal token'}
-                  disabled={!value}
-                  onPress={() => setRevealedSecrets((all) => ({ ...all, [key]: !all[key] }))}
-                />
-                <ActionButton
-                  label="Edit token"
-                  disabled={Boolean(active) || Boolean(why)}
-                  onPress={() => {
-                    setRevealedSecrets({});
-                    const values = Object.fromEntries(
-                      (setup.inputs ?? []).map((field) => [field.id, field.initial?.(context) ?? '']),
-                    );
-                    if ((setup.inputs ?? []).some((field) => field.id !== input.id && !values[field.id])) {
-                      startSetup(provider);
-                      return;
-                    }
-                    prompt.ask(input.label, (next) => {
-                      if (!next.trim()) return notify('A token is needed — nothing was saved', 'warn');
-                      data.startSetup(provider.name, transport.id, { ...values, [input.id]: next });
-                    }, { initial: value, secret: true });
-                  }}
-                />
-              </Box>
+              {input.secret ? (
+                <Box>
+                  <ActionButton
+                    label={revealed ? 'Hide token' : 'Reveal token'}
+                    disabled={!value}
+                    onPress={() => setRevealedSecrets((all) => ({ ...all, [key]: !all[key] }))}
+                  />
+                  <ActionButton
+                    label="Edit token"
+                    disabled={Boolean(active) || Boolean(why)}
+                    onPress={() => {
+                      setRevealedSecrets({});
+                      const values = Object.fromEntries(
+                        (setup.inputs ?? []).map((field) => [
+                          field.id,
+                          field.initial?.(context) ?? '',
+                        ]),
+                      );
+                      if (
+                        (setup.inputs ?? []).some(
+                          (field) => field.id !== input.id && !values[field.id],
+                        )
+                      ) {
+                        startSetup(provider);
+                        return;
+                      }
+                      prompt.ask(
+                        input.label,
+                        (next) => {
+                          if (!next.trim())
+                            return notify('A token is needed — nothing was saved', 'warn');
+                          data.startSetup(provider.name, transport.id, {
+                            ...values,
+                            [input.id]: next,
+                          });
+                        },
+                        { initial: value, secret: true },
+                      );
+                    }}
+                  />
+                </Box>
+              ) : null}
             </Box>
           );
         })}
+        {running ? (
+          <Text color={running.state === 'failed' ? colors.error : colors.text} wrap="wrap">
+            {running.message}
+          </Text>
+        ) : null}
+        <Text color={colors.muted} wrap="wrap">
+          Paste an API token or an op:// reference. Saving resolves references and checks the
+          connection.
+        </Text>
+        {!ready || showGuide
+          ? setup.steps.map((step) => (
+              <Text key={step} color={colors.text} wrap="wrap">
+                • {step}
+              </Text>
+            ))
+          : null}
+        {links.length ? <Links links={links} /> : null}
+        <ProbeDetail probe={probe} showGuide={showGuide} transport={transport} />
       </Box>
     );
   };
@@ -717,7 +789,7 @@ export const ConnectionsView = ({
             </Text>
           ) : null;
         })}
-        {!bestInUse && best.setup && !unavailable[provider.name] ? (
+        {!bestInUse && best.setup && !hasCredentials(provider) && !unavailable[provider.name] ? (
           <Box marginTop={1}>
             <ActionButton
               hotkey="L"
@@ -819,7 +891,7 @@ export const ConnectionsView = ({
         <Box marginTop={1} flexDirection="column">
           {renderRecommended(provider)}
         </Box>
-        {setupOf(provider) && data.connections[provider.name]?.transport !== setupOf(provider)?.id
+        {!hasCredentials(provider) && setupOf(provider) && data.connections[provider.name]?.transport !== setupOf(provider)?.id
           ? renderSetup(provider)
           : null}
         <Section title="Ways in, and what each can do" />
@@ -911,7 +983,7 @@ export const ConnectionsView = ({
         <Text color={colors.muted} wrap="wrap">
           {role}
         </Text>
-        {probe ? (
+        {probe && !(row.transport.setup && hasCredentials(row.provider)) ? (
           <Text color={probe.ok ? colors.text : colors.error} wrap="wrap">
             {probe.ok ? '✓' : '✗'} {probe.detail}
           </Text>
@@ -922,8 +994,10 @@ export const ConnectionsView = ({
             {renderRecommended(row.provider, row.transport)}
           </Box>
         ) : null}
-        {row.transport.setup ? renderSetup(row.provider) : null}
-        <ProbeDetail probe={probe} showGuide={showGuide} transport={row.transport} />
+        {row.transport.setup && !hasCredentials(row.provider) ? renderSetup(row.provider) : null}
+        {row.transport.setup && hasCredentials(row.provider) ? null : (
+          <ProbeDetail probe={probe} showGuide={showGuide} transport={row.transport} />
+        )}
         {row.transport.choiceLabel && probe?.choices ? (
           <Text color={colors.muted} wrap="wrap">
             {'\n'}
@@ -1017,8 +1091,8 @@ export const ConnectionsView = ({
             scroll={scroll}
             onScroll={(delta) => setScroll((at) => Math.max(0, at + delta))}
           >
-            {renderUseButton(row)}
             {renderCredentials(row.provider)}
+            {renderUseButton(row)}
             {row.kind === 'auto'
               ? renderAuto(row.provider)
               : row.kind === 'transport'
