@@ -32,7 +32,7 @@ export interface RenderInkCommitOptions {
   cwd: string;
 }
 
-const CommitForm = ({
+export const CommitForm = ({
   cwd,
   initialMessage,
   initialFlags,
@@ -50,6 +50,7 @@ const CommitForm = ({
   const [filePreviewOpen, setFilePreviewOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [staging, setStaging] = useState(false);
+  const [quickMessage, setQuickMessage] = useState(false);
   const toggle = (flag: string) =>
     setFlags((previous) => {
       const next = new Set(previous);
@@ -66,6 +67,7 @@ const CommitForm = ({
       return;
     }
     setSubmitting(true);
+    setQuickMessage(false);
     try {
       const changes = await getChanges(cwd);
       if (changes.some((change) => change.conflicted)) {
@@ -99,6 +101,13 @@ const CommitForm = ({
   };
 
   const needsMessage = !message.trim() && !flags.has('--amend');
+  const quickCommit = () => {
+    if (captured || submitting || staging) return;
+    if (needsMessage) {
+      setNotice('');
+      setQuickMessage(true);
+    } else void submit();
+  };
   const nextStep = needsMessage
     ? 'Enter commit message'
     : section === 'flags'
@@ -119,9 +128,18 @@ const CommitForm = ({
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') return exit();
+    if (quickMessage) {
+      if (key.escape) setQuickMessage(false);
+      else if (key.return) {
+        if (needsMessage) setNotice('Enter a commit message.');
+        else void submit();
+      }
+      return;
+    }
     if (filePreviewOpen) return;
     if (key.escape) return exit();
     if (captured || submitting || staging) return;
+    if (key.return && key.shift) return quickCommit();
     if (key.tab) {
       const sections: Section[] = ['files', 'message', 'flags'];
       setSection(sections[(sections.indexOf(section) + (key.shift ? 2 : 1)) % 3] ?? 'files');
@@ -131,6 +149,37 @@ const CommitForm = ({
       if (flag) toggle(flag);
     }
   });
+
+  const messageInput = (
+    <TextInput
+      defaultValue={message}
+      placeholder="Commit message…"
+      onChange={(value) => {
+        setMessage(value);
+        setNotice('');
+      }}
+      isDisabled={(!quickMessage && section !== 'message') || captured || submitting}
+    />
+  );
+
+  if (quickMessage) {
+    return (
+      <Box flexGrow={1} justifyContent="center" alignItems="center" paddingX={1}>
+        <Box width={72} maxWidth="100%" flexDirection="column">
+          <Panel title="Commit message" isFocused>
+            {messageInput}
+            {notice && <Text color={colors.warn}>{notice}</Text>}
+            <Toolbar
+              actions={[
+                { hotkey: 'Enter', label: 'Commit', onPress: quickCommit },
+                { hotkey: 'Esc', label: 'Cancel', onPress: () => setQuickMessage(false) },
+              ]}
+            />
+          </Panel>
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" flexGrow={1} paddingX={1}>
@@ -147,6 +196,7 @@ const CommitForm = ({
                   ),
               },
               { hotkey: 'Esc', label: 'Cancel', onPress: exit },
+              { hotkey: 'Shift+Enter', label: 'Commit now', onPress: quickCommit },
             ]}
           />
           <Text color={colors.accent}>Enter → {nextStep}</Text>
@@ -170,15 +220,7 @@ const CommitForm = ({
         <>
           <Panel title="Commit message" isFocused={section === 'message'}>
             <ActionButton hotkey="Tab" label="Edit message" onPress={() => setSection('message')} />
-            <TextInput
-              defaultValue={initialMessage}
-              placeholder="Commit message…"
-              onChange={(value) => {
-                setMessage(value);
-                setNotice('');
-              }}
-              isDisabled={section !== 'message' || captured || submitting}
-            />
+            {messageInput}
           </Panel>
           <Panel title="Flags · 1–5 toggle · Enter to save" isFocused={section === 'flags'}>
             <Box flexDirection="row" flexWrap="wrap">
@@ -220,7 +262,7 @@ const renderInkCommit = async (options: RenderInkCommitOptions) => {
         }}
       />
     </TuiThemeProvider>,
-    { render, keepProcessAlive: true },
+    { render, keepProcessAlive: true, enhancedKeyboard: true },
   );
   if (!selection) return;
   const result = await saveCommit(options.cwd, selection.args, selection.push, { stream: true });

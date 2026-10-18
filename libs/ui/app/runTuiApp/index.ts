@@ -37,6 +37,8 @@ export interface RunTuiAppOptions {
   onCleanup?: () => Promise<void> | void;
   /** Leave the process running after the app unmounts, instead of exiting. */
   keepProcessAlive?: boolean;
+  /** Ask supporting terminals to distinguish modified Enter from plain Enter. */
+  enhancedKeyboard?: boolean;
 }
 
 /**
@@ -64,7 +66,13 @@ export interface RunTuiAppOptions {
  */
 export const runTuiApp = async (
   node: ReactNode,
-  { render, mouse = true, onCleanup, keepProcessAlive = false }: RunTuiAppOptions,
+  {
+    render,
+    mouse = true,
+    onCleanup,
+    keepProcessAlive = false,
+    enhancedKeyboard = false,
+  }: RunTuiAppOptions,
 ): Promise<void> => {
   const interactive = Boolean(process.stdout.isTTY);
 
@@ -118,6 +126,14 @@ export const runTuiApp = async (
       //? vanish until it was sent again, which in VS Code flickers grey. Written over instead of
       //? erased, a picture's cells keep it
       incrementalRendering: true,
+      ...(enhancedKeyboard
+        ? {
+            kittyKeyboard: {
+              mode: 'enabled' as const,
+              flags: ['disambiguateEscapeCodes'] as ['disambiguateEscapeCodes'],
+            },
+          }
+        : {}),
     });
     await instance.waitUntilExit();
   } finally {

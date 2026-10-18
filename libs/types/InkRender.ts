@@ -12,6 +12,8 @@ export interface InkRenderOptions {
   onRender?: (metrics: { renderTime: number }) => void;
   /** Rewrite only the lines that changed, instead of erasing and redrawing the whole frame. */
   incrementalRendering?: boolean;
+  /** Preserve modifiers on ambiguous keys such as Shift+Enter. Ink restores this on exit. */
+  kittyKeyboard?: { mode: 'enabled'; flags: ['disambiguateEscapeCodes'] };
 }
 
 /** The subset of ink's `Instance` this lib drives. */
