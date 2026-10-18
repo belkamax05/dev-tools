@@ -1,6 +1,7 @@
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import type { BranchSelection } from '../../core/branch';
+import type { ConnectionPreference } from '../../core/plugin';
 
 /** The dashboard's tabs, in order — also what `tab` in the state file may hold. */
 export const TAB_IDS = ['chain', 'connections', 'settings'] as const;
@@ -15,6 +16,8 @@ export interface ProjectState extends BranchSelection {
   timingsExpanded?: boolean;
   otherRunsExpanded?: Record<string, boolean>;
   env?: string;
+  /** Per provider: the transport pinned, the SSH key picked — set in the Connections tab. */
+  connections?: Record<string, ConnectionPreference>;
 }
 
 export interface DepliState {

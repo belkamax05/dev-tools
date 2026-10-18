@@ -57,24 +57,22 @@ const Clickable = ({
 };
 
 /**
- * Under the tabs, on every tab: each provider's connection (click: the Connections tab), the
- * branch (click: the branch picker) and env (click: the Chain's environments), and whether
- * triggers can fire at all.
+ * Under the tabs, on every tab: each provider's connection (click: the Connections tab) and
+ * whether triggers can fire at all. The branch and env have their own rows on the Chain tab.
  */
 const StatusRow = ({
   data,
   providers,
+  limited,
   triggers,
   onTab,
-  onPickBranch,
-  onPickEnv,
 }: {
   data: DepliData;
   providers: string[];
+  /** Providers connected over a transport that does less than another of theirs. */
+  limited: string[];
   triggers: boolean;
   onTab: (tab: TabId) => void;
-  onPickBranch: () => void;
-  onPickEnv: () => void;
 }) => {
   const colors = useColors();
   return (
@@ -85,24 +83,22 @@ const StatusRow = ({
         return (
           <Box key={name} marginRight={2} flexShrink={0}>
             <Clickable
-              color={connection ? (up ? colors.ok : colors.error) : colors.muted}
+              color={
+                connection
+                  ? up
+                    ? limited.includes(name)
+                      ? colors.warn
+                      : colors.ok
+                    : colors.error
+                  : colors.muted
+              }
               onClick={() => onTab('connections')}
             >
-              {`${up ? '●' : '○'} ${name}${connection ? ` ${connection.transport ?? 'offline'}` : ' …'}`}
+              {`${up ? '●' : '○'} ${name}${connection ? ` ${connection.transport ?? 'offline'}${connection.pinned ? ' (pinned)' : ''}${limited.includes(name) ? ' · limited' : ''}` : ' …'}`}
             </Clickable>
           </Box>
         );
       })}
-      <Box marginRight={2} flexShrink={0}>
-        <Clickable color={colors.text} onClick={onPickBranch}>
-          {`⎇ ${data.branch ?? '—'}`}
-        </Clickable>
-      </Box>
-      <Box marginRight={2} flexShrink={0}>
-        <Clickable color={colors.text} onClick={onPickEnv}>
-          {`→ ${data.targetEnv}`}
-        </Clickable>
-      </Box>
       <Text color={triggers ? colors.error : colors.muted}>
         {triggers ? 'triggers ON' : 'dry run only'}
       </Text>
@@ -200,17 +196,21 @@ export const App = ({
         <StatusRow
           data={data}
           providers={project.providers.map((provider) => provider.name)}
+          limited={project.providers
+            .filter((provider) => {
+              const used = provider.transports.find(
+                (transport) => transport.id === data.connections[provider.name]?.transport,
+              );
+              return (
+                used &&
+                provider.transports.some((other) =>
+                  other.capabilities.some((capability) => !used.capabilities.includes(capability)),
+                )
+              );
+            })
+            .map((provider) => provider.name)}
           triggers={triggers}
           onTab={changeTab}
-          onPickBranch={() => {
-            changeTab('chain');
-            setBranchPicker({ filter: false });
-          }}
-          onPickEnv={() => {
-            changeTab('chain');
-            setBranchPicker(undefined);
-            setEnvOpenRequest((value) => value + 1);
-          }}
         />
       }
       theme={depliTheme}
@@ -251,6 +251,7 @@ export const App = ({
           providers={project.providers}
           problems={project.problems}
           session={session}
+          notify={notify}
         />
       )}
       {tab === 'settings' && (

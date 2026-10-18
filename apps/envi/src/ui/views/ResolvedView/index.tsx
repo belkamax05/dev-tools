@@ -15,7 +15,9 @@ import { removeFromEnvFile, setInEnvFile } from '../../../core/envFile';
 import type { ResolvedVar, VarSource, VarStatus } from '../../../core/resolve';
 import { matchesSearch } from '../../../core/search';
 import type { ViewProps } from '../../App';
+import { isOpRef } from '../../../core/onePassword';
 import useSearch from '../../useSearch';
+import useSecretPreview from '../../useSecretPreview';
 import ValueBlock from '../../ValueBlock';
 import { preview } from '../ShellView';
 
@@ -55,6 +57,7 @@ export const ResolvedView = ({
   const prompt = usePrompt(onCaptureInput);
   const { search, open, clear, hints: searchHints } = useSearch(session, 'resolved', prompt);
   const [currentId, setCurrentId] = useState(session.selected.resolved);
+  const secrets = useSecretPreview();
 
   const vars = (resolution?.vars ?? []).filter((entry) =>
     matchesSearch(entry.key, entry.value, search),
@@ -188,6 +191,7 @@ export const ResolvedView = ({
       else if (input === 's') setHere(name, rowValue(current));
       else if (input === 'g') setGlobal(name, rowValue(current));
       else if (input === 'x' && current?.kind === 'var') removeSource(current.entry);
+      else if (input === 'p') secrets.preview(rowValue(current));
       else if (input === 'o' && current?.kind === 'var' && current.entry.source.path)
         onEdit(current.entry.source.path);
     },
@@ -213,6 +217,9 @@ export const ResolvedView = ({
     const { entry } = row;
     return [
       { hotkey: 'c', label: 'Copy', onPress: () => copy(row), tone: 'primary' },
+      ...(isOpRef(entry.value)
+        ? [{ hotkey: 'p', label: 'Preview secret', onPress: () => secrets.preview(entry.value) }]
+        : []),
       {
         hotkey: 's',
         label: 'Override here',
@@ -256,6 +263,7 @@ export const ResolvedView = ({
             secret={secret}
             reveal={reveal}
             maxLines={6}
+            {...secrets.blockProps(entry.value)}
           />
         </Box>
         <Box flexDirection="column" marginTop={1}>

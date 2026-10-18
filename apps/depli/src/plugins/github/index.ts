@@ -10,18 +10,26 @@ import {
   type StepRun,
   type StepStatus,
 } from '../../core/plugin';
-import { type GithubOptions, githubRequest, splitRepo } from './api';
+import { API_GUIDE, type GithubOptions, githubRequest, probeApi, splitRepo } from './api';
+import { ghLoginSetup } from './ghLogin';
 import { checkLog } from './logs';
+import { headsSshCommand, probeSsh, SSH_GUIDE } from './ssh';
 
 export type { GithubOptions };
 
-/** `git ls-remote` heads from the configured checkout — what the SSH transport can see. */
-const lsRemote = async ({ cwd, options }: PluginContext<GithubOptions>, refs: string[] = []) => {
+/**
+ * `git ls-remote` heads from the configured checkout — what the SSH transport can see — with
+ * the SSH key picked in the Connections tab, when one was.
+ */
+const lsRemote = async (context: PluginContext<GithubOptions>, refs: string[] = []) => {
+  const { cwd, options } = context;
+  const ssh = await headsSshCommand(context);
   const result = await exec(
     [
       'git',
       '-C',
       expandHome(options.checkout ?? cwd),
+      ...(ssh ? ['-c', `core.sshCommand=${ssh}`] : []),
       'ls-remote',
       '--heads',
       options.remote ?? 'origin',
@@ -30,7 +38,9 @@ const lsRemote = async ({ cwd, options }: PluginContext<GithubOptions>, refs: st
     {},
   );
   if (result.exitCode !== 0)
-    throw new Error(result.stderr.split('\n')[0] || 'git ls-remote failed');
+    throw new Error(
+      result.stderr.split('\n').find((line) => line.trim()) || 'git ls-remote failed',
+    );
   return result.stdout
     .split('\n')
     .filter(Boolean)
@@ -173,6 +183,15 @@ const branchStatus = async (
       state: 'done',
       summary: `head ${head.sha.slice(0, 8)} (SSH: no commit time, checks or PRs)`,
       ref: { sha: head.sha },
+      //? Built, not read: the commit page needs only the repo and the SHA (github.com only —
+      //? an Enterprise apiUrl does not say where its web pages are)
+      url:
+        options.repo && !options.apiUrl
+          ? `https://github.com/${options.repo}/commit/${head.sha}`
+          : undefined,
+      notes: [
+        'Over SSH git sees only branch heads — checks, PRs and Actions runs (last run) need the API transport.',
+      ],
     };
   }
   const path = `/repos/${options.repo}`;
@@ -264,35 +283,18 @@ export const githubPlugin = definePlugin<GithubOptions>({
       id: 'api',
       label: 'API (token / gh login)',
       capabilities: ['heads', 'commits', 'checks', 'pulls', 'runs'],
-      probe: async ({ options, env }) => {
-        try {
-          const repo = await githubRequest<{ full_name: string; permissions?: { push?: boolean } }>(
-            options,
-            env,
-            `/repos/${options.repo}`,
-          );
-          const me = await githubRequest<{ login: string }>(options, env, '/user');
-          return { ok: true, detail: `can read ${repo.full_name}`, identity: me.login };
-        } catch (error) {
-          return { ok: false, detail: (error as Error).message };
-        }
-      },
+      guide: API_GUIDE,
+      recommended: true,
+      setup: ghLoginSetup,
+      probe: ({ options, env }) => probeApi(options, env),
     },
     {
       id: 'ssh',
       label: 'SSH (git ls-remote)',
       capabilities: ['heads'],
-      probe: async (context) => {
-        try {
-          const heads = await lsRemote(context, ['HEAD-does-not-exist']);
-          return {
-            ok: true,
-            detail: `git ls-remote works (${heads.length ? 'heads' : 'reachable'})`,
-          };
-        } catch (error) {
-          return { ok: false, detail: (error as Error).message };
-        }
-      },
+      guide: SSH_GUIDE,
+      choiceLabel: 'SSH key',
+      probe: probeSsh,
     },
   ],
   steps: {

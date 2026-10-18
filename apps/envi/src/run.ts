@@ -18,6 +18,7 @@ import {
   withVar,
 } from './config/settings';
 import { removeFromEnvFile, setInEnvFile } from './core/envFile';
+import { isOpRef, OP_LABEL } from './core/onePassword';
 import { parseAssignment } from './core/parse';
 import {
   disableFile,
@@ -52,9 +53,12 @@ usage:
                                   and values (k:word / v:word for one side only)
   envi get <KEY>                  one value as envi resolves it; exits 1 when unset
   envi explain <KEY>              every layer that sets KEY, and which one wins
-  envi run [--] <command...>      run a command with envi's variables (like dotenv-cli)
+  envi run [--only K,K] [--] <command...>
+                                  run a command with envi's variables (like dotenv-cli);
+                                  --only hands it just those on top of the shell's
   envi -- <command...>            the same
-  envi use [--] [command...]      direnv-style: with a command, run it with envi's variables;
+  envi use [--only K,K] [--] [command...]
+                                  direnv-style: with a command, run it with envi's variables;
                                   alone, print them for this shell — eval "$(envi use)"
   envi export [--shell zsh|bash|sh|fish|dotenv|json]
                                   print envi's variables — eval "$(envi export)"
@@ -78,9 +82,12 @@ flags: -C <dir> resolve as if run in <dir>.
 Layers, a later one winning: your vars (~/.config/envi/config.json) → env files (.env,
 .env.user, then env.config.ts 'files') → env.config.ts 'vars', from the git root down to here.
 A variable the shell already exports keeps its value unless 'override' is on.
+
+A value written as op://vault/item/field is a 1Password reference: get, run and use <command>
+read it with the op CLI; the dashboard, list, export and the hook show it as it is.
 `;
 
-const VALUE_FLAGS = new Set(['-C', '--cwd', '--file', '-f', '--shell', '--format']);
+const VALUE_FLAGS = new Set(['-C', '--cwd', '--file', '-f', '--shell', '--format', '--only']);
 
 interface Args {
   positionals: string[];
@@ -135,8 +142,36 @@ const STATUS_LABEL: Record<ResolvedVar['status'], string> = {
   kept: 'shell',
 };
 
+//? An op:// reference is a pointer into 1Password, not the secret — shown as it is
 const shown = (key: string, value: string, config: EnviConfig, reveal: boolean) =>
-  !reveal && isSecretKey(key, config.maskPatterns) ? maskValue(value) : value;
+  !reveal && isSecretKey(key, config.maskPatterns) && !isOpRef(value) ? maskValue(value) : value;
+
+/** What a command needs: every `op://` value read from 1Password, asking on this terminal. */
+const resolveForCommand = async (cwd: string, config: EnviConfig, secrets: boolean | string[]) => {
+  const resolution = await resolveEnv({ cwd, config, secrets, interactive: true });
+  for (const { key, error } of resolution.secretErrors)
+    console.error(`envi: ${key}: ${OP_LABEL}: ${error}`);
+  return resolution;
+};
+
+/**
+ * The environment a command is handed: all of envi's variables, or with `--only` the shell's
+ * plus just those. A reference 1Password could not read is left out rather than passed as
+ * `op://…`, so the command sees it unset.
+ */
+const commandEnv = (resolution: Resolution, only?: string[]) => {
+  const env = only ? { ...resolution.base } : { ...resolution.env };
+  for (const entry of resolution.vars) {
+    if (only && !only.includes(entry.key)) continue;
+    if (entry.status === 'kept' && !entry.ref) continue;
+    if (isOpRef(entry.value)) {
+      if (resolution.base[entry.key] === undefined) delete env[entry.key];
+      continue;
+    }
+    env[entry.key] = entry.value;
+  }
+  return env;
+};
 
 const oneLine = (value: string) => value.replace(/\n/g, '\\n');
 
@@ -278,6 +313,10 @@ export const run = async (...argv: string[]) => {
   const cwd = resolve(flag(args, '-C', '--cwd') ?? process.cwd());
   const reveal = args.flags.has('--reveal');
   const json = args.flags.has('--json');
+  const only = flag(args, '--only')
+    ?.split(',')
+    .map((key) => key.trim())
+    .filter(Boolean);
 
   if (first === 'help' || args.flags.has('--help') || args.flags.has('-h')) {
     process.stdout.write(HELP);
@@ -295,21 +334,24 @@ export const run = async (...argv: string[]) => {
 
   if (first === 'run' || (!first && args.command.length)) {
     if (!args.command.length) return fail('usage: envi run [--] <command...>');
-    const resolution = await resolveEnv({ cwd, config });
+    const resolution = await resolveForCommand(cwd, config, only ?? true);
     for (const { key, from } of resolution.missing)
       console.error(`envi: ${key} is unset (required by ${from})`);
-    await runCommand(args.command, resolution.env, cwd);
+    await runCommand(args.command, commandEnv(resolution, only), cwd);
     return;
   }
 
   //? direnv's two halves under one word: a command gets the variables in its environment, and
   //? with none they are printed as code for the caller's shell (--shell, else $SHELL) to eval
   if (first === 'use') {
-    const resolution = await resolveEnv({ cwd, config });
+    //? Printed for eval, references stay as they are — reading them is for a command that runs
+    const resolution = args.command.length
+      ? await resolveForCommand(cwd, config, only ?? true)
+      : await resolveEnv({ cwd, config });
     for (const { key, from } of resolution.missing)
       console.error(`envi: ${key} is unset (required by ${from})`);
     if (args.command.length) {
-      await runCommand(args.command, resolution.env, cwd);
+      await runCommand(args.command, commandEnv(resolution, only), cwd);
       return;
     }
     const login = basename(process.env.SHELL ?? '') as ExportFormat;
@@ -377,8 +419,10 @@ export const run = async (...argv: string[]) => {
   if (first === 'get') {
     const key = rest[0];
     if (!key) return fail('usage: envi get <KEY>');
-    const value = (await resolveEnv({ cwd, config })).env[key];
+    const resolution = await resolveForCommand(cwd, config, [key]);
+    const value = resolution.env[key];
     if (value === undefined) return fail(`${key} is not set`);
+    if (resolution.secretErrors.length) return fail(`${key} is an unread ${OP_LABEL} reference`);
     console.log(value);
     return;
   }

@@ -6,6 +6,8 @@ export interface JenkinsOptions {
   /** Variables holding the user and the API token — basic auth, as Jenkins wants it. */
   userEnv?: string;
   tokenEnv?: string;
+  /** `host:port` of Jenkins' SSH server, when it is not what Jenkins announces (a proxy). */
+  sshEndpoint?: string;
   transports?: string[];
 }
 

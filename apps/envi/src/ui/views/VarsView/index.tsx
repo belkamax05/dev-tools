@@ -1,19 +1,23 @@
+import { homedir } from 'node:os';
 import { Text, useInput } from 'ink';
 import { useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
+import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import Toolbar from '@/dev-tools/ui/components/Toolbar';
+import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
 
-import { isSecretKey, withoutVar, withVar } from '../../../config/settings';
+import { configStore, isSecretKey, withoutVar, withVar } from '../../../config/settings';
+import { isOpRef, OP_PREFIX } from '../../../core/onePassword';
 import { isValidKey, parseAssignment } from '../../../core/parse';
 import { matchesSearch } from '../../../core/search';
 import type { ViewProps } from '../../App';
 import useSearch from '../../useSearch';
+import useSecretPreview from '../../useSecretPreview';
 import ValueBlock from '../../ValueBlock';
 import { preview } from '../ShellView';
 
@@ -32,11 +36,15 @@ export const VarsView = ({
   notify,
   onConfigChange,
   onCaptureInput,
+  onEdit,
 }: ViewProps) => {
   const colors = useColors();
   const prompt = usePrompt(onCaptureInput);
   const { search, open, clear, hints: searchHints } = useSearch(session, 'vars', prompt);
   const [currentId, setCurrentId] = useState(session.selected.vars);
+  const secrets = useSecretPreview();
+  const settingsPath = configStore.path;
+  const openSettings = () => onEdit(settingsPath);
 
   const entries = Object.entries(config.vars)
     .filter(([key, value]) => matchesSearch(key, value, search))
@@ -74,7 +82,7 @@ export const VarsView = ({
       (next) => onConfigChange({ ...config, vars: withVar(config.vars, key, next) }),
       {
         initial: value,
-        secret: isSecretKey(key, config.maskPatterns) && !reveal,
+        secret: isSecretKey(key, config.maskPatterns) && !reveal && !isOpRef(value),
       },
     );
 
@@ -110,6 +118,7 @@ export const VarsView = ({
   useInput(
     (input, key) => {
       if (input === 'a') add();
+      else if (input === 'o') openSettings();
       else if (input === '/') open();
       else if (key.escape && search) clear();
       else if (current?.kind === 'var') {
@@ -117,10 +126,26 @@ export const VarsView = ({
         else if (input === 'R') rename(current.key, current.value);
         else if (input === 'x' || input === 'd') remove(current.key);
         else if (input === 'c') copy(current.value, current.key);
+        else if (input === 'p') secrets.preview(current.value);
       }
     },
     { isActive: !prompt.isOpen },
   );
+
+  const actionsFor = (key: string, value: string): ToolbarAction[] => [
+    {
+      hotkey: 'n',
+      label: 'Edit value',
+      onPress: () => editValue(key, value),
+      tone: 'primary',
+    },
+    ...(isOpRef(value)
+      ? [{ hotkey: 'p', label: 'Preview secret', onPress: () => secrets.preview(value) }]
+      : []),
+    { hotkey: 'c', label: 'Copy', onPress: () => copy(value, key) },
+    { hotkey: 'R', label: 'Rename', onPress: () => rename(key, value) },
+    { hotkey: 'x', label: 'Delete', onPress: () => remove(key), tone: 'danger' },
+  ];
 
   const detail = (row: Row) => {
     if (row.kind === 'add') {
@@ -128,7 +153,8 @@ export const VarsView = ({
         <Text color={colors.muted} wrap="wrap">
           A variable that is yours rather than a project's — applied under every folder's .env
           files, so a project can still override it. Values may use $OTHER and ${'{OTHER:-default}'}
-          .
+          . A value written as {OP_PREFIX}vault/item/field is read from 1Password (op) only when a
+          command needs it.
         </Text>
       );
     }
@@ -144,32 +170,7 @@ export const VarsView = ({
             : 'applied here';
     return (
       <Box flexDirection="column">
-        <Toolbar
-          actions={[
-            {
-              hotkey: 'n',
-              label: 'Edit value',
-              onPress: () => editValue(row.key, row.value),
-              tone: 'primary',
-            },
-            {
-              hotkey: 'c',
-              label: 'Copy',
-              onPress: () => copy(row.value, row.key),
-            },
-            {
-              hotkey: 'R',
-              label: 'Rename',
-              onPress: () => rename(row.key, row.value),
-            },
-            {
-              hotkey: 'x',
-              label: 'Delete',
-              onPress: () => remove(row.key),
-              tone: 'danger',
-            },
-          ]}
-        />
+        <Toolbar actions={actionsFor(row.key, row.value)} />
         <Text
           color={
             resolved?.source.kind === 'user' && resolved.status !== 'kept' ? colors.ok : colors.warn
@@ -184,16 +185,30 @@ export const VarsView = ({
             value={row.value}
             secret={isSecretKey(row.key, config.maskPatterns)}
             reveal={reveal}
+            {...secrets.blockProps(row.value)}
           />
         </Box>
       </Box>
     );
   };
 
+  //? Your vars live in envi's own config, not in any folder — the file is named, and opens on click
   const header = prompt.line ?? (
-    <Text color={colors.muted} wrap="truncate">
-      {`${Object.keys(config.vars).length} of your own${search ? ` · ${entries.length} match "${search}"` : ''} · applied in every folder, under its files`}
-    </Text>
+    <Box>
+      <Box flexShrink={0}>
+        <LinkRow
+          label="saved in"
+          labelWidth={9}
+          value={settingsPath.replace(homedir(), '~')}
+          onOpen={openSettings}
+        />
+      </Box>
+      <Box flexShrink={1}>
+        <Text color={colors.muted} wrap="truncate">
+          {`  [o] · ${Object.keys(config.vars).length} of your own${search ? ` · ${entries.length} match "${search}"` : ''} · applied in every folder, under its files`}
+        </Text>
+      </Box>
+    </Box>
   );
 
   return (
@@ -209,7 +224,11 @@ export const VarsView = ({
         activateOnClick={false}
         initialSelectedId={currentId}
         isInputActive={!prompt.isOpen}
-        hints={[{ key: 'a', label: 'add', onPress: add }, ...searchHints]}
+        hints={[
+          { key: 'a', label: 'add', onPress: add },
+          { key: 'o', label: 'open file', onPress: openSettings },
+          ...searchHints,
+        ]}
         onActivate={(item) =>
           item.value?.kind === 'var' ? editValue(item.value.key, item.value.value) : add()
         }

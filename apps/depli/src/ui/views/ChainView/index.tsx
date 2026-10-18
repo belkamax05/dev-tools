@@ -132,6 +132,44 @@ const minutes = (ms?: number) =>
   !ms || ms <= 0 ? '' : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
 const stamp = (at: number) => new Date(at).toISOString().slice(0, 16).replace('T', ' ');
 
+interface SelectorRowProps {
+  hotkey: string;
+  label: string;
+  value: string;
+  valueColor: string;
+  open?: boolean;
+  /** Dimmed, after the value: what it is now, what else the key does. */
+  note?: string;
+  onPress: () => void;
+}
+
+/**
+ * One "[key] Label  value ▾" row at the top of the tab — the label in the body colour, the value
+ * in its own, the whole of it a button that does what its key does.
+ */
+const SelectorRow = ({ hotkey, label, value, valueColor, open, note, onPress }: SelectorRowProps) => {
+  const colors = useColors();
+  const ref = useRef<DOMElement>(null);
+  const { isHovered } = useClickable(ref, { onClick: onPress });
+  return (
+    <Box flexDirection="row">
+      <Box ref={ref} flexShrink={0}>
+        <Text color={colors.muted}>[{hotkey}] </Text>
+        <Text color={isHovered ? colors.highlight : colors.text}>{label.padEnd(7)}</Text>
+        <Text color={isHovered ? colors.highlight : valueColor} bold>
+          {value} {open ? '▴' : '▾'}
+        </Text>
+      </Box>
+      {note ? (
+        <Text color={colors.muted} wrap="truncate">
+          {'  '}
+          {note}
+        </Text>
+      ) : null}
+    </Box>
+  );
+};
+
 /**
  * The chain for the branch and env, once: the graph on the left — every step a box, steps that
  * can run in parallel side by side — and the selected step on the right. Arrows move through the
@@ -949,30 +987,39 @@ export const ChainView = ({
 
   return (
     <Box ref={rootRef} flexDirection="column" flexGrow={1} overflow="hidden">
-      <Box ref={chipsRef} flexShrink={0} flexDirection="row">
+      <Box ref={chipsRef} flexShrink={0} flexDirection="column">
         {prompt.line ?? (
           <>
-            <ActionButton
+            <SelectorRow
+              hotkey="b"
+              label="Branch"
+              value={data.branch ?? '—'}
+              valueColor={colors.accent}
+              note={
+                data.current && data.branch !== data.current
+                  ? `checkout is on ${data.current} · [B] back to it`
+                  : data.current
+                    ? "your checkout's branch · [b] pick another"
+                    : '[b] pick a branch'
+              }
+              onPress={onPickBranch}
+            />
+            <SelectorRow
               hotkey="E"
-              label={`env ${data.targetEnv}${protectedEnvs.includes(data.targetEnv) ? '!' : ''} ${pickerOpen ? '▴' : '▾'}`}
-              color={protectedEnvs.includes(data.targetEnv) ? colors.error : colors.accent}
+              label="Env"
+              value={`${data.targetEnv}${protectedEnvs.includes(data.targetEnv) ? ' (protected)' : ''}`}
+              valueColor={protectedEnvs.includes(data.targetEnv) ? colors.error : colors.accent}
+              open={pickerOpen}
+              note={(() => {
+                const row = envRows.get(data.targetEnv);
+                return pickerOpen
+                  ? 'every environment below — Enter picks, Esc closes'
+                  : row
+                    ? `${envLine(row, data).text.replace(/^\S+\s+\S+\s+/, '')} · [e] next`
+                    : '[E] every environment · [e] next';
+              })()}
               onPress={togglePicker}
             />
-            <Text color={colors.muted} wrap="truncate">
-              {(() => {
-                const row = envRows.get(data.targetEnv);
-                return row && !pickerOpen
-                  ? ` ${envLine(row, data).text.replace(/^\S+\s+\S+\s+/, '')}`
-                  : pickerOpen
-                    ? ' every environment below — Enter picks, Esc closes'
-                    : ' [E] every environment · [e] next';
-              })()}
-            </Text>
-            <Text color={colors.muted} wrap="truncate">
-              {data.branch !== data.current && data.current
-                ? ` checkout is on ${data.current} · [B] back to it`
-                : ''}
-            </Text>
           </>
         )}
       </Box>

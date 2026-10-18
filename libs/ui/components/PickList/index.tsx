@@ -22,6 +22,11 @@ export interface PickItem<T = unknown> {
 	label: string;
 	/** Independently colored, non-interactive marker before the label. */
 	prefix?: { text: string; color: string };
+	/**
+	 * A word drawn right after the label, dimmed like a disabled row — "limited", "beta". Part of
+	 * the label's room, so it is cut with it, never pushed into the hint column.
+	 */
+	tag?: string;
 	/** Secondary text, dimmed. Dropped in grid mode, where there is no room. */
 	hint?: string;
 	/**
@@ -204,7 +209,8 @@ const PickCell = <T,>({
 	//? no hint, which is exactly enough to truncate the longest category name.
 	//? The label wins: a hint longer than the room the label leaves (a whole package.json script,
 	//? say) is cut with `…` rather than squeezing the label down to its first letter.
-	let labelText = item.label;
+	const fullLabel = item.tag ? `${item.label} ${item.tag}` : item.label;
+	let labelText = fullLabel;
 	let hintText = hint;
 	if (width !== undefined) {
 		const available = Math.max(
@@ -215,7 +221,7 @@ const PickCell = <T,>({
 				(item.prefix ? item.prefix.text.length + 1 : 0),
 		);
 		if (hint !== "") {
-			const hintRoom = available - item.label.length - 1;
+			const hintRoom = available - fullLabel.length - 1;
 			if (hint.length > hintRoom)
 				hintText = hintRoom >= 2 ? `${hint.slice(0, hintRoom - 1)}…` : "";
 		}
@@ -224,10 +230,13 @@ const PickCell = <T,>({
 			available - (hintText === "" ? 0 : hintText.length + 1),
 		);
 		labelText =
-			item.label.length > room
-				? item.label.slice(0, room)
-				: item.label.padEnd(room);
+			fullLabel.length > room
+				? fullLabel.slice(0, room)
+				: fullLabel.padEnd(room);
 	}
+	//? The tag (and the padding after it) is drawn dimmed; the label keeps the row's colour
+	const tagText = item.tag ? labelText.slice(item.label.length) : "";
+	if (item.tag) labelText = labelText.slice(0, item.label.length);
 
 	return (
 		<Box
@@ -269,6 +278,11 @@ const PickCell = <T,>({
 			<Text color={color} bold={isSelected || item.isCurrent} wrap="truncate">
 				{labelText}
 			</Text>
+			{tagText !== "" && (
+				<Text color={highlight ? colors.accentText : colors.muted} wrap="truncate">
+					{tagText}
+				</Text>
+			)}
 			{hintText !== "" && (
 				<>
 					{/* Flexing list: the spacer is what puts the hint at the right edge,

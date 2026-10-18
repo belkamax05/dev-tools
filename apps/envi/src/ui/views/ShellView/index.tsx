@@ -12,6 +12,7 @@ import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
 
 import { isSecretKey, maskValue, touchStamp, withVar } from '../../../config/settings';
 import { setInEnvFile } from '../../../core/envFile';
+import { isOpRef } from '../../../core/onePassword';
 import { quoteValue } from '../../../core/parse';
 import { matchesSearch } from '../../../core/search';
 import { launchEnv, readApplied } from '../../../core/shell';
@@ -27,9 +28,12 @@ interface ShellVar {
   fromEnvi: boolean;
 }
 
-/** One line of a value for a list row: newlines shown, long values cut by the pane. */
+/**
+ * One line of a value for a list row: newlines shown, long values cut by the pane. An `op://`
+ * reference is never masked — it is a pointer into 1Password, not the secret.
+ */
 export const preview = (value: string, secret: boolean, reveal: boolean) =>
-  secret && !reveal ? maskValue(value) : value.replace(/\n/g, '⏎');
+  secret && !reveal && !isOpRef(value) ? maskValue(value) : value.replace(/\n/g, '⏎');
 
 /**
  * The shell's exported variables — what envi inherited from the shell it was started in, so the

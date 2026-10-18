@@ -16,6 +16,12 @@ export interface PluginContext<Options = Record<string, unknown>> {
   options: Options;
   /** The provider's connection — which transport passed its probe. Absent during probing. */
   connection?: Connection;
+  /**
+   * The transport's choice the person picked (an SSH key…) — see `ProbeResult.choices`. Set
+   * while probing that transport, and afterwards when it is the one in use. Undefined: the
+   * transport's own default.
+   */
+  choice?: string;
 }
 
 // --- connections -----------------------------------------------------------------------------
@@ -23,30 +29,128 @@ export interface PluginContext<Options = Record<string, unknown>> {
 /** What a transport can do — the UI says which ones a fallback transport lacks. */
 export type Capability = 'heads' | 'commits' | 'checks' | 'pulls' | 'runs' | 'jobs' | 'trigger';
 
+export type ProbeTone = 'ok' | 'warn' | 'error' | 'info';
+
+/** One "how exactly" line: the remote, the host it resolves to, the key, where the token is from. */
+export interface ProbeFact {
+  label: string;
+  value: string;
+  tone?: ProbeTone;
+}
+
+export interface GuideLink {
+  label: string;
+  url: string;
+}
+
+/** Why a probe failed, worked out from what it saw, and what to do about it — in order. */
+export interface ProbeFix {
+  why?: string;
+  steps: string[];
+  links?: GuideLink[];
+}
+
+/**
+ * Something a transport can be told to use instead of its default — one SSH key out of several.
+ * Listed by the probe, since it is what finds them; picked in the Connections tab.
+ */
+export interface TransportChoice {
+  id: string;
+  label: string;
+  /** Where it comes from, what is known about it — one line. */
+  detail?: string;
+  tone?: ProbeTone;
+}
+
 export interface ProbeResult {
   ok: boolean;
   /** Reachable but not authorised, misconfigured, offline (VPN)… — one line. */
   detail: string;
   /** Who we are connected as, when the transport can tell. */
   identity?: string;
+  /** How it connected, or tried to — so a failure can be read, not guessed at. */
+  facts?: ProbeFact[];
+  /** Set on a failure the probe recognised. */
+  fix?: ProbeFix;
+  /** What it could be told to use instead of its default (`PluginContext.choice`). */
+  choices?: TransportChoice[];
+}
+
+/** How to set a transport up from nothing — static, shown whatever the probe says. */
+export interface TransportGuide {
+  /** What it is and when to pick it, one or two sentences. */
+  summary: string;
+  steps: string[];
+  links?: GuideLink[];
+}
+
+/** Where a guided setup is — what the UI draws while it runs. */
+export interface SetupProgress {
+  state: 'running' | 'waiting' | 'done' | 'failed';
+  /** One line: what is happening, or what went wrong. */
+  message: string;
+  /** A one-time code to type on `url`'s page. */
+  code?: string;
+  url?: string;
+}
+
+/**
+ * A setup the app runs for the person — a CLI's login flow — instead of telling them to run it
+ * in a shell. Started from the Connections tab; the transport is probed again once it is done.
+ */
+export interface TransportSetup<Options = Record<string, unknown>> {
+  /** The button: "Sign in with the GitHub CLI". */
+  label: string;
+  /** One sentence: what it will do. */
+  detail: string;
+  /** What to do while it waits — on the page it opened. */
+  steps: string[];
+  /** Why it cannot run here (the CLI is not installed…), with what to do; undefined when it can. */
+  unavailable?: (context: PluginContext<Options>) => Promise<string | undefined>;
+  start: (
+    context: PluginContext<Options>,
+    onProgress: (progress: SetupProgress) => void,
+  ) => { cancel: () => void };
 }
 
 /**
  * One way to reach a provider — an API token, SSH, a CLI's login. A provider lists them in its
- * order of preference; the first whose probe passes is the one used.
+ * order of preference; the first whose probe passes is the one used, unless one is pinned.
  */
 export interface Transport<Options = Record<string, unknown>> {
   id: string;
   label: string;
   capabilities: readonly Capability[];
   probe: (context: PluginContext<Options>) => Promise<ProbeResult>;
+  guide?: TransportGuide;
+  /** The way to use when it can be — the others are fallbacks that do less. */
+  recommended?: boolean;
+  setup?: TransportSetup<Options>;
+  /** Probed and reported, never used — a slot for a transport not built yet. */
+  planned?: boolean;
+  /** What a choice is called — "SSH key". Set when the probe lists choices. */
+  choiceLabel?: string;
+}
+
+/** What the person picked for one provider — remembered per project. */
+export interface ConnectionPreference {
+  /** Always this transport, even when it fails; the first that works when unset. */
+  transport?: string;
+  /** Per transport id, the choice to use (`TransportChoice.id`). */
+  choices?: Record<string, string>;
 }
 
 export interface Connection {
   /** The transport in use, or undefined when none passed. */
   transport?: string;
+  /** The choice the transport in use was probed with, when one was picked. */
+  choice?: string;
+  /** The transport was pinned rather than picked as the first that works. */
+  pinned?: string;
   capabilities: readonly Capability[];
-  probes: Array<ProbeResult & { transport: string; label: string }>;
+  probes: Array<
+    ProbeResult & { transport: string; label: string; choice?: string; disabled?: boolean }
+  >;
   checkedAt: number;
 }
 

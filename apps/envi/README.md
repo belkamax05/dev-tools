@@ -95,7 +95,7 @@ editor, run `envi reload`.
 | 🐚 Shell | the exported environment, with `◆` marking what the hook set. `/` searches names and values together (`k:`/`v:` restrict a word to one side). `c` copy · `C` copy `KEY=value` · `s` pin into `.env.user` · `g` pin into your vars |
 | 🧩 Resolved | what envi sets: the winning layer, the layers it beat, and the shell's value. Missing required variables are listed first. `/` search · `c` copy · `s` override here (`.env.user`) · `g` set in your vars · `o` open the source · `x` remove from the source |
 | 📄 Files | the env files in order, plus each `env.config.ts`. Space switches a file on or off · `a` add · `n` add a variable to it · `e` edit/create · `[`/`]` reorder · `x` unlist |
-| 👤 Your vars | `a` add · `n` edit value · `R` rename · `x` delete · `c` copy · `/` search |
+| 👤 Your vars | the file they are saved in heads the tab — click it or `o` to open it. `a` add · `n` edit value · `R` rename · `x` delete · `c` copy · `p` preview a 1Password secret · `/` search |
 | 🔧 Settings | override, expansion, secret name patterns, the hook line to copy, theme, `e` edit the file |
 
 Everywhere: `1-5`/`Tab` switch tab, `r` refresh, `v` reveal secrets, `t` theme, `q` quit.
@@ -103,6 +103,22 @@ Every button and row is clickable.
 
 A value is masked when its name contains one of the secret patterns (`TOKEN`, `SECRET`,
 `PASSWORD`, `API_KEY`…). Reveal is never saved, so every run starts masked.
+
+## 1Password references
+
+A value written as `op://vault/item/field`, in your vars or any env file, is a pointer into
+1Password. It is shown as it is (never masked: it is not the secret), and read with the
+1Password CLI (`op read`) only when a command needs it:
+
+- `envi get KEY`, `envi run …` and `envi use <command>` read it; `envi run --only A,B -- cmd`
+  hands the command just those variables on top of the shell's, so nothing else is asked for.
+- The dashboard, `envi list`, `envi export` and the shell hook keep the reference. In the Your
+  vars and Resolved tabs, `p` reads it on demand (still masked until `v` for a secret name).
+- As a library, `config()` and `loadEnv()` read references, all of them or just `only: [...]`.
+  One that cannot be read is left unset and reported in `resolution.secretErrors`.
+
+`dfs deploy` asks for only the variables `depli.config.ts`'s providers name (`userEnv`,
+`tokenEnv`).
 
 ## As a library
 

@@ -3,15 +3,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { type AutoDecision, type AutoTrigger, autoKey, decideAuto } from '../../core/auto';
 import { currentBranch, pickRecentBranches } from '../../core/branch';
 import { type ChainStep, evaluateChain } from '../../core/chain';
-import { connectAll } from '../../core/connection';
+import { connectAll, probeChoice } from '../../core/connection';
 import { type EnvRow, evaluateEnvs } from '../../core/matrix';
 import { readLog } from '../../core/logs';
 import {
   type BranchHead,
   fillTemplate,
   type Connection,
+  type ConnectionPreference,
   type LogChunk,
   type RunTimings,
+  type SetupProgress,
   matchesPatterns,
   type StepRun,
 } from '../../core/plugin';
@@ -55,6 +57,23 @@ export interface DepliData {
   refresh: () => void;
   /** Probe the connections now, not on the next poll. */
   reprobe: () => void;
+  /** What was picked per provider in the Connections tab. */
+  preferences: Record<string, ConnectionPreference>;
+  /** Pin a transport, pick a choice — remembered for the project, then probed at once. */
+  setPreference: (provider: string, preference: ConnectionPreference) => void;
+  /** The guided setup running (or last run), by `provider:transport` — one at a time. */
+  setup?: { key: string; progress: SetupProgress };
+  /** Start a transport's guided setup (gh auth login…); probes again once it is done. */
+  startSetup: (provider: string, transport: string) => void;
+  cancelSetup: () => void;
+  /** Why a transport's setup cannot run here, or undefined when it can. */
+  setupUnavailable: (provider: string, transport: string) => Promise<string | undefined>;
+  /** Probe one transport with one choice (an SSH key) — a test; nothing is changed or kept. */
+  probeChoice: (
+    provider: string,
+    transport: string,
+    choice: string | undefined,
+  ) => Promise<Connection['probes'][number]>;
   loadBranches: (all: boolean) => void;
   loadEnvs: () => void;
   plan: (stepId: string) => Promise<PlannedTrigger>;
@@ -120,6 +139,10 @@ export const useDepli = (
   const [envs, setEnvs] = useState<EnvRow[]>();
   const [tick, setTick] = useState(0);
   const [probeTick, setProbeTick] = useState(0);
+  const [setup, setSetup] = useState<{ key: string; progress: SetupProgress }>();
+  const setupRun = useRef<{ cancel: () => void }>(undefined);
+  //? A login left waiting when the app quits is cancelled with it
+  useEffect(() => () => setupRun.current?.cancel(), []);
   //? Auto triggers: plain React state, never saved — a restart forgets every one
   const [autos, setAutos] = useState<AutoTrigger[]>([]);
   const autosRef = useRef(autos);
@@ -148,7 +171,7 @@ export const useDepli = (
   useEffect(() => {
     let live = true;
     const probe = () =>
-      connectAll(project, env).then((next) => {
+      connectAll(project, env, state.current.connections).then((next) => {
         if (!live) return;
         connectionsRef.current = next;
         setConnections(next);
@@ -219,7 +242,7 @@ export const useDepli = (
         return;
       }
       provider.plugin
-        .branches({ cwd: project.dir, env, options: provider.options, connection }, connection, [])
+        .branches(contextFor(project, provider, env, connection), connection, [])
         .then((heads) =>
           setAllHeads(
             [...heads].sort((a, b) => (b.committedAt ?? '').localeCompare(a.committedAt ?? '')),
@@ -359,6 +382,50 @@ export const useDepli = (
       if (envs) loadEnvs();
     },
     reprobe: () => setProbeTick((value) => value + 1),
+    preferences: state.current.connections ?? {},
+    setPreference: (provider, preference) => {
+      state.current = {
+        ...state.current,
+        connections: { ...state.current.connections, [provider]: preference },
+      };
+      persist();
+      setProbeTick((value) => value + 1);
+    },
+    setup,
+    startSetup: (name, transportId) => {
+      const provider = project.providers.find((entry) => entry.name === name);
+      const transport = provider?.transports.find((entry) => entry.id === transportId);
+      if (!provider || !transport?.setup) return;
+      setupRun.current?.cancel();
+      const key = `${name}:${transportId}`;
+      setupRun.current = transport.setup.start(contextFor(project, provider, env), (progress) => {
+        setSetup({ key, progress });
+        if (progress.state === 'done') {
+          setupRun.current = undefined;
+          setProbeTick((value) => value + 1);
+          //? Once more shortly after: GitHub can take a moment to honour a token just issued
+          setTimeout(() => setProbeTick((value) => value + 1), 3_000);
+        } else if (progress.state === 'failed') {
+          setupRun.current = undefined;
+          setProbeTick((value) => value + 1);
+        }
+      });
+    },
+    cancelSetup: () => {
+      setupRun.current?.cancel();
+      setupRun.current = undefined;
+    },
+    setupUnavailable: async (name, transportId) => {
+      const provider = project.providers.find((entry) => entry.name === name);
+      const transport = provider?.transports.find((entry) => entry.id === transportId);
+      if (!provider || !transport?.setup?.unavailable) return undefined;
+      return transport.setup.unavailable(contextFor(project, provider, env));
+    },
+    probeChoice: (name, transport, choice) => {
+      const provider = project.providers.find((entry) => entry.name === name);
+      if (!provider) return Promise.reject(new Error(`no provider ${name}`));
+      return probeChoice(project, provider, env, transport, choice);
+    },
     loadBranches,
     loadEnvs,
     plan: (stepId) =>

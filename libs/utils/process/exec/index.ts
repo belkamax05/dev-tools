@@ -8,6 +8,8 @@ interface ExecOptions {
    */
   stream?: boolean;
   cwd?: string;
+  /** The child's whole environment — this process's when unset. */
+  env?: Record<string, string | undefined>;
 }
 
 /**
@@ -19,12 +21,13 @@ interface ExecOptions {
  * is missing" is an answer callers branch on, not a failure of this function.
  */
 const exec = async (command: string[], options: ExecOptions = {}): Promise<ExecResult> => {
-  const { stream = false, cwd } = options;
+  const { stream = false, cwd, env } = options;
 
   try {
     if (stream) {
       const child = Bun.spawn(command, {
         cwd,
+        env,
         stdin: 'ignore',
         stdout: 'inherit',
         stderr: 'inherit',
@@ -32,7 +35,13 @@ const exec = async (command: string[], options: ExecOptions = {}): Promise<ExecR
       return { stdout: '', stderr: '', exitCode: await child.exited };
     }
 
-    const child = Bun.spawn(command, { cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
+    const child = Bun.spawn(command, {
+      cwd,
+      env,
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     //? Drain both pipes before awaiting `exited`: a child that fills one of them blocks forever
     //? if nobody is reading, and `exited` would never resolve.
     const [stdout, stderr] = await Promise.all([

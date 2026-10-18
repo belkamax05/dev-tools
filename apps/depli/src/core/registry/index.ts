@@ -13,6 +13,8 @@ export interface Provider {
   options: ProviderConfig;
   /** The plugin's transports in the order this instance prefers them. */
   transports: Transport<any>[];
+  /** Transport ids the config switched off — listed, never probed or used. */
+  disabled?: string[];
 }
 
 export interface Project {
@@ -39,7 +41,11 @@ export const resolveProject = (dir: string, config: DepliProjectConfig): Project
     const transports = order
       .map((id) => plugin.transports.find((transport) => transport.id === id))
       .filter((transport): transport is Transport<any> => Boolean(transport));
-    providers.push({ name, plugin, options, transports });
+    const disabled = options.disabledTransports ?? [];
+    for (const id of disabled)
+      if (!plugin.transports.some((transport) => transport.id === id))
+        problems.push(`providers.${name}.disabledTransports: ${plugin.id} has no transport "${id}"`);
+    providers.push({ name, plugin, options, transports, disabled });
   }
   for (const step of config.pipeline ?? []) {
     const provider = providers.find((entry) => entry.name === step.provider);
@@ -55,4 +61,10 @@ export const contextFor = (
   provider: Provider,
   env: PluginContext['env'],
   connection?: PluginContext['connection'],
-): PluginContext<any> => ({ cwd: project.dir, env, options: provider.options, connection });
+): PluginContext<any> => ({
+  cwd: project.dir,
+  env,
+  options: provider.options,
+  connection,
+  choice: connection?.choice,
+});

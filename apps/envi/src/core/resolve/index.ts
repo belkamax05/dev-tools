@@ -4,6 +4,7 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { loadProjectConfigs, type ProjectConfig } from '../../config/project';
 import { configStore, type EnviConfig } from '../../config/settings';
 import { readEnvFile } from '../envFile';
+import { isOpRef, type OpFailure, readOpRefs } from '../onePassword';
 import { type DotenvError, evaluate, expandText, parseDotenv } from '../parse';
 import { launchEnv, shellBase } from '../shell';
 
@@ -59,6 +60,11 @@ export interface ResolvedVar {
   /** The shell's value, before envi. */
   shell?: string;
   status: VarStatus;
+  /**
+   * The `op://` reference `value` was read from, when 1Password resolved it (see `secrets`).
+   * Unresolved, `value` is the reference itself and this is unset.
+   */
+  ref?: string;
 }
 
 export interface Resolution {
@@ -78,6 +84,8 @@ export interface Resolution {
   missing: { key: string; from: string }[];
   /** The template file the required keys partly came from. */
   example?: string;
+  /** `op://` references 1Password was asked for and could not read — `value` stays the ref. */
+  secretErrors: OpFailure[];
 }
 
 export interface ResolveOptions {
@@ -92,6 +100,14 @@ export interface ResolveOptions {
   /** Skip every `env.config.ts`. */
   noProject?: boolean;
   override?: boolean;
+  /**
+   * Read `op://` values from 1Password (`op read`): `true` for every one, or just these keys.
+   * Off by default — the dashboard and the shell hook show and export the reference itself, and
+   * only a command that needs the secret asks for it.
+   */
+  secrets?: boolean | readonly string[];
+  /** Let `op` prompt on the terminal while reading them (a CLI command, not the dashboard). */
+  interactive?: boolean;
 }
 
 export const EXAMPLE_NAMES = ['.env.example', '.env.sample', '.env.template', '.env.dist'];
@@ -310,6 +326,22 @@ export const resolveEnv = async (options: ResolveOptions = {}): Promise<Resoluti
     })
     .sort((a, b) => a.key.localeCompare(b.key));
 
+  let secretErrors: OpFailure[] = [];
+  if (options.secrets) {
+    const keys = options.secrets === true ? vars.map((entry) => entry.key) : options.secrets;
+    const { secrets, failures } = await readOpRefs(working, keys, {
+      interactive: options.interactive,
+    });
+    secretErrors = failures;
+    for (const entry of vars) {
+      const secret = secrets[entry.key];
+      if (secret === undefined || !isOpRef(entry.value)) continue;
+      entry.ref = entry.value;
+      entry.value = secret;
+      working[entry.key] = secret;
+    }
+  }
+
   const exampleDir = [cwd, root].find((dir) =>
     EXAMPLE_NAMES.some((name) => existsSync(join(dir, name))),
   );
@@ -345,6 +377,7 @@ export const resolveEnv = async (options: ResolveOptions = {}): Promise<Resoluti
     required: requiredList,
     missing: requiredList.filter(({ key }) => working[key] === undefined),
     ...(example && { example }),
+    secretErrors,
   };
 };
 

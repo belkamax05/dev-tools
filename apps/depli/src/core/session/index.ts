@@ -43,6 +43,7 @@ export const openSession = async (env: Env = process.env): Promise<Session> => {
       env: targetEnv,
       timingsExpanded: saved.timingsExpanded === true,
       otherRunsExpanded: saved.otherRunsExpanded ?? {},
+      connections: saved.connections ?? {},
     },
   };
 };

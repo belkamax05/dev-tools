@@ -5,6 +5,7 @@ import { connectAll } from './core/connection';
 import { levelsOf } from './core/graph';
 import { evaluateEnvs } from './core/matrix';
 
+import { contextFor } from './core/registry';
 import { openSession } from './core/session';
 import { planTrigger, sendTrigger } from './core/trigger';
 
@@ -79,7 +80,7 @@ export const run = async (...argv: string[]) => {
   const { project } = session;
   for (const problem of project.problems) console.error(`depli: ${problem}`);
   const targetEnv = flagValue(argv, 'env') ?? session.targetEnv;
-  const connections = await connectAll(project, session.env);
+  const connections = await connectAll(project, session.env, session.state.connections);
 
   /** The provider's branches (matching `patterns`, or all), newest commit first. */
   const providerHeads = async (patterns: string[]) => {
@@ -90,7 +91,7 @@ export const run = async (...argv: string[]) => {
     const connection = provider && connections[provider.name];
     if (!provider?.plugin.branches || !connection?.transport) return undefined;
     const heads = await provider.plugin.branches(
-      { cwd: project.dir, env: session.env, options: provider.options, connection },
+      contextFor(project, provider, session.env, connection),
       connection,
       patterns,
     );
@@ -114,12 +115,18 @@ export const run = async (...argv: string[]) => {
     if (json) return void console.log(JSON.stringify(connections, null, 2));
     for (const [name, connection] of Object.entries(connections)) {
       console.log(
-        `${connection.transport ? '●' : '○'} ${name}: ${connection.transport ?? 'not connected'}`,
+        `${connection.transport ? '●' : '○'} ${name}: ${connection.transport ?? 'not connected'}${connection.pinned ? ` (pinned: ${connection.pinned})` : ' (auto)'}`,
       );
-      for (const probe of connection.probes)
+      for (const probe of connection.probes) {
         console.log(
           `    ${probe.ok ? '✓' : '✗'} ${probe.label} — ${probe.detail}${probe.identity ? ` (as ${probe.identity})` : ''}`,
         );
+        for (const fact of probe.facts ?? []) console.log(`        ${fact.label.padEnd(9)} ${fact.value}`);
+        if (probe.fix?.why) console.log(`        why: ${probe.fix.why}`);
+        for (const [index, step] of (probe.fix?.steps ?? []).entries())
+          console.log(`        ${index + 1}. ${step}`);
+        for (const link of probe.fix?.links ?? []) console.log(`        → ${link.label}: ${link.url}`);
+      }
     }
     return;
   }

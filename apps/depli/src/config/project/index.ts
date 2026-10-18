@@ -17,6 +17,11 @@ export interface ProviderConfig {
   plugin: string;
   /** Transport ids in order of preference; the plugin's own order when unset. */
   transports?: string[];
+  /**
+   * Transport ids switched off for this project: still listed (greyed) in the Connections tab,
+   * but never probed, used or pickable — e.g. a limited fallback the project does not want.
+   */
+  disabledTransports?: string[];
   [option: string]: unknown;
 }
 
@@ -93,6 +98,21 @@ export interface DepliProjectConfig {
 
 /** Typing help for a `depli.config.ts`; returns its argument. */
 export const defineConfig = (config: DepliProjectConfig): DepliProjectConfig => config;
+
+/**
+ * The environment variables the providers read their secrets from — every `…Env` option
+ * (`userEnv`, `tokenEnv`). What a launcher has to provide, and all it needs to: `dfs deploy`
+ * asks envi for just these.
+ */
+export const secretEnvNames = (config: DepliProjectConfig): string[] => [
+  ...new Set(
+    Object.values(config.providers ?? {}).flatMap((provider) =>
+      Object.entries(provider)
+        .filter(([option, value]) => /Env$/.test(option) && typeof value === 'string' && value)
+        .map(([, value]) => value as string),
+    ),
+  ),
+];
 
 export interface ProjectConfigResult {
   config: DepliProjectConfig;

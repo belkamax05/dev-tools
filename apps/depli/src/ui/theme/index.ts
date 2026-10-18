@@ -17,7 +17,8 @@ export const depliTheme = createTheme({
       plain: chrome.appShell.plain + STATUS_ROW,
     },
     viewHeader: 1,
-    chipRow: 1,
+    //? The Chain tab's Branch and Env rows
+    chipRow: 2,
   },
 });
 
