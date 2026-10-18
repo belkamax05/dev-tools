@@ -176,21 +176,23 @@ export const useDepli = (
   // biome-ignore lint/correctness/useExhaustiveDependencies: tick and probeTick are manual
   useEffect(() => {
     let live = true;
-    const probe = () =>
+    const probe = (refresh = false) =>
       connectAll(project, env, state.current.connections).then((next) => {
         if (!live) return;
         connectionsRef.current = next;
         setConnections(next);
         //? Re-read while something runs — or an auto trigger waits for it to
         if (
+          refresh ||
           chainRef.current.some((entry) => entry.status.state === 'running') ||
           autosRef.current.length
         )
           setTick((t) => t + 1);
       });
-    probe();
+    // Credentials can change while the transport remains `api`: re-read failed steps too.
+    probe(true);
     const seconds = project.config.pollSeconds ?? 30;
-    const timer = seconds > 0 ? setInterval(probe, seconds * 1000) : undefined;
+    const timer = seconds > 0 ? setInterval(() => probe(), seconds * 1000) : undefined;
     return () => {
       live = false;
       if (timer) clearInterval(timer);

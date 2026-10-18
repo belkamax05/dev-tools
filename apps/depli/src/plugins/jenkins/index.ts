@@ -460,7 +460,12 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
             label: 'Jenkins user id',
             initial: ({ options, env }) => (options.userEnv ? env[options.userEnv] : undefined),
           },
-          { id: 'token', label: 'Jenkins API token (or an op:// reference)', secret: true },
+          {
+            id: 'token',
+            label: 'Jenkins API token (or an op:// reference)',
+            secret: true,
+            initial: ({ options, env }) => (options.tokenEnv ? env[options.tokenEnv] : undefined),
+          },
         ],
         unavailable: async ({ options }) =>
           options.userEnv && options.tokenEnv

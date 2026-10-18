@@ -2,6 +2,7 @@ import { join } from 'node:path';
 
 import exec from '@/dev-tools/utils/process/exec';
 
+import { readOpRefs } from '../../../../envi/src/core/onePassword';
 import type { Env } from '../plugin';
 import type { Project } from '../registry';
 
@@ -29,12 +30,17 @@ const lastLine = (text: string) =>
  * @throws When the command fails, with its own error line
  */
 export const saveEnv = async (project: Project, env: Env, vars: Record<string, string>) => {
+  // Resolve for this running app; persist the references through the env command below.
+  // Ink owns stdin, so op may use desktop integration but must not prompt on this terminal.
+  const { secrets, failures } = await readOpRefs(vars);
+  if (failures.length)
+    throw new Error(failures.map(({ key, error }) => `${key}: ${error}`).join('; '));
   const command = project.config.envSet?.length ? project.config.envSet : enviSet();
   const assignments = Object.entries(vars).map(([key, value]) => `${key}=${value}`);
   const result = await exec([...command, ...assignments], { cwd: project.dir });
   if (result.exitCode !== 0)
     throw new Error(lastLine(result.stderr) || lastLine(result.stdout) || `${command.join(' ')} failed`);
   //? The run's own environment: the probe that follows reads it, not the file
-  Object.assign(env as Record<string, string | undefined>, vars);
+  Object.assign(env as Record<string, string | undefined>, vars, secrets);
   return lastLine(result.stdout) || `saved ${Object.keys(vars).join(', ')}`;
 };

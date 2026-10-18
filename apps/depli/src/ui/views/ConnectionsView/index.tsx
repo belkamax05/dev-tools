@@ -277,6 +277,7 @@ export const ConnectionsView = ({
   const [selectedId, setSelectedId] = useState(session.selected.connections);
   const prompt = usePrompt(onCaptureInput);
   const [showGuide, setShowGuide] = useState(false);
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({});
   const [scroll, setScroll] = useState(0);
   //? Choices tested here, by choiceKey — the main probe only ever tries the one picked
   const [tests, setTests] = useState<Record<string, Probe | 'running'>>({});
@@ -401,6 +402,7 @@ export const ConnectionsView = ({
   // biome-ignore lint/correctness/useExhaustiveDependencies: the row id is the trigger
   useEffect(() => {
     setScroll(0);
+    setRevealedSecrets({});
     const setupTransport = selected && setupOf(selected.provider);
     if (setupTransport && selected && !askedUnavailable.current.has(selected.provider.name)) {
       const name = selected.provider.name;
@@ -501,6 +503,58 @@ export const ConnectionsView = ({
     ask(0, {});
   };
 
+  const renderCredentials = (provider: Provider) => {
+    const transport = setupOf(provider);
+    const setup = transport?.setup;
+    const context = data.setupContext(provider.name);
+    if (!transport || !setup || !context) return null;
+    const running = data.setup?.key === `${provider.name}:${transport.id}`
+      ? data.setup.progress : undefined;
+    const active = running && (running.state === 'running' || running.state === 'waiting');
+    const why = unavailable[provider.name];
+    return (
+      <Box flexDirection="column" marginBottom={1}>
+        {setup.inputs?.filter((input) => input.secret && input.initial).map((input) => {
+          const value = input.initial?.(context) ?? '';
+          const key = `${provider.name}:${transport.id}:${input.id}`;
+          const revealed = revealedSecrets[key];
+          return (
+            <Box key={input.id} flexDirection="column" marginTop={1}>
+              <Text color={colors.text} wrap="wrap">
+                {input.label}: {value ? (revealed ? value : '••••••••') : 'not set'}
+              </Text>
+              <Box>
+                <ActionButton
+                  label={revealed ? 'Hide token' : 'Reveal token'}
+                  disabled={!value}
+                  onPress={() => setRevealedSecrets((all) => ({ ...all, [key]: !all[key] }))}
+                />
+                <ActionButton
+                  label="Edit token"
+                  disabled={Boolean(active) || Boolean(why)}
+                  onPress={() => {
+                    setRevealedSecrets({});
+                    const values = Object.fromEntries(
+                      (setup.inputs ?? []).map((field) => [field.id, field.initial?.(context) ?? '']),
+                    );
+                    if ((setup.inputs ?? []).some((field) => field.id !== input.id && !values[field.id])) {
+                      startSetup(provider);
+                      return;
+                    }
+                    prompt.ask(input.label, (next) => {
+                      if (!next.trim()) return notify('A token is needed — nothing was saved', 'warn');
+                      data.startSetup(provider.name, transport.id, { ...values, [input.id]: next });
+                    }, { initial: value, secret: true });
+                  }}
+                />
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+    );
+  };
+
   /**
    * The guided setup for the recommended way in — a sign-in run for the person, in the app — in a
    * frame of its own, so it reads as the one thing to do rather than more of the report.
@@ -547,6 +601,7 @@ export const ConnectionsView = ({
         <Text color={colors.accent} bold>
           ⚙ {setup.label}
         </Text>
+
         {!active ? (
           <>
             <Text color={colors.muted} wrap="wrap">
@@ -963,6 +1018,7 @@ export const ConnectionsView = ({
             onScroll={(delta) => setScroll((at) => Math.max(0, at + delta))}
           >
             {renderUseButton(row)}
+            {renderCredentials(row.provider)}
             {row.kind === 'auto'
               ? renderAuto(row.provider)
               : row.kind === 'transport'
