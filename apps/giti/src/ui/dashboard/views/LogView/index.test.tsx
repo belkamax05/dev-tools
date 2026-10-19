@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { render } from 'ink';
@@ -19,7 +20,7 @@ const until = async (ready: () => boolean) => {
 };
 
 test('both Log panes use shared scrollbars and the full summary and diff remain reachable', async () => {
-  const root = mkdtempSync(join(import.meta.dir, '.log-test-'));
+  const root = mkdtempSync(join(tmpdir(), 'giti-log-test-'));
   const git = (...args: string[]) => {
     const result = gitExecSync(args, root);
     if (result.exitCode) throw new Error(result.stderr);

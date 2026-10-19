@@ -1,5 +1,6 @@
 import { expect, spyOn, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { render } from 'ink';
@@ -14,7 +15,7 @@ import type { RemoteSync } from '../../useRemoteSync';
 import BranchesView from '.';
 
 const fixture = () => {
-  const root = mkdtempSync(join(import.meta.dir, '.branches-test-'));
+  const root = mkdtempSync(join(tmpdir(), 'giti-branches-test-'));
   const git = (...args: string[]) => {
     const result = gitExecSync(args, root);
     if (result.exitCode) throw new Error(result.stderr);

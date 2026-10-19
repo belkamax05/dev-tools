@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Project } from '../registry';
@@ -7,7 +8,7 @@ import { saveEnv } from '.';
 
 let dir: string;
 beforeAll(() => {
-  dir = mkdtempSync(join(import.meta.dir, '.depli-envset-'));
+  dir = mkdtempSync(join(tmpdir(), 'depli-envset-'));
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 

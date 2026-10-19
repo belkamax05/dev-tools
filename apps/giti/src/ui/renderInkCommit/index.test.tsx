@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { render } from 'ink';
@@ -19,7 +20,7 @@ const until = async (ready: () => boolean, ms = 4000) => {
 
 for (const scenario of ['ready', 'missing', 'cancel', 'amend'] as const) {
   test(`Shift+Enter handles ${scenario} messages without optional review steps`, async () => {
-    const root = mkdtempSync(join(import.meta.dir, '.commit-test-'));
+    const root = mkdtempSync(join(tmpdir(), 'giti-commit-test-'));
     const git = (...args: string[]) => {
       const result = gitExecSync(args, root);
       if (result.exitCode) throw new Error(result.stderr);
@@ -97,7 +98,7 @@ for (const scenario of ['ready', 'missing', 'cancel', 'amend'] as const) {
 }
 
 const mountForm = (rows = 36, refreshSeconds?: number) => {
-  const root = mkdtempSync(join(import.meta.dir, '.commit-test-'));
+  const root = mkdtempSync(join(tmpdir(), 'giti-commit-test-'));
   const git = (...args: string[]) => {
     const result = gitExecSync(args, root);
     if (result.exitCode) throw new Error(result.stderr);
@@ -271,7 +272,7 @@ test('the arrows walk the flags, Space toggles the one under the cursor, and eac
 });
 
 test('a clean tree says so in the middle, Push is counted and works, and files bring the list back', async () => {
-  const base = mkdtempSync(join(import.meta.dir, '.commit-test-'));
+  const base = mkdtempSync(join(tmpdir(), 'giti-commit-test-'));
   const remote = join(base, 'remote.git');
   const root = join(base, 'work');
   const git = (cwd: string, ...args: string[]) => {
