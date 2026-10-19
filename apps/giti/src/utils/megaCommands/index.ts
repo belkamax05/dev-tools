@@ -472,7 +472,7 @@ const runMegaTransfer = async (
   const withSelf = !hasOwn(args, '--no-self');
 
   if (selected === 0 && !withSelf) {
-    log.info(explainEmptyTree(tree, args.dirs));
+    log.info(explainEmptyTree(tree, args.dirs).replace(/^ℹ️\s*/, ''));
     outro(formatColor('Nothing to do.', 'info'));
     return;
   }
@@ -507,7 +507,7 @@ const runMegaTransfer = async (
 
   if (!selfFirst) await runSelf();
 
-  if (selected === 0) log.info(explainEmptyTree(tree, args.dirs));
+  if (selected === 0) log.info(explainEmptyTree(tree, args.dirs).replace(/^ℹ️\s*/, ''));
 
   const movedSubmodule = groups.some((group) => group.kind === 'submodule' && group.entries.length);
   const gitlinkNote =
