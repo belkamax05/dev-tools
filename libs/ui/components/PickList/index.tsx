@@ -397,8 +397,8 @@ export interface PickListProps<T> {
 		selected: boolean,
 	) => ReactNode;
 	borderColor?: string;
-	/** Shown in place of the rows when there is nothing to list. */
-	emptyText?: string;
+	/** Shown in place of the rows when there is nothing to list. Text, or a line of it — a spinner beside "Reading…". */
+	emptyText?: ReactNode;
 	onSelect: (index: number) => void;
 	onActivate: (index: number) => void;
 	onHover?: (index: number | null) => void;

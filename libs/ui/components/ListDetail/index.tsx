@@ -82,8 +82,8 @@ export interface ListDetailProps<T> {
     selected: boolean,
     height: number,
   ) => ReactNode;
-  /** Shown in place of the rows when there is nothing to list. */
-  emptyText?: string;
+  /** Shown in place of the rows when there is nothing to list. Text, or a line of it — a spinner beside "Reading…". */
+  emptyText?: ReactNode;
   /** Names the detail pane. Defaults to the selected row's own label. */
   detailTitle?: string;
   /** Draws the right-hand pane for whichever row the cursor is on. */

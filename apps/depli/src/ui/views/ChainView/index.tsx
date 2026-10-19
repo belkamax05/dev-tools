@@ -8,6 +8,7 @@ import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import Panel from '@/dev-tools/ui/components/Panel';
 import PickList from '@/dev-tools/ui/components/PickList';
 import Popover from '@/dev-tools/ui/components/Popover';
+import SpinnerGlyph from '@/dev-tools/ui/components/SpinnerGlyph';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
@@ -1137,9 +1138,14 @@ export const ChainView = ({
               </ScrollPanel>
             ) : (
               <Text color={colors.muted}>
-                {data.loading
-                  ? 'Reading the chain…'
-                  : 'No steps — add a pipeline to depli.config.ts'}
+                {data.loading ? (
+                  <>
+                    <SpinnerGlyph />
+                    Reading the chain…
+                  </>
+                ) : (
+                  'No steps — add a pipeline to depli.config.ts'
+                )}
               </Text>
             )}
           </Panel>

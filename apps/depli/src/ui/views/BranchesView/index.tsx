@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
+import SpinnerGlyph from '@/dev-tools/ui/components/SpinnerGlyph';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
@@ -118,7 +119,16 @@ export const BranchesView = ({
         key={`branches-${filter}-${allBranches}-${data.branch}-${items.some((item) => item.id === data.branch)}`}
         title={scope}
         items={items}
-        emptyText={branches ? 'No branch matches' : 'Reading branches…'}
+        emptyText={
+          branches ? (
+            'No branch matches'
+          ) : (
+            <>
+              <SpinnerGlyph />
+              Reading branches…
+            </>
+          )
+        }
         detailTitle="Branch"
         reservedChrome={['viewHeader']}
         activateLabel="use this branch"
