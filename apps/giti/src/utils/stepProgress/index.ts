@@ -26,12 +26,18 @@ const fit = (message: string) => {
   return Bun.stringWidth(line) > room ? `${line.slice(0, room - 1)}…` : line;
 };
 
-/** Spin with `message` — starting the spinner, or retitling the one already turning. */
-const working = (message: string) => {
+/**
+ * Spin with `message` — starting the spinner, or retitling the one already turning.
+ *
+ * @param options.framed - Whether a clack frame is open. clack starts a spinner by drawing the
+ *   frame's `│` above it, which clearing the spinner leaves behind — right between two steps,
+ *   a stray bar before the frame's `┌` exists. Off, the spinner draws no guide at all.
+ */
+const working = (message: string, { framed = true }: { framed?: boolean } = {}) => {
   if (!canSpin()) return;
   if (active) active.message(fit(message));
   else {
-    active = spinner({ indicator: 'dots' });
+    active = spinner({ indicator: 'dots', withGuide: framed });
     active.start(fit(message));
   }
 };

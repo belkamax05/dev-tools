@@ -1,4 +1,3 @@
-import { Spinner } from '@inkjs/ui';
 import { Box, render, Text, useApp, useInput } from 'ink';
 import { useCallback, useEffect, useState } from 'react';
 import getBranch from '../../utils/getBranch';
@@ -6,6 +5,7 @@ import getRemotes from '../../utils/getRemotes';
 import getStatus from '../../utils/getStatus';
 import getUpstreamStats from '../../utils/getUpstreamStats';
 import gitExec from '../../utils/gitExec';
+import stepProgress from '../../utils/stepProgress';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -464,123 +464,107 @@ const App = ({
   );
 };
 
-// ─── Loading screen ─────────────────────────────────────────────────────────
+// ─── Loading ────────────────────────────────────────────────────────────────
 
-const LoadingScreen = () => (
-  <Box padding={1} gap={1}>
-    <Spinner />
-    <Text dimColor>Fetching upstream info…</Text>
-  </Box>
-);
+type PullInfo = { upToDate: string } | { branchInfo: BranchInfo };
 
-// ─── Root component with async data loading ──────────────────────────────────
+/**
+ * Everything the screen shows, read before it mounts — as the push screen does. The fetch then
+ * runs under the same clack spinner as the run that follows, and nothing Ink drew is on screen
+ * when that run starts: the screen's own loading frame used to be left behind above its steps.
+ */
+const loadPullInfo = async (
+  cwd: string,
+  initialRemote?: string,
+  initialBranch?: string,
+): Promise<PullInfo> => {
+  const upstreamResult = await gitExec(
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+    cwd,
+  );
+  const hasUpstream = upstreamResult.exitCode === 0 && Boolean(upstreamResult.stdout);
+  const slashIdx = upstreamResult.stdout.indexOf('/');
+  const upstreamRemote = hasUpstream ? upstreamResult.stdout.slice(0, slashIdx) : '';
+  const upstreamBranch = hasUpstream ? upstreamResult.stdout.slice(slashIdx + 1) : '';
+
+  //? Refresh the remote-tracking ref before anything is counted. Every number below comes
+  //? from that ref, so on a stale one "0 commits to pull" only means "nothing new as of the
+  //? last fetch" — which is not enough to tell the user a pull would do nothing.
+  const fetchRemote = initialRemote || upstreamRemote;
+  const didFetch =
+    Boolean(fetchRemote) && (await gitExec(['fetch', fetchRemote], cwd)).exitCode === 0;
+
+  const [currentBranch, remotes, stats, incomingResult, porcelain, localResult] =
+    await Promise.all([
+      getBranch(cwd).catch(() => 'HEAD'),
+      getRemotes(cwd),
+      getUpstreamStats(cwd),
+      //? Commits that exist upstream but not locally
+      gitExec(['log', 'HEAD..@{u}', '--format=%h|%an|%s'], cwd),
+      getStatus(cwd).catch(() => ''),
+      //? Local commits not on upstream — used to warn about rebase
+      gitExec(['rev-list', '--count', '@{u}..HEAD'], cwd),
+    ]);
+
+  const branch = initialBranch || currentBranch;
+  const remote = initialRemote || upstreamRemote || remotes[0] || 'origin';
+
+  //? Skip the whole TUI only when the outcome is genuinely known: the ref was just
+  //? refreshed, the branch tracks an upstream, and the user did not name a remote/branch of
+  //? their own — `git pull other main` has nothing to do with what @{u} was counted against,
+  //? so a 0 there says nothing about what that pull would bring in.
+  if (didFetch && hasUpstream && !initialRemote && !initialBranch && stats.behind === 0) {
+    const aheadNote =
+      stats.ahead > 0
+        ? ` (${stats.ahead} local ${stats.ahead === 1 ? 'commit' : 'commits'} to push)`
+        : '';
+    const upstream = `${remote}/${upstreamBranch}`;
+    return { upToDate: `ℹ️  Nothing to pull — up to date with ${upstream}${aheadNote}.` };
+  }
+
+  const incomingCommits: IncomingCommit[] =
+    incomingResult.exitCode === 0
+      ? incomingResult.stdout
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => {
+            const parts = line.split('|');
+            return {
+              hash: parts[0] ?? '',
+              author: parts[1] ?? '',
+              subject: parts[2] ?? '',
+            };
+          })
+      : [];
+
+  const localCommitCount =
+    localResult.exitCode === 0 ? parseInt(localResult.stdout.trim(), 10) || 0 : 0;
+
+  return {
+    branchInfo: {
+      branch,
+      remote,
+      upstreamBranch,
+      behind: stats.behind,
+      ahead: stats.ahead,
+      incomingCommits,
+      isDirty: hasDirtyWorkingTree(porcelain),
+      localCommitCount,
+    },
+  };
+};
+
+// ─── Root ───────────────────────────────────────────────────────────────────
 
 interface RootProps {
-  initialRemote?: string;
-  initialBranch?: string;
+  branchInfo: BranchInfo;
   initialFlags: string[];
   passthroughFlags: string[];
-  cwd: string;
   onPull: (args: string[]) => void;
-  onUpToDate: (message: string) => void;
   preview?: { prefix: string; remote: string; branch: string };
 }
 
-const Root = ({
-  initialRemote,
-  initialBranch,
-  initialFlags,
-  passthroughFlags,
-  cwd,
-  onPull,
-  onUpToDate,
-  preview,
-}: RootProps) => {
-  const { exit } = useApp();
-  const [branchInfo, setBranchInfo] = useState<BranchInfo | null>(null);
-
-  useEffect(() => {
-    const load = async () => {
-      const upstreamResult = await gitExec(
-        ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
-        cwd,
-      );
-      const hasUpstream = upstreamResult.exitCode === 0 && Boolean(upstreamResult.stdout);
-      const slashIdx = upstreamResult.stdout.indexOf('/');
-      const upstreamRemote = hasUpstream ? upstreamResult.stdout.slice(0, slashIdx) : '';
-      const upstreamBranch = hasUpstream ? upstreamResult.stdout.slice(slashIdx + 1) : '';
-
-      //? Refresh the remote-tracking ref before anything is counted. Every number below comes
-      //? from that ref, so on a stale one "0 commits to pull" only means "nothing new as of the
-      //? last fetch" — which is not enough to tell the user a pull would do nothing.
-      const fetchRemote = initialRemote || upstreamRemote;
-      const didFetch =
-        Boolean(fetchRemote) && (await gitExec(['fetch', fetchRemote], cwd)).exitCode === 0;
-
-      const [currentBranch, remotes, stats, incomingResult, porcelain, localResult] =
-        await Promise.all([
-          getBranch(cwd).catch(() => 'HEAD'),
-          getRemotes(cwd),
-          getUpstreamStats(cwd),
-          //? Commits that exist upstream but not locally
-          gitExec(['log', 'HEAD..@{u}', '--format=%h|%an|%s'], cwd),
-          getStatus(cwd).catch(() => ''),
-          //? Local commits not on upstream — used to warn about rebase
-          gitExec(['rev-list', '--count', '@{u}..HEAD'], cwd),
-        ]);
-
-      const branch = initialBranch || currentBranch;
-      const remote = initialRemote || upstreamRemote || remotes[0] || 'origin';
-
-      //? Skip the whole TUI only when the outcome is genuinely known: the ref was just
-      //? refreshed, the branch tracks an upstream, and the user did not name a remote/branch of
-      //? their own — `git pull other main` has nothing to do with what @{u} was counted against,
-      //? so a 0 there says nothing about what that pull would bring in.
-      if (didFetch && hasUpstream && !initialRemote && !initialBranch && stats.behind === 0) {
-        const aheadNote =
-          stats.ahead > 0
-            ? ` (${stats.ahead} local ${stats.ahead === 1 ? 'commit' : 'commits'} to push)`
-            : '';
-        const upstream = `${remote}/${upstreamBranch}`;
-        onUpToDate(`ℹ️  Nothing to pull — up to date with ${upstream}${aheadNote}.`);
-        exit();
-        return;
-      }
-
-      const incomingCommits: IncomingCommit[] =
-        incomingResult.exitCode === 0
-          ? incomingResult.stdout
-              .split('\n')
-              .filter(Boolean)
-              .map((line) => {
-                const parts = line.split('|');
-                return {
-                  hash: parts[0] ?? '',
-                  author: parts[1] ?? '',
-                  subject: parts[2] ?? '',
-                };
-              })
-          : [];
-
-      const localCommitCount =
-        localResult.exitCode === 0 ? parseInt(localResult.stdout.trim(), 10) || 0 : 0;
-
-      setBranchInfo({
-        branch,
-        remote,
-        upstreamBranch,
-        behind: stats.behind,
-        ahead: stats.ahead,
-        incomingCommits,
-        isDirty: hasDirtyWorkingTree(porcelain),
-        localCommitCount,
-      });
-    };
-
-    load();
-  }, [initialRemote, initialBranch, cwd, exit, onUpToDate]);
-
-  if (!branchInfo) return <LoadingScreen />;
+const Root = ({ branchInfo, initialFlags, passthroughFlags, onPull, preview }: RootProps) => {
 
   //? Determine initial strategy from flags
   const initialStrategy: MergeStrategy = initialFlags.includes('--rebase=merges')
@@ -636,18 +620,28 @@ const renderInkPull = async ({
   onConfirm,
   previewCommand = 'giti receive',
 }: RenderInkPullOptions) => {
+  //? The fetch is the slow part — the run's own spinner covers it, and is gone before anything
+  //? else draws: the screen, or the run itself when there is nothing to choose
+  stepProgress.working('Fetching upstream info', { framed: false });
+  const info = await loadPullInfo(cwd, initialRemote, initialBranch);
+  stepProgress.settle();
+
+  //? The repository is current, but its vendored directories may not be — the caller's run
+  //? checks each of them and reports the current ones too
+  if ('upToDate' in info) {
+    if (onConfirm) return onConfirm([...initialFlags, ...passthroughFlags]);
+    console.log(info.upToDate);
+    return;
+  }
+
   let gitArgs: string[] | null = null;
-  let upToDateMessage: string | null = null;
 
   const { waitUntilExit, unmount, clear } = render(
     <Root
-      initialRemote={initialRemote}
-      initialBranch={initialBranch}
+      branchInfo={info.branchInfo}
       initialFlags={initialFlags}
       passthroughFlags={passthroughFlags}
-      cwd={cwd}
       onPull={(args) => (gitArgs = args)}
-      onUpToDate={(message) => (upToDateMessage = message)}
       preview={
         onConfirm
           ? { prefix: previewCommand, remote: initialRemote ?? '', branch: initialBranch ?? '' }
@@ -660,15 +654,6 @@ const renderInkPull = async ({
   await waitUntilExit();
   clear();
   unmount();
-
-  //? Printed after unmount because `clear()` wipes anything ink rendered.
-  //? The repository is current, but its vendored directories may not be — the caller's run
-  //? checks each of them and reports the current ones too
-  if (upToDateMessage && onConfirm) return onConfirm([...initialFlags, ...passthroughFlags]);
-  if (upToDateMessage) {
-    console.log(upToDateMessage);
-    return;
-  }
 
   if (gitArgs && onConfirm) {
     const flags = (gitArgs as string[]).filter((arg) => arg.startsWith('-'));
