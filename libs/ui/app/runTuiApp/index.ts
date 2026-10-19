@@ -64,6 +64,13 @@ export interface RunTuiAppOptions {
  * Ink own stdin, a reply is not a reply, it is a handful of garbage keystrokes
  * delivered to whichever view is listening.
  */
+/**
+ * The exit status of a program stopped by Ctrl+C: 128 + SIGINT, what the shell reports for any
+ * command interrupted that way. Raw mode turns the key into a keystroke rather than a signal, so
+ * it is set by hand — and an interrupted `giti save && giti send` stops there instead of pushing.
+ */
+export const INTERRUPTED_EXIT_CODE = 130;
+
 export const runTuiApp = async (
   node: ReactNode,
   {
@@ -107,10 +114,14 @@ export const runTuiApp = async (
       //? Already on the way out; the terminal is what matters now.
     }
 
-    if (!keepProcessAlive) process.exit(0);
+    if (input.wasInterrupted()) process.exitCode = INTERRUPTED_EXIT_CODE;
+    if (!keepProcessAlive) process.exit(Number(process.exitCode ?? 0));
   };
 
-  process.once('SIGINT', cleanup);
+  process.once('SIGINT', () => {
+    process.exitCode = INTERRUPTED_EXIT_CODE;
+    void cleanup();
+  });
   process.once('SIGTERM', cleanup);
 
   try {

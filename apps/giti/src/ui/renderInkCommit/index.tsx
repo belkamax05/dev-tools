@@ -1,6 +1,6 @@
 import { TextInput } from '@inkjs/ui';
 import { type DOMElement, render, Text, useApp, useInput } from 'ink';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
@@ -17,8 +17,11 @@ import {
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import { getChanges } from '../../core/status';
+import gitExec from '../../utils/gitExec';
 import saveCommit from '../../utils/saveCommit';
 import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
+import useRepoWatch from '../dashboard/useRepoWatch';
+import { DEFAULT_REFRESH_SECONDS } from '../dashboard/views/SettingsView';
 import StatusView from '../dashboard/views/StatusView';
 
 /**
@@ -50,6 +53,11 @@ export interface RenderInkCommitOptions {
   initialFlags: string[];
   passthroughFlags: string[];
   cwd: string;
+  /**
+   * How often the file list is re-read even when the watcher saw nothing — the dashboard's
+   * Settings value; 0 turns the safety net off and leaves the watcher alone.
+   */
+  refreshSeconds?: number;
 }
 
 export const CommitForm = ({
@@ -57,6 +65,7 @@ export const CommitForm = ({
   initialMessage,
   initialFlags,
   passthroughFlags,
+  refreshSeconds = DEFAULT_REFRESH_SECONDS,
   onCommit,
 }: RenderInkCommitOptions & { onCommit: (args: string[], push: boolean) => void }) => {
   const { exit } = useApp();
@@ -69,6 +78,25 @@ export const CommitForm = ({
   const [message, setMessage] = useState(initialMessage ?? '');
   const [flags, setFlags] = useState(new Set(initialFlags));
   const [refreshKey, setRefreshKey] = useState(0);
+  const reload = useCallback(() => setRefreshKey((key) => key + 1), []);
+
+  //? Kept current the way the dashboard is: an edit saved in another window, a `git add` in a
+  //? shell, a commit elsewhere — all show up in the open form rather than on the next one. The
+  //? watch is on the top of the work tree: `save` may run in a subfolder, and a watch on that
+  //? alone would miss every change beside it and in `.git`.
+  const [root, setRoot] = useState<string>();
+  useEffect(() => {
+    void gitExec(['rev-parse', '--show-toplevel'], cwd).then((top) =>
+      setRoot(top.exitCode === 0 ? top.stdout.trim() : cwd),
+    );
+  }, [cwd]);
+  useRepoWatch(root, reload);
+  //? The net under the watcher, as on the dashboard: what it missed is on screen within this
+  useEffect(() => {
+    if (refreshSeconds <= 0) return;
+    const id = setInterval(reload, refreshSeconds * 1000);
+    return () => clearInterval(id);
+  }, [refreshSeconds, reload]);
   const [notice, setNotice] = useState('');
   const [captured, setCaptured] = useState(false);
   const [filePreviewOpen, setFilePreviewOpen] = useState(false);
@@ -258,7 +286,7 @@ export const CommitForm = ({
       <StatusView
         root={cwd}
         refreshKey={refreshKey}
-        reload={() => setRefreshKey((key) => key + 1)}
+        reload={reload}
         notify={setNotice}
         onCaptureInput={setCaptured}
         handoff={() => {}}
@@ -307,13 +335,14 @@ export const CommitForm = ({
 const renderInkCommit = async (options: RenderInkCommitOptions) => {
   const config = await createConfigStore({
     appName: 'giti',
-    defaults: { theme: GITI_DEFAULT_PALETTE },
+    defaults: { theme: GITI_DEFAULT_PALETTE, refreshSeconds: DEFAULT_REFRESH_SECONDS },
   }).load();
   let selection: { args: string[]; push: boolean } | undefined;
   await runTuiApp(
     <TuiThemeProvider theme={gitiTheme} palette={config.theme}>
       <CommitForm
         {...options}
+        refreshSeconds={config.refreshSeconds}
         onCommit={(args, push) => {
           selection = { args, push };
         }}

@@ -96,7 +96,7 @@ for (const scenario of ['ready', 'missing', 'cancel', 'amend'] as const) {
   });
 }
 
-const mountForm = (rows = 36) => {
+const mountForm = (rows = 36, refreshSeconds?: number) => {
   const root = mkdtempSync(join(import.meta.dir, '.commit-test-'));
   const git = (...args: string[]) => {
     const result = gitExecSync(args, root);
@@ -118,7 +118,13 @@ const mountForm = (rows = 36) => {
   });
   let exited = false;
   const app = render(
-    <CommitForm cwd={root} initialFlags={[]} passthroughFlags={[]} onCommit={() => {}} />,
+    <CommitForm
+      cwd={root}
+      initialFlags={[]}
+      passthroughFlags={[]}
+      refreshSeconds={refreshSeconds}
+      onCommit={() => {}}
+    />,
     {
       stdout: stdout as unknown as NodeJS.WriteStream,
       stdin: stdin as unknown as NodeJS.ReadStream,
@@ -130,6 +136,7 @@ const mountForm = (rows = 36) => {
     exited = true;
   });
   return {
+    root,
     frame,
     stdin,
     hasExited: () => exited,
@@ -222,6 +229,19 @@ test('the message sits right under its title, and a click on it puts the cursor 
     expect(form.hasExited()).toBe(false);
   } finally {
     setMouseReporting(reporting);
+    form.dispose();
+  }
+});
+
+test('a file changed outside the open form shows up in its list without a key press', async () => {
+  //? The poll interval off: what is on screen came from the watcher
+  const form = mountForm(36, 0);
+  try {
+    await until(() => form.frame.output.includes('file.txt'));
+    expect(form.frame.output).not.toContain('later.txt');
+    writeFileSync(join(form.root, 'later.txt'), 'new\n');
+    await until(() => form.frame.output.includes('later.txt'));
+  } finally {
     form.dispose();
   }
 });
