@@ -6,7 +6,7 @@ It works from whatever folder you run it in.
 
 ```sh
 envi                              # dashboard
-envi shell|resolved|files|vars|settings   # open it on a tab
+envi values|locations|settings          # open it on a tab
 envi list [search] [--json] [--reveal]    # what envi sets here, where from, vs the shell
 envi list --resolve [--only K,K]          # the same, op:// read and shown — what `run` hands a command
 envi shell [search] [--json]      # the current shell's variables, searched by name and value
@@ -47,7 +47,7 @@ tab; `--to`, `--file`, `--global` and `--state` override it for one call.
    folder, with the root's applied first and nearer ones winning.
 
 Then the shell. A name the shell already exports keeps its value unless `override` is on, the
-same rule dotenv uses for `process.env`. The Resolved tab marks each variable:
+same rule dotenv uses for `process.env`. The Values tab marks each variable:
 
 - `new`: the shell doesn't have it.
 - `~ replaces shell`: override is on and envi's value replaces the shell's.
@@ -71,7 +71,7 @@ export default {
   files: ['.env.shared'],        // read after your list, relative to this file
   disable: ['.env.user'],        // a name (any folder) or a path
   vars: { API_URL: 'http://localhost:${PORT:-3000}' },
-  required: ['DATABASE_URL'],    // `envi check` and the Resolved tab flag these
+  required: ['DATABASE_URL'],    // `envi check` and the Values tab flag these
   override: true,                // optional: this folder's own merge rule
 };
 ```
@@ -98,19 +98,20 @@ editor, run `envi reload`.
 
 ## Tabs
 
-| Tab | Keys |
+| Tab | What it is for |
 | --- | --- |
-| 🐚 Shell | the exported environment, with `◆` marking what the hook set. `/` searches names and values together (`k:`/`v:` restrict a word to one side). `c` copy · `C` copy `KEY=value` · `s` pin into `.env.user` · `g` pin into your vars |
-| 🧩 Resolved | what envi sets: the winning layer, the layers it beat, and the shell's value. Missing required variables are listed first. `/` search · `c` copy · `s` set where Settings says (`.env.user` by default) · `g` set in your vars · `u` reveal this one · `C` copy the secret itself (a reference read first) · `o` open the source · `x` remove from the source |
-| 📄 Files | the env files in order, plus each `env.config.ts`. Space switches a file on or off · `a` add · `n` add a variable to it · `e` edit/create · `[`/`]` reorder · `x` unlist |
-| 👤 Your vars | the file they are saved in heads the tab — click it or `o` to open it. `a` add · `n` edit value · `R` rename · `x` delete · `c` copy · `p` preview a 1Password secret · `u` reveal this one · `C` copy the secret itself (a reference read first) · `/` search |
+| 🧩 Values | every value here, in one list. First what envi provides — your vars, machine vars, the env files, `env.config.ts` — each with the layer that won (`+` new · `~` replaces shell · `=` same · `⊘` shell wins) and the layers it beat; required variables nothing sets are listed above them. Then, as a second list, what the shell exports that envi leaves alone (`◆` = set by the hook). `/` search names and values (`k:`/`v:` for one side) · `Enter`/`e` edit where it comes from · `c` copy · `y` copy `KEY=value` · `C` copy the secret itself (a reference read first) · `s` set (or, for a shell value, keep) in a place you pick — `Enter` picks the one Settings says · `l` show it in Locations · `o` open its file · `x` remove it from its source |
+| 📄 Locations | every place values are kept, in the order envi applies them, each with its values under it: your vars and machine vars (every folder), the env files read here, each `env.config.ts`. `●` wins · `○` overridden. On a place: `a` add a value · `Enter`/`←`/`→` fold · `o` open in the editor · for a file `Space` on/off · `[`/`]` reorder · `x` unlist. On a value: `Enter`/`e` edit · `m` move to another place · `M` copy to another place (as written, so `${HOST}` stays a reference; a place that already sets it asks first) · `R` rename · `x` delete · `c`/`y`/`C` copy · `l` show it in Values. `A` add a file · `/` search |
 | 🔧 Settings | where `envi set` writes (`.env.user` here, `.env` here, your vars, machine vars), override, expansion, secret name patterns, the hook line to copy, theme, `e` edit the file |
 
-Everywhere: `1-5`/`Tab` switch tab, `r` refresh, `v` reveal secrets, `t` theme, `q` quit.
-Every button and row is clickable.
+Everywhere: `1-3`/`Tab` switch tab, `r` refresh, `v` reveal secrets, `t` theme, `q` quit.
+Every button and row is clickable. `envi resolved`/`envi vars` (the old tab names) open Values
+and Locations.
 
 A value is masked when its name contains one of the secret patterns (`TOKEN`, `SECRET`,
-`PASSWORD`, `API_KEY`…). Reveal is never saved, so every run starts masked.
+`PASSWORD`, `API_KEY`…). `v` reveals every secret across the whole dashboard at once — a
+1Password reference in view is read on the spot, so its secret is one key away — and the toggle is
+kept in the state file, so a restart opens the way you left it.
 
 ## 1Password references
 
@@ -121,8 +122,8 @@ A value written as `op://vault/item/field`, in your vars or any env file, is a p
 - `envi get KEY`, `envi run …`, `envi use <command>` and `envi list --resolve` read it
   (`list --resolve [--only A,B]` prints the values `run` would hand a command, unmasked); `envi run --only A,B -- cmd`
   hands the command just those variables on top of the shell's, so nothing else is asked for.
-- The dashboard, plain `envi list`, `envi export` and the shell hook keep the reference. In the Your
-  vars and Resolved tabs, `p` reads it on demand (still masked until `v` for a secret name).
+- The dashboard, plain `envi list`, `envi export` and the shell hook keep the reference. In the
+  dashboard, `v` (reveal secrets) reads the one in view; `C` copies the secret itself.
 - As a library, `config()` and `loadEnv()` read references, all of them or just `only: [...]`.
   One that cannot be read is left unset and reported in `resolution.secretErrors`.
 
@@ -147,7 +148,7 @@ Nothing in it loads React or Ink.
 - `~/.config/envi/config.json` holds `files`, `disabled`, `vars`, `override`, `expand`,
   `maskPatterns` and `theme`. Your vars may include tokens, so keep this file out of a public
   dotfiles repository.
-- `~/.local/state/envi/` holds the last tab and the hook's stamp.
+- `~/.local/state/envi/` holds the last tab, the reveal toggle, machine vars and the hook's stamp.
 
 Bun loads `.env` files into `process.env` on its own. To avoid that, `bin/envi` runs Bun with
 `--no-env-file`, and on Linux envi reads the environment it was launched with from

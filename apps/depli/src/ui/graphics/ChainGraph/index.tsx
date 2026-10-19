@@ -291,6 +291,37 @@ const Node = ({
   );
 };
 
+/** Rows a level's connector takes: the bus, plus a stem row either side when it holds markers. */
+const connectorRows = (chain: ChainStep[], above: GraphNode[], below: GraphNode[]) =>
+  progressColumns(chain, above, below).length || staleColumns(chain, above, below).length ? 3 : 1;
+
+/** The levels, whether the boxes go one line tall to fit `rows`, and the row each level starts at. */
+const graphLayout = (chain: ChainStep[], width: number, rows: number) => {
+  const levels = layoutGraph(
+    chain.map((entry) => ({ id: entry.step.id, after: entry.step.after })),
+    width,
+  );
+  const progressRows = levels.reduce((count, level, index) => {
+    const next = levels[index + 1];
+    return count + (next ? connectorRows(chain, level.nodes, next.nodes) - 1 : 0);
+  }, 0);
+  const compact = heightFor(levels.length, 5) + progressRows > rows;
+  const tops: number[] = [];
+  levels.reduce((top, level, index) => {
+    tops.push(top);
+    const next = levels[index + 1];
+    return top + (compact ? 3 : 5) + (next ? connectorRows(chain, level.nodes, next.nodes) : 0);
+  }, 0);
+  return { levels, compact, tops };
+};
+
+/** The row the selected step's level starts at — where a scrolled graph keeps it in view. */
+export const selectedRow = (chain: ChainStep[], width: number, rows: number, selectedId?: string) => {
+  const { levels, tops } = graphLayout(chain, width, rows);
+  const index = levels.findIndex((level) => level.nodes.some((node) => node.id === selectedId));
+  return index < 0 ? 0 : (tops[index] ?? 0);
+};
+
 export interface ChainGraphProps {
   chain: ChainStep[];
   /** Cells across and rows down the graph may take. */
@@ -321,22 +352,7 @@ export const ChainGraph = ({
   triggerBadgeOf,
 }: ChainGraphProps) => {
   const colors = useColors();
-  const levels = layoutGraph(
-    chain.map((entry) => ({ id: entry.step.id, after: entry.step.after })),
-    width,
-  );
-  const progressRows = levels.reduce((count, level, index) => {
-    const next = levels[index + 1];
-    return (
-      count +
-      (next &&
-      (progressColumns(chain, level.nodes, next.nodes).length ||
-        staleColumns(chain, level.nodes, next.nodes).length)
-        ? 2
-        : 0)
-    );
-  }, 0);
-  const compact = heightFor(levels.length, 5) + progressRows > rows;
+  const { levels, compact } = graphLayout(chain, width, rows);
   const byId = new Map(chain.map((entry) => [entry.step.id, entry]));
   const rasterProgress = bestTechnique(graphicsSupport()).kind === 'raster';
 

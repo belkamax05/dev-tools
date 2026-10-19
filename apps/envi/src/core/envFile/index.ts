@@ -35,12 +35,18 @@ const assignmentLine = (key: string) =>
  * are left alone rather than silently deleted. A key the file does not have is appended. A
  * multi-line quoted value being replaced is replaced whole. The file is created when missing.
  */
-export const setInEnvFile = async (path: string, key: string, value: string): Promise<void> => {
+export const setInEnvFile = (path: string, key: string, value: string): Promise<void> =>
+  setLineInEnvFile(path, key, `${key}=${quoteValue(value)}`);
+
+/**
+ * `setInEnvFile` with the assignment already written — `KEY="${HOST}:80"` — so a value moved
+ * from one file to another keeps its quotes and its `$references` rather than their result.
+ */
+export const setLineInEnvFile = async (path: string, key: string, line: string): Promise<void> => {
   const text = existsSync(path) ? await Bun.file(path).text() : '';
   const lines = text.length ? text.replace(/\n$/, '').split('\n') : [];
   const entries = parseDotenv(text).entries.filter((entry) => entry.key === key);
   const last = entries.at(-1);
-  const line = `${key}=${quoteValue(value)}`;
 
   if (last && assignmentLine(key).test(lines[last.line - 1] ?? '')) {
     const span = last.raw.split('\n').length;

@@ -16,7 +16,7 @@ import {
   stampPath,
   stateStore,
   TAB_IDS,
-  type TabId,
+  toTabId,
   touchStamp,
   withoutVar,
   withVar,
@@ -604,14 +604,15 @@ export const run = async (...argv: string[]) => {
     return;
   }
 
-  if (first !== undefined && !TAB_IDS.includes(first as TabId)) {
+  const tab = first === undefined ? undefined : toTabId(first);
+  if (first !== undefined && !tab) {
     fail(`Unknown command "${first}".\n`);
     process.stderr.write(HELP);
     return;
   }
 
   const { default: renderDashboard } = await import('./ui/renderDashboard');
-  await renderDashboard(first as TabId | undefined, cwd);
+  await renderDashboard(tab, cwd);
 };
 
 export default run;

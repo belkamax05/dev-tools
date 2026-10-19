@@ -209,7 +209,7 @@ export const SettingsView = ({
           <Text color={colors.muted} wrap="wrap">
             {SET_TARGET_DETAIL[setting.target]} Used by envi set / unset (and dfs env set) when no
             flag says otherwise — --to, --file, --global and --state still pick a place outright —
-            and by s on the Resolved tab. Enter picks it; the setting is kept in your config.
+            and by s on the Values tab (Enter in its place picker). Enter picks it; the setting is kept in your config.
           </Text>
         );
       case 'override':
@@ -217,7 +217,7 @@ export const SettingsView = ({
           <Text color={colors.muted} wrap="wrap">
             {config.override
               ? 'On: envi replaces a value the shell already exports. A variable you set by hand for one command (FOO=1 envi run …) is replaced too.'
-              : 'Off, as in dotenv: a variable the shell already exports keeps its value, and envi only adds what is missing. The Resolved tab marks those "shell wins". An env.config.ts can set override for its folder.'}
+              : 'Off, as in dotenv: a variable the shell already exports keeps its value, and envi only adds what is missing. The Values tab marks those "shell wins". An env.config.ts can set override for its folder.'}
           </Text>
         );
       case 'expand':
@@ -242,7 +242,7 @@ export const SettingsView = ({
               ]}
             />
             <Text color={colors.muted} wrap="wrap">
-              {`A variable whose name contains ${setting.pattern} (any case) has its value masked until [v] reveals secrets.${(DEFAULT_MASK_PATTERNS as readonly string[]).includes(setting.pattern) ? ' One of the defaults.' : ''}`}
+              {`A variable whose name contains ${setting.pattern} (any case) has its value masked until [v] reveals secrets — one toggle for the whole dashboard, kept across runs.${(DEFAULT_MASK_PATTERNS as readonly string[]).includes(setting.pattern) ? ' One of the defaults.' : ''}`}
             </Text>
           </Box>
         );
@@ -276,7 +276,7 @@ export const SettingsView = ({
           <Box flexDirection="column">
             <Text color={colors.text}>{stateStore.path}</Text>
             <Text color={colors.muted} wrap="wrap">
-              Last selected tab. Reloaded after editing.
+              Last selected tab, whether secrets are revealed, and your machine vars. Reloaded after editing.
             </Text>
           </Box>
         );

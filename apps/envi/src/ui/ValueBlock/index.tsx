@@ -1,4 +1,5 @@
 import { Text } from 'ink';
+import { useEffect } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
@@ -11,17 +12,27 @@ import type { SecretPreviewState } from '../useSecretPreview';
 export const isPathList = (key: string, value: string) =>
   value.includes(':') && /(PATH|DIRS)$/.test(key) && !/^\w+:\/\//.test(value);
 
+/**
+ * One line of a value for a list row: newlines shown, long values cut by the pane. An `op://`
+ * reference is never masked — it is a pointer into 1Password, not the secret.
+ */
+export const preview = (value: string, secret: boolean, reveal: boolean) =>
+  secret && !reveal && !isOpRef(value) ? maskValue(value) : value.replace(/\n/g, '⏎');
+
 export interface ValueBlockProps {
   name: string;
   value: string;
   secret: boolean;
+  /** Secrets drawn in full — the app-wide [v]. */
   reveal: boolean;
   /**
-   * For an `op://` value: what reading it from 1Password gave so far. Unset, the block only says
-   * where the secret lives; set, it offers [p] and shows the result.
+   * For an `op://` value: what reading it from 1Password gave so far, and how to ask. While
+   * secrets are revealed the block reads it on its own, so the secret is one key away.
    */
-  secretPreview?: { state: SecretPreviewState };
+  secretPreview?: { state: SecretPreviewState; onRead: () => void };
 }
+
+const HIDDEN_NOTE = 'Secret — [v] reveals every secret · [C] copies it.';
 
 /**
  * A variable's value as the detail pane draws it: masked when it is a secret and secrets are
@@ -29,17 +40,18 @@ export interface ValueBlockProps {
  * that has grown the same folder twice is the usual reason to look at it), wrapped otherwise.
  * Always whole: the detail pane scrolls, so a long `PATH` is read to its last entry.
  */
-export const ValueBlock = ({
-  name,
-  value,
-  secret,
-  reveal,
-  secretPreview,
-}: ValueBlockProps) => {
+export const ValueBlock = ({ name, value, secret, reveal, secretPreview }: ValueBlockProps) => {
   const colors = useColors();
-  if (isOpRef(value)) {
-    //? The reference is a pointer, not the secret — always drawn; the secret only once asked for
-    const read = secretPreview?.state;
+  const ref = isOpRef(value);
+  const read = secretPreview?.state;
+  const onRead = secretPreview?.onRead;
+
+  //? Revealed means revealed: a reference in view is read without a second key
+  useEffect(() => {
+    if (ref && reveal && read?.status === 'idle') onRead?.();
+  }, [ref, reveal, read?.status, onRead]);
+
+  if (ref) {
     return (
       <Box flexDirection="column">
         <Text color={colors.accent} bold>{`🔑 ${OP_LABEL} reference`}</Text>
@@ -47,31 +59,22 @@ export const ValueBlock = ({
           {value}
         </Text>
         <Box marginTop={1} flexDirection="column">
-          {!read || read.status === 'idle' ? (
+          {!reveal ? (
             <Text color={colors.muted} wrap="wrap">
               {secretPreview
-                ? 'Read with op when a command needs it — [p] previews the secret, [u] shows it, [C] copies it.'
+                ? `Read with op when a command needs it — [v] reveals secrets (reads it from ${OP_LABEL}), [C] copies it.`
                 : 'Read with op when a command needs it (envi get, envi run, dfs deploy).'}
             </Text>
-          ) : read.status === 'loading' ? (
+          ) : !read || read.status === 'idle' || read.status === 'loading' ? (
             <Text color={colors.muted}>{`Asking ${OP_LABEL}…`}</Text>
           ) : read.status === 'error' ? (
             <Text color={colors.error} wrap="wrap">{`${OP_LABEL}: ${read.error}`}</Text>
           ) : (
             <>
               <Text color={colors.ok}>{`From ${OP_LABEL}:`}</Text>
-              {secret && !reveal ? (
-                <>
-                  <Text color={colors.warn}>{maskValue(read.value) || '(empty)'}</Text>
-                  <Text color={colors.muted}>
-                    Secret by name — [u] reveals this one, [v] every secret · [C] copies it.
-                  </Text>
-                </>
-              ) : (
-                <Text color={colors.text} wrap="wrap">
-                  {read.value || '(empty)'}
-                </Text>
-              )}
+              <Text color={colors.text} wrap="wrap">
+                {read.value || '(empty)'}
+              </Text>
             </>
           )}
         </Box>
@@ -82,9 +85,7 @@ export const ValueBlock = ({
     return (
       <Box flexDirection="column">
         <Text color={colors.warn}>{maskValue(value) || '(empty)'}</Text>
-        <Text color={colors.muted}>
-          Secret by name — [u] reveals this one, [v] every secret · [C] copies it.
-        </Text>
+        <Text color={colors.muted}>{HIDDEN_NOTE}</Text>
       </Box>
     );
   }

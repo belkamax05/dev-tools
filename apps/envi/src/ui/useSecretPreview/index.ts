@@ -10,50 +10,42 @@ export type SecretPreviewState =
 
 const IDLE: SecretPreviewState = { status: 'idle' };
 
+export interface Secrets {
+  /** What reading `value`'s reference from 1Password gave so far. */
+  stateOf: (value: string) => SecretPreviewState;
+  /** Read `value`'s reference, once — a read in flight or done is not asked for again. */
+  read: (value: string) => void;
+  /** The secret itself: a reference read from 1Password (kept for display too), else as is. */
+  secretOf: (value: string) => Promise<string>;
+  /** What `ValueBlock` takes for `secretPreview`: only for a reference. */
+  blockProps: (value: string) => { secretPreview?: { state: SecretPreviewState; onRead: () => void } };
+  /** `value` as a list row shows it once secrets are revealed: a reference read, its secret. */
+  shown: (value: string, reveal: boolean) => string;
+}
+
 /**
- * On-demand reads of `op://` values for a detail pane: nothing is asked of 1Password until [p],
- * and a read is kept for the tab's life (the CLI caches it for the process anyway), so moving
- * back to a row shows it again.
- *
- * Also one variable's own reveal ([u], beside [v]'s reveal-everything) and the secret itself
- * to the clipboard ([C]) — a reference read first, so what lands there is the token, not the
- * `op://` pointer.
+ * The app's one cache of `op://` reads, shared by every tab: nothing is asked of 1Password while
+ * secrets are hidden, and once [v] reveals them the row in front of you is read — so a
+ * reference's secret is a single key away, and moving back to a row shows it again.
  */
-export const useSecretPreview = () => {
+export const useSecretPreview = (): Secrets => {
   const [states, setStates] = useState<Record<string, SecretPreviewState>>({});
-  const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set());
   const set = (ref: string, state: SecretPreviewState) =>
     setStates((was) => ({ ...was, [ref]: state }));
 
-  const stateOf = (ref: string): SecretPreviewState => states[ref.trim()] ?? IDLE;
+  const stateOf = (value: string): SecretPreviewState => states[value.trim()] ?? IDLE;
 
-  const preview = (value: string) => {
+  const read = (value: string) => {
     if (!isOpRef(value)) return;
     const ref = value.trim();
-    if (states[ref]?.status === 'loading') return;
+    const known = states[ref]?.status;
+    if (known === 'loading' || known === 'ok') return;
     set(ref, { status: 'loading' });
     readOpRef(ref)
       .then((secret) => set(ref, { status: 'ok', value: secret }))
       .catch((error: Error) => set(ref, { status: 'error', error: error.message }));
   };
 
-  /** This variable is shown in full, whatever the reveal-everything toggle says. */
-  const isRevealed = (key: string) => revealed.has(key);
-
-  /** Show (or mask again) one variable; a reference is read on the way, so there is a value. */
-  const toggleReveal = (key: string, value: string) => {
-    const showing = revealed.has(key);
-    setRevealed((was) => {
-      const next = new Set(was);
-      if (showing) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-    if (!showing && isOpRef(value) && stateOf(value).status !== 'ok') preview(value);
-    return !showing;
-  };
-
-  /** The secret itself: a reference read from 1Password (kept for the preview too), else as is. */
   const secretOf = async (value: string) => {
     if (!isOpRef(value)) return value;
     const ref = value.trim();
@@ -70,11 +62,16 @@ export const useSecretPreview = () => {
     }
   };
 
-  /** What `ValueBlock` takes for `value`: offers [p] only on a reference. */
   const blockProps = (value: string) =>
-    isOpRef(value) ? { secretPreview: { state: stateOf(value) } } : {};
+    isOpRef(value) ? { secretPreview: { state: stateOf(value), onRead: () => read(value) } } : {};
 
-  return { stateOf, preview, blockProps, isRevealed, toggleReveal, secretOf };
+  const shown = (value: string, reveal: boolean) => {
+    if (!reveal || !isOpRef(value)) return value;
+    const state = stateOf(value);
+    return state.status === 'ok' ? state.value : value;
+  };
+
+  return { stateOf, read, secretOf, blockProps, shown };
 };
 
 export default useSecretPreview;

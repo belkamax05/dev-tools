@@ -29,7 +29,7 @@ import { layoutGraph } from '../../../core/graph';
 import { fillTemplate, type PlanFix, type StepRun, type StepState } from '../../../core/plugin';
 import type { PlannedTrigger } from '../../../core/trigger';
 import Avatar from '../../graphics/Avatar';
-import ChainGraph, { ago } from '../../graphics/ChainGraph';
+import ChainGraph, { ago, selectedRow } from '../../graphics/ChainGraph';
 import { StatusText, TRIGGER_ICON, TRIGGER_LABEL } from '../../graphics/StatusIcon';
 import HistoryStrip from '../../graphics/HistoryStrip';
 import LogPanel from '../LogPanel';
@@ -238,7 +238,8 @@ export const ChainView = ({
   );
   const sideBySide = viewport.columns >= SIDE_BY_SIDE_COLUMNS;
   const graphPaneWidth = sideBySide ? Math.floor(appWidth * GRAPH_SHARE) : appWidth;
-  const graphWidth = graphPaneWidth - 4;
+  //? Frame and padding (4), and the scrollbar's column
+  const graphWidth = graphPaneWidth - 5;
   //? The auto-trigger panel takes its rows (frame, title, list) from the two above it
   const autoPanelRows = data.autos.length ? Math.min(data.autos.length, AUTO_ROWS) + 3 : 0;
   //? Open, the environments panel stands above both panels and never shrinks: its frame (2) and
@@ -1109,24 +1110,31 @@ export const ChainView = ({
             grow
           >
             {data.chain.length ? (
-              <ChainGraph
-                chain={data.chain}
-                width={graphWidth}
-                rows={graphRows}
-                selectedId={selected?.step.id}
-                labelOf={(entry) => fill(entry.step.label)}
-                onSelect={select}
-                providerOf={data.providerOf}
-                triggerBadgeOf={(entry) => {
-                  if (entry.status.state === 'running') return 'running';
-                  if (autoOf(entry)) return 'auto';
-                  if (!data.triggerable(entry)) return 'readonly';
-                  const state = triggerState(entry);
-                  if (state.checking) return 'checking';
-                  if (!state.ready) return 'blocked';
-                  return entry.recommended ? 'next' : undefined;
-                }}
-              />
+              //? A chain taller than the pane scrolls under the wheel; arrows bring the selection in view
+              <ScrollPanel
+                isActive={false}
+                isMouseActive={!prompt.isOpen}
+                scrollTo={selectedRow(data.chain, graphWidth, graphRows, selected?.step.id)}
+              >
+                <ChainGraph
+                  chain={data.chain}
+                  width={graphWidth}
+                  rows={graphRows}
+                  selectedId={selected?.step.id}
+                  labelOf={(entry) => fill(entry.step.label)}
+                  onSelect={select}
+                  providerOf={data.providerOf}
+                  triggerBadgeOf={(entry) => {
+                    if (entry.status.state === 'running') return 'running';
+                    if (autoOf(entry)) return 'auto';
+                    if (!data.triggerable(entry)) return 'readonly';
+                    const state = triggerState(entry);
+                    if (state.checking) return 'checking';
+                    if (!state.ready) return 'blocked';
+                    return entry.recommended ? 'next' : undefined;
+                  }}
+                />
+              </ScrollPanel>
             ) : (
               <Text color={colors.muted}>
                 {data.loading

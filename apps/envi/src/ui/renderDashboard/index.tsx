@@ -6,6 +6,7 @@ import { describeClearResults } from '@/dev-tools/ui/components/ClearDataDialog'
 import {
   configStore,
   type EnviConfig,
+  type EnviState,
   saveConfig,
   stateStore,
   type TabId,
@@ -31,7 +32,17 @@ export const renderDashboard = async (
     tab: initialTab ?? state.tab,
     selected: {},
     search: {},
-    reveal: false,
+    collapsed: [],
+    reveal: state.reveal,
+  };
+  //? Read fresh before writing: machine vars live in the same file, and `envi set --state` may
+  //? have changed them since the dashboard opened
+  const saveToState = (change: Partial<EnviState>) => {
+    state = { ...state, ...change };
+    stateStore
+      .load()
+      .then((fresh) => stateStore.save({ ...fresh, ...change }))
+      .catch(() => {});
   };
   let cleared: string | undefined;
 
@@ -49,15 +60,8 @@ export const renderDashboard = async (
           //? persistence and not the setting
           saveConfig(next).catch(() => {});
         }}
-        onTabChange={(tab) => {
-          state = { ...state, tab };
-          //? Read fresh before writing: machine vars live in the same file, and `envi set --state`
-          //? may have changed them since the dashboard opened
-          stateStore
-            .load()
-            .then((fresh) => stateStore.save({ ...fresh, tab }))
-            .catch(() => {});
-        }}
+        onTabChange={(tab) => saveToState({ tab })}
+        onRevealChange={(reveal) => saveToState({ reveal })}
         onHandoff={frame.handoff}
         onCleared={(results) => {
           cleared = describeClearResults(results);
@@ -70,6 +74,7 @@ export const renderDashboard = async (
         if (intent.type === 'edit' && intent.path === stateStore.path) {
           state = await stateStore.load();
           session.tab = state.tab;
+          session.reveal = state.reveal;
         }
         config = await configStore.load();
         await touchStamp();

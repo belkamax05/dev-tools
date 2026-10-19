@@ -5,8 +5,24 @@ import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 import { isValidKey } from '../../core/parse';
 
 /** The dashboard's tabs, in order — also what `tab` in the state file may hold. */
-export const TAB_IDS = ['shell', 'resolved', 'files', 'vars', 'settings'] as const;
+export const TAB_IDS = ['values', 'locations', 'settings'] as const;
 export type TabId = (typeof TAB_IDS)[number];
+
+/** Tabs since merged into another — an old state file or `envi resolved` lands on its heir. */
+export const LEGACY_TABS: Record<string, TabId> = {
+  resolved: 'values',
+  shell: 'values',
+  files: 'locations',
+  vars: 'locations',
+};
+
+/** A tab name as written anywhere (state file, command line), as a current tab — or undefined. */
+export const toTabId = (raw: unknown): TabId | undefined =>
+  TAB_IDS.includes(raw as TabId)
+    ? (raw as TabId)
+    : typeof raw === 'string'
+      ? LEGACY_TABS[raw]
+      : undefined;
 
 /** The env files read from the current folder when nothing says otherwise, in order. */
 export const DEFAULT_FILES = ['.env', '.env.user'] as const;
@@ -75,6 +91,8 @@ export interface EnviConfig {
 
 export interface EnviState {
   tab: TabId;
+  /** Secrets drawn in full across the whole dashboard ([v]) — kept, so a restart keeps it. */
+  reveal: boolean;
   /**
    * Machine vars: like your vars (every folder, under the env files) but kept here, so they never
    * travel with dotfiles. Applied after your vars — the machine's own value wins.
@@ -131,13 +149,14 @@ export const configStore = createConfigStore<EnviConfig>({
   }),
 });
 
-/** `~/.local/state/envi/state.json`: the tab envi was left on, and your machine vars. */
+/** `~/.local/state/envi/state.json`: the tab envi was left on, the reveal toggle, machine vars. */
 export const stateStore = createConfigStore<EnviState>({
   appName: 'envi',
   kind: 'state',
-  defaults: { tab: 'resolved', vars: {} },
+  defaults: { tab: 'values', reveal: false, vars: {} },
   coerce: (raw, defaults) => ({
-    tab: TAB_IDS.includes(raw.tab as TabId) ? (raw.tab as TabId) : defaults.tab,
+    tab: toTabId(raw.tab) ?? defaults.tab,
+    reveal: typeof raw.reveal === 'boolean' ? raw.reveal : defaults.reveal,
     vars: coerceVars(raw.vars),
   }),
 });
