@@ -9,8 +9,8 @@ import { emitMouseEvent, isMouseReporting, setMouseReporting } from '@/dev-tools
 import gitExecSync from '../../utils/gitExecSync';
 import { CommitForm } from '.';
 
-const until = async (ready: () => boolean) => {
-  const deadline = Date.now() + 4000;
+const until = async (ready: () => boolean, ms = 4000) => {
+  const deadline = Date.now() + ms;
   while (!ready()) {
     if (Date.now() > deadline) throw new Error('Timed out waiting for commit form');
     await Bun.sleep(20);
@@ -308,9 +308,11 @@ test('a clean tree says so in the middle, Push is counted and works, and files b
     await until(() => output.includes('Nothing to commit — the working tree is clean'));
     expect(output).not.toContain('Status (0)');
     await until(() => output.includes('Push ↑2') && output.includes('↑2'));
-    //? The dashboard's keys: P sends the two commits, and the bar says so once they are out
+    //? The dashboard's keys: P sends the two commits, and the bar says so once they are out —
+    //? after the fetch the form starts on its own, which the bar is busy with until then
+    await until(() => output.includes('fetched '));
     stdin.write('P');
-    await until(() => output.includes('[P] Push') && !output.includes('Push ↑2'));
+    await until(() => output.includes('[P] Push') && !output.includes('Push ↑2'), 20_000);
     expect(gitExecSync(['rev-list', '--count', 'main'], remote).stdout.trim()).toBe('3');
     writeFileSync(join(root, 'new.txt'), 'x\n');
     await until(() => output.includes('new.txt'));
@@ -320,4 +322,5 @@ test('a clean tree says so in the middle, Push is counted and works, and files b
     app.cleanup();
     rmSync(base, { recursive: true, force: true });
   }
-});
+  //? A real `giti send` runs in a child process
+}, 30_000);
