@@ -50,13 +50,15 @@ const pendingAncestors = (
 
 /**
  * States a step may be armed in: behind (never ran, stale), waiting on a step before it that has
- * no result yet (`blocked` — the very step being chained), or failed last time (a retry).
+ * no result yet (`blocked` — the very step being chained), failed last time (a retry), or done —
+ * up to date only against the result a step before it is about to replace.
  */
-const ARMABLE: ReadonlySet<string> = new Set(['none', 'stale', 'blocked', 'failed']);
+const ARMABLE: ReadonlySet<string> = new Set(['none', 'stale', 'blocked', 'failed', 'done']);
 
 /**
- * Can this step be armed: it is not up to date and something before it is running — or armed
+ * Can this step be armed: it is not running and something before it is running — or armed
  * itself, so a whole tail can be queued behind one build, each sent once the one before succeeds.
+ * Every step after a running one qualifies, however far down and whatever it reads now.
  */
 export const canArm = (
   chain: readonly ChainStep[],
@@ -79,7 +81,6 @@ export const decideAuto = (
   if (!entry) return { kind: 'drop', reason: 'the step is no longer in this chain' };
   const { state } = entry.status;
   if (state === 'running') return { kind: 'drop', reason: 'it is already running' };
-  if (state === 'done') return { kind: 'drop', reason: 'it is already up to date' };
   const ancestors = ancestorsOf(chain, stepId);
   const broken = ancestors.find(
     (item) =>
@@ -93,6 +94,8 @@ export const decideAuto = (
       kind: 'wait',
       reason: `waiting on ${pending.map((item) => item.step.label).join(', ')}`,
     };
+  //? Armed while it read done against the old result: the new one decides
+  if (state === 'done') return { kind: 'drop', reason: 'it is already up to date' };
   //? Every step it waits on succeeded: its turn — whether it reads stale or still blocked
   const parents = (entry.step.after ?? []).map((id) => chain.find((item) => item.step.id === id));
   if (entry.recommended || parents.every((parent) => parent?.status.state === 'done'))

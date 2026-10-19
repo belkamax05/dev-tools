@@ -30,15 +30,27 @@ test('ancestors are every step before, not only the direct parent', () => {
   ]);
 });
 
-test('only a step that is behind, with something before it running, can be armed', () => {
+test('every step after a running one can be armed, whatever it reads now', () => {
   const running = chain({ build: 'running', deploy: 'stale', propagate: 'none' });
   expect(canArm(running, entry(running, 'deploy'))).toBe(true);
   //? Two levels below the running build counts too
   expect(canArm(running, entry(running, 'propagate'))).toBe(true);
   const idle = chain({ deploy: 'stale' }, ['deploy']);
   expect(canArm(idle, entry(idle, 'deploy'))).toBe(false);
+  //? Done against the result the running build replaces: armable, down to the last step
   const done = chain({ build: 'running' });
-  expect(canArm(done, entry(done, 'deploy'))).toBe(false);
+  expect(canArm(done, entry(done, 'deploy'))).toBe(true);
+  expect(canArm(done, entry(done, 'propagate'))).toBe(true);
+  expect(canArm(done, entry(done, 'push'))).toBe(false);
+  expect(canArm(done, entry(done, 'build'))).toBe(false);
+});
+
+test('a step armed while it read done waits, then drops if still up to date', () => {
+  expect(decideAuto(chain({ build: 'running' }), 'propagate').kind).toBe('wait');
+  expect(decideAuto(chain({}), 'propagate')).toEqual({
+    kind: 'drop',
+    reason: 'it is already up to date',
+  });
 });
 
 test('an armed step lets the steps after it be armed behind it', () => {

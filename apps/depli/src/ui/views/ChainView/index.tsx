@@ -514,7 +514,7 @@ export const ChainView = ({
     if (!armable(entry))
       return notify(
         triggersEnabled
-          ? `${fill(entry.step.label)} can be auto-triggered only while it is not up to date and a step before it runs or is armed`
+          ? `${fill(entry.step.label)} can be auto-triggered only while a step before it runs or is armed`
           : 'Triggers are off (triggers.enabled in depli.config.ts)',
         'warn',
       );
