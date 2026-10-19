@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { afterAll, describe, expect, test } from 'bun:test';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import getCommandEntries from '.';
@@ -8,8 +8,15 @@ import getCommandEntries from '.';
  * A command tree standing in for `src/commands`, so these tests keep describing discovery rather
  * than whichever commands happen to exist today.
  */
+const made: string[] = [];
+
+afterAll(async () => {
+  for (const dir of made) await rm(dir, { recursive: true, force: true });
+});
+
 const fixtureDir = async () => {
   const dir = await mkdtemp(join(tmpdir(), 'giti-commands-'));
+  made.push(dir);
   await writeFile(
     join(dir, 'zebra.ts'),
     "export const meta = { name: 'zebra', description: 'Last alphabetically' };\nexport default () => {};\n",

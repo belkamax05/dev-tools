@@ -123,10 +123,19 @@ describe('pullVendored on a subrepo', () => {
       .filter((line) => line.startsWith('worktree ')).length;
 
   /** Upstream with one file, vendored into a fresh parent as `lib` by `git subrepo clone`. */
+  //? Every test sets up its own three repositories, so the variables only ever hold the last
+  //? set — each one made is kept here too, and all of them are removed at the end
+  const made: string[] = [];
+  const temp = async (prefix: string) => {
+    const dir = await mkdtemp(join(tmpdir(), prefix));
+    made.push(dir);
+    return dir;
+  };
+
   const setup = async () => {
-    upstream = await mkdtemp(join(tmpdir(), 'giti-subrepo-upstream-'));
+    upstream = await temp('giti-subrepo-upstream-');
     await gitExec(['init', '--bare', '-b', 'main'], upstream);
-    seed = await mkdtemp(join(tmpdir(), 'giti-subrepo-seed-'));
+    seed = await temp('giti-subrepo-seed-');
     await gitExec(['clone', upstream, seed], tmpdir());
     await identify(seed);
     await writeFile(join(seed, 'a.txt'), 'one\ntwo\nthree\n');
@@ -134,7 +143,7 @@ describe('pullVendored on a subrepo', () => {
     await gitExec(['commit', '-m', 'first'], seed);
     await gitExec(['push', 'origin', 'HEAD:main'], seed);
 
-    parent = await mkdtemp(join(tmpdir(), 'giti-subrepo-parent-'));
+    parent = await temp('giti-subrepo-parent-');
     await gitExec(['init', '-b', 'main'], parent);
     await identify(parent);
     await commit(parent, 'README.md');
@@ -149,9 +158,7 @@ describe('pullVendored on a subrepo', () => {
   };
 
   afterAll(async () => {
-    for (const dir of [upstream, seed, parent]) {
-      if (dir) await rm(dir, { recursive: true, force: true });
-    }
+    for (const dir of made) await rm(dir, { recursive: true, force: true });
   });
 
   //? A host repo's pre-commit formatter (lint-staged) rewrote vendored files inside the commit
