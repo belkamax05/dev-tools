@@ -1,4 +1,4 @@
-import { intro, isCancel, log, outro, text } from '@clack/prompts';
+import { intro, isCancel, text } from '@clack/prompts';
 import formatArg from '@/dev-tools/utils/format/formatArg';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import cleanVendored from '../cleanVendored';
@@ -461,9 +461,9 @@ const runMegaTransfer = async (
     self: (args: VendoredArgs) => Promise<VendoredOutcome>;
   },
 ) => {
-  //? One clack frame for the whole run — `┌` title and the repo header, a line (or a spinner while
-  //? git works) per entry labelled with its kind, `└` tally — the same for a pull and a push,
-  //? since both bodies print through clack
+  //? One clack frame for the whole run — `┌` title and the repo header, then the spinner on the
+  //? step at hand while each finished one is logged above it as a line labelled with its kind,
+  //? `└` tally — the same for a pull and a push, since both bodies report through `stepProgress`
   intro(formatColor(`giti ${command}`, 'command'));
   stepProgress.log.message(formatMegaHeaderLines(tree.repo));
 
@@ -482,6 +482,7 @@ const runMegaTransfer = async (
 
   const runSelf = async () => {
     if (!withSelf) return;
+    stepProgress.working(`${vendoredLabel('self')}  checking against its upstream`);
     outcomes.push(await self(args));
   };
 
@@ -493,6 +494,7 @@ const runMegaTransfer = async (
     //? "pulling 2 commits", then counted as pulled once `git subrepo pull` found nothing to do.
     //? Re-read only when that pull actually moved HEAD; the directories picked are unchanged.
     if (outcomes.at(-1) === 'done') {
+      stepProgress.working('re-reading the tree after the pull');
       const fresh = await getMegaTree(tree.repo.path);
       if (fresh) groups = select(fresh, args.dirs);
     }
@@ -503,7 +505,10 @@ const runMegaTransfer = async (
 
     if (!(await hasVendorTooling(group.kind))) continue;
 
-    for (const entry of group.entries) outcomes.push(await transfer(entry, cwd, args));
+    for (const entry of group.entries) {
+      stepProgress.working(`${vendoredLabel(entry.kind, entry.dir)}  checking against its upstream`);
+      outcomes.push(await transfer(entry, cwd, args));
+    }
   }
 
   if (!selfFirst) await runSelf();

@@ -1,4 +1,4 @@
-import { intro, log, outro } from '@clack/prompts';
+import { intro } from '@clack/prompts';
 import formatArg from '@/dev-tools/utils/format/formatArg';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import cleanVendored, { type VendoredCleanReport } from '../cleanVendored';
@@ -7,6 +7,7 @@ import isSubrepoUsable from '../isSubrepoUsable';
 import pullVendored from '../pullVendored';
 import pushVendored from '../pushVendored';
 import stepProgress from '../stepProgress';
+import vendoredLabel from '../vendoredLabel';
 import resolveSubtreeUpstream from '../resolveSubtreeUpstream';
 import type { Vendored, VendoredOutcome, VendoredState, VendorKind } from '../vendored';
 import { explainEmptySelection, plural, selectVendored } from '../vendored';
@@ -312,10 +313,13 @@ export const runVendoredPull = async (
   //? Same frame as `receive`: pullVendored prints each entry as a clack line, so the run opens
   //? and closes around them rather than around loose console output.
   intro(formatColor(`giti ${kind} pull`, 'command'));
-  log.message(formatColor(`Checking ${plural(targets.length, kind)}`, 'info'));
+  stepProgress.log.message(formatColor(`Checking ${plural(targets.length, kind)}`, 'info'));
 
   const outcomes: VendoredOutcome[] = [];
-  for (const entry of targets) outcomes.push(await pullVendored(entry, cwd, args));
+  for (const entry of targets) {
+    stepProgress.working(`${vendoredLabel(entry.kind, entry.dir)}  checking against its upstream`);
+    outcomes.push(await pullVendored(entry, cwd, args));
+  }
 
   if (kind === 'submodule' && outcomes.includes('done')) stepProgress.log.info(GITLINK_NOTE.replace(/^ℹ️\s*/, ''));
   const tally = summarise(outcomes, 'Pulled');
@@ -342,10 +346,13 @@ export const runVendoredPush = async (
 
   //? Same frame as `send` and `pull` above: pushVendored prints each entry as a clack line
   intro(formatColor(`giti ${kind} push`, 'command'));
-  log.message(formatColor(`Checking ${plural(targets.length, kind)}`, 'info'));
+  stepProgress.log.message(formatColor(`Checking ${plural(targets.length, kind)}`, 'info'));
 
   const outcomes: VendoredOutcome[] = [];
-  for (const entry of targets) outcomes.push(await pushVendored(entry, cwd, args));
+  for (const entry of targets) {
+    stepProgress.working(`${vendoredLabel(entry.kind, entry.dir)}  checking against its upstream`);
+    outcomes.push(await pushVendored(entry, cwd, args));
+  }
 
   const tally = summarise(outcomes, 'Pushed');
   stepProgress.outro(formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'));
