@@ -369,7 +369,7 @@ const pushSelf = async (
       return 'failed' as const;
     }
     const done = trial ? 'would push' : 'pushed';
-    step.succeed([`${label}  ${formatColor(`${done} — ${title}`, 'success')}`, ...describePush(step.output)].join('\n'));
+    step.succeed([`${label}  ${formatColor(`${done} ${title}`, 'success')}`, ...describePush(step.output)].join('\n'));
     return 'done' as const;
   };
 
