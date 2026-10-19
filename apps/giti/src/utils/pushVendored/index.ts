@@ -1,4 +1,4 @@
-import { log } from '@clack/prompts';
+import stepProgress from '../stepProgress';
 import formatArg from '@/dev-tools/utils/format/formatArg';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import describePush from '../describePush';
@@ -39,11 +39,11 @@ const pushVendored = async (
   const { kind, dir, path } = vendored;
   const label = vendoredLabel(kind, dir);
   const skipped = (why: string) => {
-    log.warn(`${label}  ${formatColor('skipped', 'warning')} · ${why}`);
+    stepProgress.log.warn(`${label}  ${formatColor('skipped', 'warning')} · ${why}`);
     return 'skipped' as const;
   };
   const current = (why: string) => {
-    log.success(`${label}  ${formatColor('nothing to push', 'success')} · ${why}`);
+    stepProgress.log.success(`${label}  ${formatColor('nothing to push', 'success')} · ${why}`);
     return 'current' as const;
   };
 
@@ -106,7 +106,7 @@ const pushVendored = async (
     const what =
       localChanges && localChanges.length > 0 ? plural(localChanges.length, 'changed file') : 'its changes';
     const to = kind === 'subtree' ? ` to ${upstream?.remote} ${upstream?.branch}` : '';
-    log.info(`${label}  ${formatColor('dry run', 'info')} · would push ${what}${to}`);
+    stepProgress.log.info(`${label}  ${formatColor('dry run', 'info')} · would push ${what}${to}`);
     return 'done';
   }
 
@@ -118,7 +118,7 @@ const pushVendored = async (
   //? `git subrepo` `-u` is --update, which would rewrite the entry's .gitrepo remote
   const forwardable = args.passthrough.filter((flag) => !SELF_ONLY.has(flag));
   const { flags, config, dropped } = forwardVendoredFlags(forwardable, forwardTo);
-  if (dropped.length > 0) log.warn(`${label}  ${explainDroppedFlags(dropped, forwardTo)}`);
+  if (dropped.length > 0) stepProgress.log.warn(`${label}  ${explainDroppedFlags(dropped, forwardTo)}`);
 
   //? A submodule's copy is a repository of its own and its own commits are what travel, so its
   //? push runs inside it. The other two are trees in the parent, pushed by the parent.

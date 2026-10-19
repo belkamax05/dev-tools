@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { log } from '@clack/prompts';
+import stepProgress from '../stepProgress';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import describePull from '../describePull';
 import getTrackedBranch from '../getTrackedBranch';
@@ -151,7 +151,7 @@ const pullVendored = async (
   //? from the flags or a same-named remote before anything can be compared, let alone merged.
   const upstream = kind === 'subtree' ? await resolveSubtreeUpstream(vendored, args, cwd) : null;
   if (kind === 'subtree' && !upstream) {
-    log.warn(
+    stepProgress.log.warn(
       `${label}  ${formatColor('skipped', 'warning')} · git subtree records no remote, and none ` +
         'was given. Pass --remote=<name-or-url> (and --branch= if it is not the default).',
     );
@@ -163,7 +163,7 @@ const pullVendored = async (
   //? up front, so a past failure never blocks a later run.
   if (kind === 'subrepo' && (await subrepoWorktree(dir, cwd))) {
     await discardSubrepoAttempt(dir, cwd);
-    log.info(`${label}  cleared what an earlier, unfinished pull left behind`);
+    stepProgress.log.info(`${label}  cleared what an earlier, unfinished pull left behind`);
   }
 
   //? No passthrough on this one: it is giti's own look at the upstream, not the pull the user
@@ -171,7 +171,7 @@ const pullVendored = async (
   const { behind, dirty, localChanges } = await getVendoredState({ ...vendored, ...upstream }, cwd);
 
   if (behind === 0) {
-    log.success(`${label}  ${formatColor('up to date', 'success')}`);
+    stepProgress.log.success(`${label}  ${formatColor('up to date', 'success')}`);
     return 'current';
   }
 
@@ -180,7 +180,7 @@ const pullVendored = async (
   //? way, and in all three git says so only once the operation is already half-done.
   if (kind !== 'subrepo' && dirty.length > 0) {
     const where = kind === 'submodule' ? 'inside the submodule' : 'under the prefix';
-    log.warn(
+    stepProgress.log.warn(
       `${label}  ${formatColor('skipped', 'warning')} · ` +
         `${plural(dirty.length, 'uncommitted file')} ${where} — commit or stash them before ` +
         'merging upstream in.',
@@ -220,7 +220,7 @@ const pullVendored = async (
   const forwardTo: FlagTarget =
     kind === 'subrepo' ? 'subrepo' : kind === 'submodule' ? 'submodule-update' : 'subtree';
   const { flags, config, dropped } = forwardVendoredFlags(args.passthrough, forwardTo);
-  if (dropped.length > 0) log.warn(`${label}  ${explainDroppedFlags(dropped, forwardTo)}`);
+  if (dropped.length > 0) stepProgress.log.warn(`${label}  ${explainDroppedFlags(dropped, forwardTo)}`);
 
   const command =
     kind === 'subrepo'

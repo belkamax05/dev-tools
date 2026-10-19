@@ -11,6 +11,7 @@ import gitExec from '../gitExec';
 import pullVendored from '../pullVendored';
 import pushVendored from '../pushVendored';
 import runGitStep from '../runGitStep';
+import stepProgress from '../stepProgress';
 import type { Vendored, VendoredOutcome } from '../vendored';
 import { getDirtyPaths, plural, selectVendored } from '../vendored';
 import type { VendoredArgs } from '../vendoredArgs';
@@ -257,12 +258,12 @@ const pullSelf = async (
   const { upstream, behind } = await getMegaSelfState(repo.path);
 
   if (!upstream) {
-    log.success(`${label}  ${formatColor('tracks no upstream branch — nothing to pull', 'info')}`);
+    stepProgress.log.success(`${label}  ${formatColor('tracks no upstream branch — nothing to pull', 'info')}`);
     return 'current';
   }
 
   if (behind === 0) {
-    log.success(`${label}  ${formatColor('up to date', 'success')}`);
+    stepProgress.log.success(`${label}  ${formatColor('up to date', 'success')}`);
     return 'current';
   }
 
@@ -270,7 +271,7 @@ const pullSelf = async (
   //? and which of the two it does depends on which files happen to overlap — unless the user
   //? asked for --autostash, which is git's own answer to exactly that
   if (repo.dirty.length > 0 && !flags.includes('--autostash')) {
-    log.warn(
+    stepProgress.log.warn(
       `${label}  ${formatColor('skipped', 'warning')} · ` +
         `${plural(repo.dirty.length, 'uncommitted file')} in the way — commit or stash them ` +
         'before merging upstream in.',
@@ -312,7 +313,7 @@ const pullFromTarget = async (
   label: string,
 ): Promise<VendoredOutcome> => {
   if (repo.dirty.length > 0 && !flags.includes('--autostash')) {
-    log.warn(
+    stepProgress.log.warn(
       `${label}  ${formatColor('skipped', 'warning')} · ` +
         `${plural(repo.dirty.length, 'uncommitted file')} in the way — commit or stash them, ` +
         'or pass --autostash.',
@@ -381,7 +382,7 @@ const pushSelf = async (
   if (!upstream) {
     const branch = repo.branch && repo.branch !== 'HEAD' ? repo.branch : '';
     if (!branch) {
-      log.warn(`${label}  ${formatColor('skipped', 'warning')} · detached HEAD — switch to a branch to push it.`);
+      stepProgress.log.warn(`${label}  ${formatColor('skipped', 'warning')} · detached HEAD — switch to a branch to push it.`);
       return 'skipped';
     }
     //? The usual first push, `git push -u origin <branch>`: without it a new branch could only
@@ -395,12 +396,12 @@ const pushSelf = async (
   }
 
   if (ahead === 0 && !tags && !forced) {
-    log.success(`${label}  ${formatColor('nothing to push', 'success')} · ${upstream} already has it all`);
+    stepProgress.log.success(`${label}  ${formatColor('nothing to push', 'success')} · ${upstream} already has it all`);
     return 'current';
   }
 
   if (behind && behind > 0 && !forced) {
-    log.warn(
+    stepProgress.log.warn(
       `${label}  ${formatColor('skipped', 'warning')} · ${upstream} moved ${plural(behind, 'commit')}, so the ` +
         'push would be rejected as non-fast-forward. Run `giti receive` first, or pass --force-with-lease.',
     );
@@ -464,7 +465,7 @@ const runMegaTransfer = async (
   //? git works) per entry labelled with its kind, `└` tally — the same for a pull and a push,
   //? since both bodies print through clack
   intro(formatColor(`giti ${command}`, 'command'));
-  log.message(formatMegaHeaderLines(tree.repo));
+  stepProgress.log.message(formatMegaHeaderLines(tree.repo));
 
   const args = splitVendoredArgs(rawArgs, OWN_FLAGS.transfer);
   let groups = select(tree, args.dirs);
@@ -472,8 +473,8 @@ const runMegaTransfer = async (
   const withSelf = !hasOwn(args, '--no-self');
 
   if (selected === 0 && !withSelf) {
-    log.info(explainEmptyTree(tree, args.dirs).replace(/^ℹ️\s*/, ''));
-    outro(formatColor('Nothing to do.', 'info'));
+    stepProgress.log.info(explainEmptyTree(tree, args.dirs).replace(/^ℹ️\s*/, ''));
+    stepProgress.outro(formatColor('Nothing to do.', 'info'));
     return;
   }
 
@@ -507,7 +508,7 @@ const runMegaTransfer = async (
 
   if (!selfFirst) await runSelf();
 
-  if (selected === 0) log.info(explainEmptyTree(tree, args.dirs).replace(/^ℹ️\s*/, ''));
+  if (selected === 0) stepProgress.log.info(explainEmptyTree(tree, args.dirs).replace(/^ℹ️\s*/, ''));
 
   const movedSubmodule = groups.some((group) => group.kind === 'submodule' && group.entries.length);
   const gitlinkNote =
@@ -517,9 +518,9 @@ const runMegaTransfer = async (
 
   //? The note comes before the tally so the frame still closes on the one line that says how
   //? the run went.
-  if (gitlinkNote) log.info(gitlinkNote);
+  if (gitlinkNote) stepProgress.log.info(gitlinkNote);
   const { text, left } = tallyTree(outcomes, verb);
-  outro(formatColor(text, left > 0 ? 'warning' : 'success'));
+  stepProgress.outro(formatColor(text, left > 0 ? 'warning' : 'success'));
 };
 
 /**

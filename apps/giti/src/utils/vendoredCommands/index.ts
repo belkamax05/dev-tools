@@ -6,6 +6,7 @@ import getVendoredState from '../getVendoredState';
 import isSubrepoUsable from '../isSubrepoUsable';
 import pullVendored from '../pullVendored';
 import pushVendored from '../pushVendored';
+import stepProgress from '../stepProgress';
 import resolveSubtreeUpstream from '../resolveSubtreeUpstream';
 import type { Vendored, VendoredOutcome, VendoredState, VendorKind } from '../vendored';
 import { explainEmptySelection, plural, selectVendored } from '../vendored';
@@ -316,9 +317,9 @@ export const runVendoredPull = async (
   const outcomes: VendoredOutcome[] = [];
   for (const entry of targets) outcomes.push(await pullVendored(entry, cwd, args));
 
-  if (kind === 'submodule' && outcomes.includes('done')) log.info(GITLINK_NOTE.replace(/^ℹ️\s*/, ''));
+  if (kind === 'submodule' && outcomes.includes('done')) stepProgress.log.info(GITLINK_NOTE.replace(/^ℹ️\s*/, ''));
   const tally = summarise(outcomes, 'Pulled');
-  outro(formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'));
+  stepProgress.outro(formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'));
 
   return outcomes;
 };
@@ -347,7 +348,7 @@ export const runVendoredPush = async (
   for (const entry of targets) outcomes.push(await pushVendored(entry, cwd, args));
 
   const tally = summarise(outcomes, 'Pushed');
-  outro(formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'));
+  stepProgress.outro(formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'));
   return outcomes;
 };
 
