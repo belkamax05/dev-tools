@@ -270,7 +270,7 @@ test('the arrows walk the flags, Space toggles the one under the cursor, and eac
   }
 });
 
-test('a clean tree says so in the middle, the commits to push are counted, and files bring the list back', async () => {
+test('a clean tree says so in the middle, Push is counted and works, and files bring the list back', async () => {
   const base = mkdtempSync(join(import.meta.dir, '.commit-test-'));
   const remote = join(base, 'remote.git');
   const root = join(base, 'work');
@@ -307,7 +307,11 @@ test('a clean tree says so in the middle, the commits to push are counted, and f
   try {
     await until(() => output.includes('Nothing to commit — the working tree is clean'));
     expect(output).not.toContain('Status (0)');
-    await until(() => output.includes('2 commits to push') && output.includes('↑2'));
+    await until(() => output.includes('Push ↑2') && output.includes('↑2'));
+    //? The dashboard's keys: P sends the two commits, and the bar says so once they are out
+    stdin.write('P');
+    await until(() => output.includes('[P] Push') && !output.includes('Push ↑2'));
+    expect(gitExecSync(['rev-list', '--count', 'main'], remote).stdout.trim()).toBe('3');
     writeFileSync(join(root, 'new.txt'), 'x\n');
     await until(() => output.includes('new.txt'));
     expect(output).not.toContain('Nothing to commit — the working tree is clean');

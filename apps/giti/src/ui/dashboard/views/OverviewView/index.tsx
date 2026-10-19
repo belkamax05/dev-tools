@@ -10,7 +10,7 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
 import type { GitViewProps } from '../../types';
 import copyToClipboard from '../../clipboard';
-import SyncSummary from '../../SyncSummary';
+import SyncBar from '../../SyncBar';
 import type { RemoteSync } from '../../useRemoteSync';
 import IgnoredView from '../IgnoredView';
 import StatusView from '../StatusView';
@@ -29,62 +29,6 @@ export interface OverviewViewProps extends GitViewProps {
   onOpenStash: () => void;
   onOpenRemotes: () => void;
 }
-
-/**
- * Where the branch stands against its remote, and the three things done about it.
- *
- * One line, always shown: this is what the first glance at a repository is for — am I behind,
- * do I have something to push — and the button for each answer sits right next to it. The
- * likely next step is the highlighted one: Pull when behind, Push when ahead.
- */
-const SyncBar = ({
-  snapshot,
-  sync,
-  details,
-  onToggleDetails,
-  onPickBranch,
-}: Pick<
-  OverviewViewProps,
-  'snapshot' | 'sync' | 'details' | 'onToggleDetails' | 'onPickBranch'
->) => {
-  const colors = useColors();
-  const { ahead, behind } = snapshot;
-  const busy = Boolean(sync.progress);
-  //? A mega pull brings in the vendored directories too, so their waiting commits count here
-  const incoming = behind + sync.vendoredBehind;
-
-  return (
-    <Box flexDirection="row" flexShrink={0}>
-      <SyncSummary snapshot={snapshot} sync={sync} onPickBranch={onPickBranch} />
-      <Box flexShrink={0} flexDirection="row">
-        <Text> </Text>
-        <ActionButton hotkey="f" label="Fetch" disabled={busy} onPress={sync.fetch} />
-        <Text> </Text>
-        <ActionButton
-          hotkey="p"
-          label={incoming ? `Pull ↓${incoming}` : 'Pull'}
-          color={incoming ? colors.accent : undefined}
-          disabled={busy}
-          onPress={sync.pull}
-        />
-        <Text> </Text>
-        <ActionButton
-          hotkey="P"
-          label={ahead ? `Push ↑${ahead}` : 'Push'}
-          color={ahead && !behind ? colors.accent : undefined}
-          disabled={busy}
-          onPress={sync.push}
-        />
-        <Text> </Text>
-        <ActionButton
-          hotkey={details ? '-' : '+'}
-          label={details ? 'Less' : 'More'}
-          onPress={onToggleDetails}
-        />
-      </Box>
-    </Box>
-  );
-};
 
 /**
  * What `+` adds: the facts worth having but not worth the room every time — which commit HEAD
@@ -238,8 +182,7 @@ export const OverviewView = ({
           <SyncBar
             snapshot={snapshot}
             sync={sync}
-            details={details}
-            onToggleDetails={onToggleDetails}
+            details={{ shown: details, onToggle: onToggleDetails }}
             onPickBranch={onPickBranch}
           />
           <Box flexDirection="row" flexShrink={0}>

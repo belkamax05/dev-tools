@@ -18,9 +18,8 @@ import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import { getChanges } from '../../core/status';
 import saveCommit from '../../utils/saveCommit';
-import { plural } from '../../utils/vendored';
 import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
-import SyncSummary from '../dashboard/SyncSummary';
+import SyncBar from '../dashboard/SyncBar';
 import useRemoteSync from '../dashboard/useRemoteSync';
 import useRepoSnapshot from '../dashboard/useRepoSnapshot';
 import useRepoWatch from '../dashboard/useRepoWatch';
@@ -141,8 +140,6 @@ export const CommitForm = ({
   //? The dashboard's one quiet fetch on open, so the commits to pull are counted against the
   //? remote as it is now, not as of the last fetch
   const sync = useRemoteSync(root, { notify: (text) => setNotice(text), reload });
-  const toPush = snapshot?.isRepo ? snapshot.ahead : 0;
-  const toPull = snapshot?.isRepo ? snapshot.behind + sync.vendoredBehind : 0;
   //? The net under the watcher, as on the dashboard: what it missed is on screen within this
   useEffect(() => {
     if (refreshSeconds <= 0) return;
@@ -260,6 +257,12 @@ export const CommitForm = ({
     //? Only while no text field has the keys: in the message, `q` is a letter of it
     if (input === 'q' && !key.ctrl && !key.meta && section !== 'message') return exit();
     if (key.return && key.shift) return quickCommit();
+    //? The dashboard's keys for the bar on top — except in the message, where they are letters
+    if (section !== 'message' && !key.ctrl && !key.meta && snapshot?.isRepo) {
+      if (input === 'f') return sync.fetch();
+      if (input === 'p') return sync.pull();
+      if (input === 'P') return sync.push();
+    }
     if (key.tab) {
       const sections: Section[] = ['files', 'message', 'flags'];
       setSection(sections[(sections.indexOf(section) + (key.shift ? 2 : 1)) % 3] ?? 'files');
@@ -346,23 +349,7 @@ export const CommitForm = ({
               { hotkey: 'Shift+Enter', label: 'Commit now', onPress: quickCommit },
             ]}
           />
-          {snapshot?.isRepo && (
-            <Box flexDirection="row">
-              <SyncSummary snapshot={snapshot} sync={sync} />
-              {(toPush > 0 || toPull > 0) && (
-                <Box flexShrink={0}>
-                  <Text>
-                    {toPush > 0 && (
-                      <Text color={colors.ok}>{`  ${plural(toPush, 'commit')} to push`}</Text>
-                    )}
-                    {toPull > 0 && (
-                      <Text color={colors.warn}>{`  ${plural(toPull, 'commit')} to pull`}</Text>
-                    )}
-                  </Text>
-                </Box>
-              )}
-            </Box>
-          )}
+          {snapshot?.isRepo && <SyncBar snapshot={snapshot} sync={sync} />}
           <Text color={colors.accent}>Enter → {nextStep}</Text>
         </Box>
       )}
