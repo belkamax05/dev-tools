@@ -102,8 +102,10 @@ const run: CommandRun = async (rawArgs) => {
 
   const { default: renderInkSwitch } = await import('../ui/renderInkSwitch');
   await renderInkSwitch({
+    //? A name that matched no branch outright: the search starts on it
     initialBranch: parsed.branch,
-    initialNewBranchName: parsed.newBranchName,
+    //? `-c` with no name yet (with one, it ran above without the screen)
+    startCreating: parsed.newBranch,
     initialFlags: {
       detach: parsed.detach,
       track: parsed.track,
@@ -118,7 +120,7 @@ const run: CommandRun = async (rawArgs) => {
 export const meta = {
   name: 'hop',
   description:
-    'Switch branches with interactive TUI — search local & remote branches, preview divergence',
+    "Switch branches — the dashboard's branch picker full screen: search local & remote branches, details, compare, flags",
 };
 
 export default run;

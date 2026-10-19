@@ -10,7 +10,7 @@ import type { Hint } from '../HintBar';
 import HintBar, { layoutHints } from '../HintBar';
 import Panel from '../Panel';
 import type { PickItem } from '../PickList';
-import PickList, { firstSelectable, moveInList } from '../PickList';
+import PickList, { firstSelectable, moveInList, nearestSelectable } from '../PickList';
 import ScrollPanel from '../ScrollPanel';
 
 /** Share of the app's width the list gets, with the detail pane taking the rest. */
@@ -125,6 +125,12 @@ export interface ListDetailProps<T> {
    * Falls back to the first selectable row when it is gone.
    */
   initialSelectedId?: string;
+  /**
+   * Put the cursor on the row with `id` — once that row exists, since a view that just changed
+   * something (staged a file) gets the new rows on its next read. A new `seq` makes a new request;
+   * the same one asked again does nothing.
+   */
+  selectRequest?: { id: string; seq: number };
   /** The shared draggable scrollbar in the list pane; false falls back to a hidden-row count. */
   listScrollbar?: boolean;
   /**
@@ -180,6 +186,7 @@ export const ListDetail = <T,>({
   confirmClick = false,
   reservedChrome = [],
   initialSelectedId,
+  selectRequest,
   listScrollbar = true,
   detailScroll = true,
   activateLabel = 'open',
@@ -201,14 +208,25 @@ export const ListDetail = <T,>({
    *
    * Callers build `items` inline, so it is a fresh array on every render. As a
    * dependency it would re-home the cursor on every keystroke in the app; the
-   * thing that actually means "the list changed" is its length. Reading the rows
-   * through a ref is what lets the effect below depend on the length alone and
-   * still see the current rows — and, unlike a lint suppression, it is not
-   * something an autofix can quietly undo.
+   * thing that actually means "the list changed" is which rows it has, in order
+   * (`ids`, below). Reading the rows through a ref is what lets the effect below
+   * depend on that alone and still see the current rows — and, unlike a lint
+   * suppression, it is not something an autofix can quietly undo.
    */
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const count = items.length;
+  //? Which rows there are, in order: unlike the count, it also changes when a row moves to another
+  //? group (a file staged) — where the index under the cursor can turn into a group's header
+  const ids = items.map((item) => item.id).join('\u0000');
+
+  //? A request is held until its row exists, like the initial id below
+  const pendingRequest = useRef<string | undefined>(undefined);
+  const lastRequest = useRef<number | undefined>(undefined);
+  if (selectRequest && selectRequest.seq !== lastRequest.current) {
+    lastRequest.current = selectRequest.seq;
+    pendingRequest.current = selectRequest.id;
+  }
 
   //? A list that changed under the cursor — a refresh, a different filter — can
   //? leave it past the end or parked on a header. Re-homing on the first
@@ -226,6 +244,13 @@ export const ListDetail = <T,>({
         pendingInitialId.current = undefined;
         if (wanted >= 0) return wanted;
       }
+      if (pendingRequest.current !== undefined) {
+        const wanted = rows.findIndex((row) => row.id === pendingRequest.current);
+        if (wanted >= 0) {
+          pendingRequest.current = undefined;
+          return wanted;
+        }
+      }
       //? Clamped first, then checked. A list that got shorter leaves the cursor
       //? past the end, and `rows[at]` there is undefined — which would send it
       //? all the way back to the top rather than to the nearest row that still
@@ -234,9 +259,10 @@ export const ListDetail = <T,>({
       const clamped = Math.max(0, Math.min(at, count - 1));
       const item = rows[clamped];
       if (item && !item.isHeader && !item.disabled) return clamped;
-      return firstSelectable(rows);
+      //? Parked on a header: the closest row there is, not the top of the list
+      return nearestSelectable(rows, clamped);
     });
-  }, [count]);
+  }, [ids, selectRequest?.seq]);
 
   const current = items[selected];
 

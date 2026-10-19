@@ -37,6 +37,11 @@ export interface PickItem<T = unknown> {
 	 * keep their own colours: an accent hint on an accent highlight disappears.
 	 */
 	hintColor?: string;
+	/**
+	 * The label's colour while the row is neither selected nor hovered — to mark one row for a
+	 * moment (a file that just moved to another group). The cursor's own colours win over it.
+	 */
+	labelColor?: string;
 	value?: T;
 	isHeader?: boolean;
 	disabled?: boolean;
@@ -216,9 +221,8 @@ const PickCell = <T,>({
 			? colors.accentText
 			: isSelected
 				? colors.accent
-				: item.isCurrent
-					? colors.ok
-					: colors.text;
+				: (item.labelColor ??
+					(item.isCurrent ? colors.ok : colors.text));
 
 	//? The marker column is two cells wide and always drawn, so the labels line up
 	//? whether or not anything is selected — a list whose text shifts sideways as
@@ -624,6 +628,23 @@ export const nextSelectable = <T,>(
 		if (item && !item.isHeader && !item.disabled) return index;
 	}
 	return from;
+};
+
+/**
+ * The row a cursor may rest on that is closest to `at` — `at` itself when it can, else the
+ * nearest below or above, below first at the same distance. Where a list that changed under
+ * the cursor puts it: next to where it was, not back at the top.
+ */
+export const nearestSelectable = <T,>(items: PickItem<T>[], at: number): number => {
+	const usable = (index: number) => {
+		const item = items[index];
+		return Boolean(item && !item.isHeader && !item.disabled);
+	};
+	for (let distance = 0; distance < items.length; distance++) {
+		if (usable(at + distance)) return at + distance;
+		if (usable(at - distance)) return at - distance;
+	}
+	return firstSelectable(items);
 };
 
 /** The first row a cursor may rest on — where a freshly built list starts. */

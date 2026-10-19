@@ -171,6 +171,7 @@ export const App = ({
   const { status, setStatus } = useStatus(notice);
   const [undo, setUndo] = useState<UndoOffer | undefined>(undefined);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [switched, setSwitched] = useState<{ text: string; id: number }>();
   const [details, setDetails] = useState(initialDetails);
   const [refreshSeconds, setRefreshSeconds] = useState(initialRefreshSeconds);
 
@@ -426,7 +427,19 @@ export const App = ({
       ) : (
         <>
           {overviewPanel === 'branches' ? (
-            <BranchesView {...viewProps} sync={sync} onClose={() => setOverviewPanel(undefined)} />
+            <BranchesView
+              {...viewProps}
+              sync={sync}
+              onClose={() => setOverviewPanel(undefined)}
+              //? Switching is what the picker was opened for: once it went through, back to the
+              //? Overview of the branch now checked out — as `giti hop` closes on it
+              onSwitched={(message) => {
+                //? Said under the branch name on Overview, as a moment's flash — not the status line
+                setSwitched((was) => ({ text: message, id: (was?.id ?? 0) + 1 }));
+                setOverviewPanel(undefined);
+                reload();
+              }}
+            />
           ) : overviewPanel === 'log' ? (
             <LogView {...viewProps} />
           ) : overviewPanel === 'stash' ? (
@@ -445,6 +458,7 @@ export const App = ({
               onOpenLog={() => setOverviewPanel('log')}
               onOpenStash={() => setOverviewPanel('stash')}
               onOpenRemotes={() => setOverviewPanel('remotes')}
+              switched={switched}
             />
           ) : null}
         </>

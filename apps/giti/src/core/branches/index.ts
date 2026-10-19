@@ -56,6 +56,9 @@ export const getBranches = async (root: string): Promise<Branch[]> => {
     refs.stdout
       .split('\n')
       .filter(Boolean)
+      //? `origin/HEAD` is a pointer, not a branch anyone works on. Matched on the full ref:
+      //? git shortens `refs/remotes/origin/HEAD` to plain `origin`, which no name test catches
+      .filter((line) => !/^refs\/remotes\/.+\/HEAD$/.test(line.split(SEP)[0] ?? ''))
       .map((line) => {
         const [
           ref = '',
@@ -83,8 +86,6 @@ export const getBranches = async (root: string): Promise<Branch[]> => {
           timestamp: Number(unix) || 0,
         };
       })
-      //? `origin/HEAD` is a pointer, not a branch anyone works on
-      .filter((branch) => !(branch.isRemote && branch.name.endsWith('/HEAD')))
   );
 };
 
@@ -118,11 +119,50 @@ export const mergeBranch = async (root: string, branch: Branch): Promise<Operati
  * branch that tracks it — created if there is none yet — which is what
  * `git switch` does when given the short name.
  */
-export const switchBranch = async (root: string, branch: Branch): Promise<OperationResult> => {
+/** How a switch is made — what `giti hop` lets you pick; the dashboard switches plainly. */
+export interface SwitchOptions {
+  /** `--force`: throw away local changes that would stop the switch. */
+  force?: boolean;
+  /** `--detach`: check out the commit itself, on no branch. */
+  detach?: boolean;
+  /** `--no-track`: a remote branch becomes a local one that tracks nothing. */
+  noTrack?: boolean;
+  /** Anything else typed after `giti hop`, handed to `git switch` as it is. */
+  passthrough?: string[];
+}
+
+/**
+ * The `git switch` for one branch. A remote one is switched to by its short name, which git turns
+ * into a local branch tracking it (or switches to, once that exists) — unless `--no-track` asks
+ * for it to track nothing, which takes the explicit `-c <name> --no-track <remote>/<name>`.
+ */
+export const switchArgs = (
+  branch: Pick<Branch, 'name' | 'isRemote'>,
+  { force = false, detach = false, noTrack = false, passthrough = [] }: SwitchOptions = {},
+  localExists = false,
+): string[] => {
   const local = branch.isRemote ? branch.name.replace(/^[^/]+\//, '') : branch.name;
-  const result = await git(['switch', local], root);
+  const target = detach
+    ? ['--detach', branch.name]
+    : branch.isRemote && noTrack && !localExists
+      ? ['-c', local, '--no-track', branch.name]
+      : [local];
+  return ['switch', ...target, ...(force ? ['--force'] : []), ...passthrough];
+};
+
+export const switchBranch = async (
+  root: string,
+  branch: Branch,
+  options: SwitchOptions = {},
+): Promise<OperationResult> => {
+  const local = branch.isRemote ? branch.name.replace(/^[^/]+\//, '') : branch.name;
+  const exists = branch.isRemote
+    ? (await git(['rev-parse', '--verify', '--quiet', `refs/heads/${local}`], root)).ok
+    : true;
+  const result = await git(switchArgs(branch, options, exists), root);
+  const where = options.detach ? `${branch.name} (detached)` : local;
   return result.ok
-    ? { ok: true, message: `Switched to ${local}` }
+    ? { ok: true, message: `Switched to ${where}` }
     : { ok: false, message: failure(result, 'git switch failed') };
 };
 
@@ -130,10 +170,19 @@ export const createBranch = async (
   root: string,
   name: string,
   startPoint?: string,
+  { force = false, noTrack = false, passthrough = [] }: SwitchOptions = {},
 ): Promise<OperationResult> => {
   if (!name.trim()) return { ok: false, message: 'A branch needs a name' };
   const result = await git(
-    ['switch', '-c', name.trim(), ...(startPoint ? [startPoint] : [])],
+    [
+      'switch',
+      '-c',
+      name.trim(),
+      ...(startPoint ? [startPoint] : []),
+      ...(force ? ['--force'] : []),
+      ...(noTrack ? ['--no-track'] : []),
+      ...passthrough,
+    ],
     root,
   );
   return result.ok

@@ -71,6 +71,9 @@ const hintFor = ({ change, side }: Row) =>
  * or one hunk; commit from the same screen. Discards are confirmed and can be
  * undone from the status line straight after.
  */
+/** How long a file that just moved to the other group keeps that group's colour. */
+const MOVED_MS = 2000;
+
 export interface StatusViewProps extends GitViewProps {
   /** `I`: open the ignored-files tree in this view's place. Owned by Overview, which hosts both. */
   onShowIgnored?: () => void;
@@ -102,6 +105,14 @@ export const StatusView = ({
   const [hunk, setHunk] = useState(0);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Row>();
+  const [selectRequest, setSelectRequest] = useState<{ id: string; seq: number }>();
+  //? A file that just changed group, drawn in that group's colour until the timer below ends it
+  const [moved, setMoved] = useState<{ id: string; side: 'staged' | 'unstaged' }>();
+  useEffect(() => {
+    if (!moved) return;
+    const timer = setTimeout(() => setMoved(undefined), MOVED_MS);
+    return () => clearTimeout(timer);
+  }, [moved]);
   const openPreview = (row: Row) => {
     if (row.side === 'conflict') return;
     setPreview(row);
@@ -138,12 +149,13 @@ export const StatusView = ({
   const activeHunk = Math.min(hunk, Math.max(0, diff.hunks.length - 1));
 
   const run = async (action: () => Promise<OperationResult>) => {
-    if (busy) return;
+    if (busy) return undefined;
     setBusy(true);
     onBusyChange?.(true);
     try {
       const result = await action();
       notify(result.message, result.ok ? 'ok' : 'error');
+      return result;
     } finally {
       setBusy(false);
       onBusyChange?.(false);
@@ -151,15 +163,26 @@ export const StatusView = ({
     }
   };
 
-  const toggle = (row: Row) => {
+  const toggle = async (row: Row) => {
     if (row.side === 'conflict') {
       return prompt.confirm(`Mark ${row.change.path} resolved, as it stands now?`, () =>
         run(() => resolveFile(root, row.change.path, 'mark')),
       );
     }
-    run(() =>
+    //? The cursor stays in the group the file leaves — on the file that takes its place, or the
+    //? one before it when it was the last — so Space down a list stages it file by file. With the
+    //? group emptied, the list puts the cursor on the closest file there is.
+    const group = rows.filter((other) => other.side === row.side);
+    const at = group.findIndex((other) => idOf(other) === idOf(row));
+    const next = group[at + 1] ?? group[at - 1];
+    const result = await run(() =>
       row.side === 'staged' ? unstage(root, [row.change.path]) : stage(root, [row.change.path]),
     );
+    if (!result?.ok) return;
+    if (next) setSelectRequest((was) => ({ id: idOf(next), seq: (was?.seq ?? 0) + 1 }));
+    //? Where it went, shown for a moment in its new group's colour
+    const side = row.side === 'staged' ? 'unstaged' : 'staged';
+    setMoved({ id: `${side}:${row.change.path}`, side });
   };
 
   const discardFile = (row: Row) => {
@@ -258,7 +281,7 @@ export const StatusView = ({
       }
       if (input === 'A') return unstageAll();
       if (stagingOnly) {
-        if (input === ' ' && current) toggle(current);
+        if (input === ' ' && current) void toggle(current);
         else if (input === 's') hunkAction('stage');
         else if (input === 'n')
           setHunk((at) => Math.min(at + 1, Math.max(0, diff.hunks.length - 1)));
@@ -280,7 +303,7 @@ export const StatusView = ({
       if (input === 'M') return void amend();
       if (input === 'W') return wip();
       if (!current) return;
-      if (input === ' ') toggle(current);
+      if (input === ' ') void toggle(current);
       else if (input === 'n') setHunk((at) => Math.min(at + 1, Math.max(0, diff.hunks.length - 1)));
       else if (input === 'N') setHunk((at) => Math.max(0, at - 1));
       else if (input === 's') hunkAction('stage');
@@ -323,6 +346,9 @@ export const StatusView = ({
             : row.change.path,
           hint: hintFor(row),
           hintColor: side === 'conflict' ? colors.error : side === 'staged' ? colors.ok : undefined,
+          ...(moved?.id === idOf(row) && {
+            labelColor: moved.side === 'staged' ? colors.ok : colors.warn,
+          }),
           value: row,
           controls: [
             {
@@ -330,7 +356,7 @@ export const StatusView = ({
               glyph: side === 'conflict' ? '[!]' : side === 'staged' ? '[x]' : '[ ]',
               color:
                 side === 'conflict' ? colors.error : side === 'staged' ? colors.ok : colors.muted,
-              onPress: () => toggle(row),
+              onPress: () => void toggle(row),
             },
           ],
         }),
@@ -348,7 +374,7 @@ export const StatusView = ({
           onPress: () => handoff({ type: 'edit', path: join(root, row.change.path) }),
           tone: 'primary',
         },
-        { hotkey: 'Space', label: 'Mark resolved', onPress: () => toggle(row) },
+        { hotkey: 'Space', label: 'Mark resolved', onPress: () => void toggle(row) },
         {
           hotkey: 'O',
           label: 'Take ours',
@@ -374,7 +400,7 @@ export const StatusView = ({
       {
         hotkey: 'Space',
         label: staged ? 'Unstage' : 'Stage',
-        onPress: () => toggle(row),
+        onPress: () => void toggle(row),
         tone: 'primary',
       },
       ...(hunks
@@ -518,6 +544,7 @@ export const StatusView = ({
             ? hints.filter((hint) => hint.key === 'Space' || hint.key === 'a' || hint.key === 'A')
             : hints
         }
+        selectRequest={selectRequest}
         onSelectionChange={(item) => setCurrentId(item?.id)}
         renderDetail={(item) => {
           const row = item?.value;

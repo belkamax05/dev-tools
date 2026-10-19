@@ -19,6 +19,7 @@ import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 import { getChanges } from '../../core/status';
 import saveCommit from '../../utils/saveCommit';
 import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
+import FlagsPanel, { type FlagOption } from '../dashboard/FlagsPanel';
 import SyncBar from '../dashboard/SyncBar';
 import useRemoteSync from '../dashboard/useRemoteSync';
 import useRepoSnapshot from '../dashboard/useRepoSnapshot';
@@ -37,56 +38,37 @@ const MessageField = ({ onFocus, children }: { onFocus: () => void; children: Re
   return <Box ref={ref}>{children}</Box>;
 };
 
-/** Each flag: what reaches git, its button, and what it does — shown for the one under the cursor. */
-const FLAGS = [
-  [
-    '--no-verify',
-    'Skip hooks',
-    'Commit without running the pre-commit and commit-msg hooks (lint-staged, commitlint…).',
-  ],
-  [
-    '--amend',
-    'Amend',
-    'Fold the staged changes into the last commit (an empty message keeps its own). Rewrites it — not once pushed.',
-  ],
-  [
-    '--allow-empty',
-    'Allow empty',
-    'Commit even with nothing staged — a marker commit, or one that only re-runs CI.',
-  ],
-  [
-    '--signoff',
-    'Sign off',
-    'Add a "Signed-off-by: <you>" trailer, for projects that ask for a DCO sign-off.',
-  ],
-  [
-    '--push',
-    'Push after commit',
-    'Once the commit succeeds, run giti send — this repository and everything vendored in it.',
-  ],
-] as const;
+/** The commit's flags — shown, toggled and explained by the shared `FlagsPanel`. */
+const FLAGS: readonly FlagOption[] = [
+  {
+    flag: '--no-verify',
+    label: 'Skip hooks',
+    about: 'Commit without running the pre-commit and commit-msg hooks (lint-staged, commitlint…).',
+  },
+  {
+    flag: '--amend',
+    label: 'Amend',
+    about:
+      'Fold the staged changes into the last commit (an empty message keeps its own). Rewrites it — not once pushed.',
+  },
+  {
+    flag: '--allow-empty',
+    label: 'Allow empty',
+    about: 'Commit even with nothing staged — a marker commit, or one that only re-runs CI.',
+  },
+  {
+    flag: '--signoff',
+    label: 'Sign off',
+    about: 'Add a "Signed-off-by: <you>" trailer, for projects that ask for a DCO sign-off.',
+  },
+  {
+    flag: '--push',
+    label: 'Push after commit',
+    about: 'Once the commit succeeds, run giti send — this repository and everything vendored in it.',
+  },
+];
 
 type Section = 'files' | 'message' | 'flags';
-
-/** What one flag does, under the row: the git flag it adds and a line of why you would. */
-const FlagDetail = ({
-  index,
-  on,
-  focused,
-}: {
-  index: number;
-  on: ReadonlySet<string>;
-  focused: boolean;
-}) => {
-  const colors = useColors();
-  const [flag, label, about] = FLAGS[index] ?? FLAGS[0];
-  return (
-    <Text wrap="wrap">
-      <Text color={focused ? colors.accent : colors.muted}>{`${label} (${flag}${on.has(flag) ? ', on' : ''}): `}</Text>
-      <Text color={colors.muted}>{about}</Text>
-    </Text>
-  );
-};
 
 //? How long the message pane stays red after an empty submit
 const MESSAGE_ERROR_MS = 2500;
@@ -120,9 +102,6 @@ export const CommitForm = ({
   const [section, setSection] = useState<Section>('files');
   const [message, setMessage] = useState(initialMessage ?? '');
   const [flags, setFlags] = useState(new Set(initialFlags));
-  //? The flag the arrows are on, and the one the pointer is over — that one is explained first
-  const [flagCursor, setFlagCursor] = useState(0);
-  const [hoveredFlag, setHoveredFlag] = useState<number>();
   const [refreshKey, setRefreshKey] = useState(0);
   //? The branch against its remote, as the dashboard reads it — and the top of the work tree,
   //? which is what is watched: `save` may run in a subfolder, and a watch on that alone would
@@ -267,24 +246,7 @@ export const CommitForm = ({
       const sections: Section[] = ['files', 'message', 'flags'];
       setSection(sections[(sections.indexOf(section) + (key.shift ? 2 : 1)) % 3] ?? 'files');
     } else if (key.return) advance();
-    else if (section === 'flags') {
-      const step = key.leftArrow || key.upArrow ? -1 : key.rightArrow || key.downArrow ? 1 : 0;
-      if (step) {
-        setFlagCursor((at) => (at + step + FLAGS.length) % FLAGS.length);
-        return;
-      }
-      if (input === ' ') {
-        const flag = FLAGS[flagCursor]?.[0];
-        if (flag) toggle(flag);
-        return;
-      }
-      const index = Number(input) - 1;
-      const flag = FLAGS[index]?.[0];
-      if (flag) {
-        setFlagCursor(index);
-        toggle(flag);
-      }
-    }
+    //? The flags' own keys (arrows, Space, digits) are the panel's
   });
 
   const showMessageError = Boolean(messageError) && !message;
@@ -377,32 +339,14 @@ export const CommitForm = ({
           >
             {messageInput}
           </Panel>
-          <Panel
-            title="Flags · ←/→ choose · Space or 1–5 toggle · Enter to save"
-            isFocused={section === 'flags'}
-          >
-            <Box flexDirection="row" flexWrap="wrap">
-              {FLAGS.map(([flag, label], index) => (
-                <ActionButton
-                  key={flag}
-                  hotkey={String(index + 1)}
-                  //? The cursor is drawn only while the panel has the keys, as a list's is
-                  label={`${section === 'flags' && index === flagCursor ? '▸' : ''}${label}`}
-                  color={section === 'flags' && index === flagCursor ? colors.highlight : undefined}
-                  isOn={flags.has(flag)}
-                  onHover={(hovered) =>
-                    setHoveredFlag((was) => (hovered ? index : was === index ? undefined : was))
-                  }
-                  onPress={() => {
-                    setSection('flags');
-                    setFlagCursor(index);
-                    toggle(flag);
-                  }}
-                />
-              ))}
-            </Box>
-            <FlagDetail index={hoveredFlag ?? flagCursor} on={flags} focused={section === 'flags'} />
-          </Panel>
+          <FlagsPanel
+            options={FLAGS}
+            on={flags}
+            onToggle={toggle}
+            focused={section === 'flags' && !captured && !submitting && !staging}
+            onFocus={() => setSection('flags')}
+            enterLabel="save"
+          />
           <Text color={colors.muted} wrap="truncate">
             {notice ||
               (section === 'flags'

@@ -10,6 +10,7 @@ import {
   mergeBranch,
   renameBranch,
   restoreBranch,
+  switchArgs,
   sortBranches,
   switchBranch,
 } from '.';
@@ -91,5 +92,37 @@ describe('branches', () => {
     expect((await mergeBranch(repo.root, main)).ok).toBe(false);
     expect((await mergeBranch(repo.root, feature)).ok).toBe(true);
     expect(repo.read('b.txt')).toBe('feature\n');
+  });
+});
+
+describe('switchArgs', () => {
+  const local = { name: 'feature/x', isRemote: false };
+  const remote = { name: 'origin/feature/x', isRemote: true };
+
+  test('a remote branch is switched to by its short name, which git makes track it', () => {
+    expect(switchArgs(remote)).toEqual(['switch', 'feature/x']);
+    expect(switchArgs(local)).toEqual(['switch', 'feature/x']);
+  });
+
+  test('--no-track spells out the new local branch, so it tracks nothing', () => {
+    expect(switchArgs(remote, { noTrack: true })).toEqual([
+      'switch',
+      '-c',
+      'feature/x',
+      '--no-track',
+      'origin/feature/x',
+    ]);
+    //? Once that local branch exists, it is only switched to
+    expect(switchArgs(remote, { noTrack: true }, true)).toEqual(['switch', 'feature/x']);
+  });
+
+  test('--detach checks out the ref itself; --force and anything typed are added', () => {
+    expect(switchArgs(remote, { detach: true })).toEqual(['switch', '--detach', 'origin/feature/x']);
+    expect(switchArgs(local, { force: true, passthrough: ['--quiet'] })).toEqual([
+      'switch',
+      'feature/x',
+      '--force',
+      '--quiet',
+    ]);
   });
 });

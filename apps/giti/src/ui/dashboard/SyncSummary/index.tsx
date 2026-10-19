@@ -1,5 +1,5 @@
 import { type DOMElement, Text } from 'ink';
-import { useRef } from 'react';
+import { type RefObject, useRef } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
@@ -25,6 +25,8 @@ export interface SyncSummaryProps {
   sync: Pick<RemoteSync, 'progress' | 'lastFetch'>;
   /** Makes the branch name a button — the dashboard opens its branch picker from it. */
   onPickBranch?: () => void;
+  /** Handed the branch name's element, for something to hang beneath it — "Switched to main". */
+  branchRef?: RefObject<DOMElement | null>;
 }
 
 /**
@@ -32,10 +34,11 @@ export interface SyncSummaryProps {
  * 14:02`. The dashboard's sync bar puts its buttons beside it; the commit form shows it alone,
  * so the commits waiting to go out or come in are in view while a commit is being made.
  */
-export const SyncSummary = ({ snapshot, sync, onPickBranch }: SyncSummaryProps) => {
+export const SyncSummary = ({ snapshot, sync, onPickBranch, branchRef: given }: SyncSummaryProps) => {
   const colors = useColors();
   const { branch, detached, headShort, upstream, remote, ahead, behind } = snapshot;
-  const branchRef = useRef<DOMElement>(null);
+  const own = useRef<DOMElement>(null);
+  const branchRef = given ?? own;
   const { isHovered } = useClickable(branchRef, {
     onClick: onPickBranch,
     isActive: Boolean(onPickBranch),

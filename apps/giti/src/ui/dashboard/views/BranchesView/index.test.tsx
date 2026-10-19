@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { emitFrame } from '@/dev-tools/ui/terminal/frames';
 import { emitMouseEvent, isMouseReporting, setMouseReporting } from '@/dev-tools/ui/terminal/mouse';
 
+import * as branches from '../../../../core/branches';
 import gitExecSync from '../../../../utils/gitExecSync';
 import App, { TABS } from '../../App';
 import type { RemoteSync } from '../../useRemoteSync';
@@ -60,8 +61,8 @@ const terminal = () => {
     },
   };
 };
-const until = async (ready: () => boolean) => {
-  const deadline = Date.now() + 4000;
+const until = async (ready: () => boolean, ms = 4000) => {
+  const deadline = Date.now() + ms;
   while (!ready()) {
     if (Date.now() > deadline) throw new Error('Timed out waiting for branch view');
     await Bun.sleep(20);
@@ -312,3 +313,42 @@ for (const mouse of [false, true])
       repo.cleanup();
     }
   });
+
+test('a branch switched to from the dashboard picker closes it, and says so in a passing tooltip', async () => {
+  const repo = fixture();
+  const term = terminal();
+  //? One Enter, one `git switch`: two at once fought over index.lock and one of them failed
+  const switches = spyOn(branches, 'switchBranch');
+  const app = render(
+    <App
+      cwd={repo.root}
+      commands={[]}
+      onRunCommand={() => {}}
+      onHandoff={() => {}}
+      initialRefreshSeconds={0}
+    />,
+    term.options,
+  );
+  try {
+    await until(() => term.text().includes('Branches') && term.text().includes('Fetch'));
+    await Bun.sleep(150);
+    term.stdin.write('b');
+    await until(() => term.text().includes('Branches (2)'));
+    term.stdin.write('/feature-a');
+    await until(() => term.text().includes('/feature-a'));
+    term.stdin.write('\r');
+    await Bun.sleep(100);
+    term.clear();
+    term.stdin.write('\r');
+    await until(() => !term.text().includes('Branches (2)') && term.text().includes('Fetch'));
+    expect(repo.git('branch', '--show-current').trim()).toBe('feature-a');
+    expect(switches).toHaveBeenCalledTimes(1);
+    //? Drawn as the copy-hash tooltip is — boxed, over the layout — and gone by itself
+    await until(() => /│ Switched to feature-a │/.test(term.text()));
+    await until(() => !term.text().includes('Switched to feature-a'), 4000);
+  } finally {
+    switches.mockRestore();
+    app.unmount();
+    repo.cleanup();
+  }
+});

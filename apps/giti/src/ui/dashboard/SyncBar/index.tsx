@@ -5,7 +5,7 @@ import Box from '@/dev-tools/ui/components/Box';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RepoSnapshot } from '../../../utils/getRepoSnapshot';
-import SyncSummary from '../SyncSummary';
+import SyncSummary, { type SyncSummaryProps } from '../SyncSummary';
 import type { RemoteSync } from '../useRemoteSync';
 
 export interface SyncBarProps {
@@ -13,6 +13,8 @@ export interface SyncBarProps {
   sync: RemoteSync;
   /** Makes the branch name a button — the dashboard opens its branch picker from it. */
   onPickBranch?: () => void;
+  /** Handed the branch name's element, for a flash beneath it. */
+  branchRef?: SyncSummaryProps['branchRef'];
   /** The dashboard's More/Less toggle for its detail lines; left off, there is no such button. */
   details?: { shown: boolean; onToggle: () => void };
 }
@@ -26,7 +28,7 @@ export interface SyncBarProps {
  * do I have something to push — and the button for each answer sits right next to it. The
  * likely next step is the highlighted one: Pull when behind, Push when ahead.
  */
-export const SyncBar = ({ snapshot, sync, onPickBranch, details }: SyncBarProps) => {
+export const SyncBar = ({ snapshot, sync, onPickBranch, details, branchRef }: SyncBarProps) => {
   const colors = useColors();
   const { ahead, behind } = snapshot;
   const busy = Boolean(sync.progress);
@@ -35,7 +37,12 @@ export const SyncBar = ({ snapshot, sync, onPickBranch, details }: SyncBarProps)
 
   return (
     <Box flexDirection="row" flexShrink={0}>
-      <SyncSummary snapshot={snapshot} sync={sync} onPickBranch={onPickBranch} />
+      <SyncSummary
+        snapshot={snapshot}
+        sync={sync}
+        onPickBranch={onPickBranch}
+        branchRef={branchRef}
+      />
       <Box flexShrink={0} flexDirection="row">
         <Text> </Text>
         <ActionButton hotkey="f" label="Fetch" disabled={busy} onPress={sync.fetch} />

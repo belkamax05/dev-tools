@@ -3,13 +3,13 @@ import { type RefObject, useEffect, useRef, useState } from 'react';
 
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
-import Popover from '@/dev-tools/ui/components/Popover';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
 import type { GitViewProps } from '../../types';
 import copyToClipboard from '../../clipboard';
+import { FlashPopover, useFlash } from '../../Flash';
 import SyncBar from '../../SyncBar';
 import type { RemoteSync } from '../../useRemoteSync';
 import IgnoredView from '../IgnoredView';
@@ -28,6 +28,8 @@ export interface OverviewViewProps extends GitViewProps {
   onOpenLog: () => void;
   onOpenStash: () => void;
   onOpenRemotes: () => void;
+  /** The branch picker just switched branches: say so under the branch name, for a moment. */
+  switched?: { text: string; id: number };
 }
 
 /**
@@ -125,6 +127,7 @@ export const OverviewView = ({
   onOpenLog,
   onOpenStash,
   onOpenRemotes,
+  switched,
   ...viewProps
 }: OverviewViewProps) => {
   //? The ignored-files tree takes Status's place rather than getting a tab of its own: it is a
@@ -134,17 +137,19 @@ export const OverviewView = ({
   const colors = useColors();
   const containerRef = useRef<DOMElement>(null);
   const headRef = useRef<DOMElement>(null);
-  const [copied, setCopied] = useState(0);
+  const branchRef = useRef<DOMElement>(null);
+  //? One flash at a time, hung under what it is about: the HEAD line for a copy, the branch name
+  //? for a switch the App reports
+  const { flash, show } = useFlash();
   const copyHead = () => {
     if (!snapshot.headFull) return;
     copyToClipboard(snapshot.headFull);
-    setCopied((count) => count + 1);
+    show('Copied to clipboard', 'head');
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: on each new switch, not each render
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(0), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
+    if (switched) show(switched.text, 'branch');
+  }, [switched?.id]);
 
   useInput(
     (input, key) => {
@@ -184,6 +189,7 @@ export const OverviewView = ({
             sync={sync}
             details={{ shown: details, onToggle: onToggleDetails }}
             onPickBranch={onPickBranch}
+            branchRef={branchRef}
           />
           <Box flexDirection="row" flexShrink={0}>
             <ActionButton hotkey="b" label="Branches" onPress={onPickBranch} />
@@ -216,12 +222,13 @@ export const OverviewView = ({
           onPreviewModeChange={setFilePreviewOpen}
         />
       )}
-      {details && copied > 0 && (
-        <Popover anchorRef={headRef} containerRef={containerRef} width={25}>
-          <Box borderStyle="round" borderColor={colors.ok} paddingX={1}>
-            <Text color={colors.ok}>Copied to clipboard</Text>
-          </Box>
-        </Popover>
+      {flash && !filePreviewOpen && (flash.at === 'branch' || details) && (
+        <FlashPopover
+          key={flash.id}
+          text={flash.text}
+          anchorRef={flash.at === 'branch' ? branchRef : headRef}
+          containerRef={containerRef}
+        />
       )}
     </Box>
   );

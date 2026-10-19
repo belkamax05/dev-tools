@@ -15,6 +15,7 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import {
   type Branch,
   type BranchSort,
+  type SwitchOptions,
   compareWithCurrent,
   createBranch,
   deleteBranch,
@@ -38,6 +39,16 @@ export interface BranchesViewProps extends GitViewProps {
   sync: RemoteSync;
   /** Close the branch picker and return to the view that opened it. */
   onClose?: () => void;
+  /** The search to open with — `giti hop fea` starts filtered on "fea". */
+  initialQuery?: string;
+  /** How switches and new branches are made — `giti hop`'s flags; plain on the dashboard. */
+  switchOptions?: SwitchOptions;
+  /** A switch or a new branch went through — `giti hop` is done then, and closes. */
+  onSwitched?: (message: string) => void;
+  /** Open on the new-branch prompt — `giti hop -c` with no name yet. */
+  startCreating?: boolean;
+  /** False while something else on screen has the keyboard (`giti hop`'s flags). */
+  isInputActive?: boolean;
 }
 
 const trackHint = (branch: Branch) =>
@@ -72,6 +83,11 @@ export const BranchesView = ({
   reservedChrome,
   sync,
   onClose,
+  initialQuery = '',
+  switchOptions,
+  onSwitched,
+  startCreating = false,
+  isInputActive = true,
 }: BranchesViewProps) => {
   const colors = useColors();
   const viewport = useViewport();
@@ -79,7 +95,7 @@ export const BranchesView = ({
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
   const [compare, setCompare] = useState(false);
   const [sort, setSort] = useState<BranchSort>('time');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [isSearching, setIsSearching] = useState(false);
   const lastClick = useRef<{ id: string; at: number } | undefined>(undefined);
 
@@ -107,14 +123,26 @@ export const BranchesView = ({
     reload();
   };
 
+  //? A switch that went through is the end of `giti hop`; on the dashboard it is one more action
+  const runSwitch = async (action: () => Promise<OperationResult>) => {
+    const result = await action();
+    if (result.ok && onSwitched) return onSwitched(result.message);
+    notify(result.message, result.ok ? 'ok' : 'error');
+    reload();
+  };
   const switchTo = (branch: Branch) => {
-    if (branch.isCurrent) return notify(`Already on ${branch.name}`, 'info');
-    void run(() => switchBranch(root, branch));
+    if (branch.isCurrent && !switchOptions?.detach)
+      return notify(`Already on ${branch.name}`, 'info');
+    void runSwitch(() => switchBranch(root, branch, switchOptions));
   };
   const create = (branch?: Branch) =>
     prompt.ask(`New branch${branch ? ` from ${branch.name}` : ''}:`, (name) => {
-      if (name.trim()) void run(() => createBranch(root, name, branch?.name));
+      if (name.trim()) void runSwitch(() => createBranch(root, name, branch?.name, switchOptions));
     });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on opening
+  useEffect(() => {
+    if (startCreating) create();
+  }, []);
   const rename = (branch: Branch) =>
     prompt.ask(
       `Rename ${branch.name} to:`,
@@ -199,7 +227,9 @@ export const BranchesView = ({
       if (input === 'n') return create(current);
       if (input === 's') return toggleSort();
       if (!current) return;
-      if (key.return || input === ' ') switchTo(current);
+      //? Enter is the list's own (its onActivate, below): handled here as well, one press ran two
+      //? `git switch`es at once, and the slower one failed on the other's index.lock
+      if (input === ' ') switchTo(current);
       else if (input === 'v') setCompare((on) => !on);
       else if (input === 'M') merge(current);
       else if (current.isRemote) {
@@ -210,7 +240,7 @@ export const BranchesView = ({
       else if (input === 'd') remove(current);
       else if (input === 'u') track(current);
     },
-    { isActive: !prompt.isOpen },
+    { isActive: !prompt.isOpen && isInputActive },
   );
 
   const needle = query.toLowerCase();
@@ -357,7 +387,7 @@ export const BranchesView = ({
           lastClick.current = { id: item.id, at: now };
           return false;
         }}
-        isInputActive={!prompt.isOpen && !isSearching}
+        isInputActive={!prompt.isOpen && !isSearching && isInputActive}
         hints={hints}
         onActivate={(item) => item.value && switchTo(item.value)}
         onSelectionChange={(item) => setCurrentId(item?.id)}
@@ -373,10 +403,10 @@ export const BranchesView = ({
               {compare && !branch.isCurrent ? (
                 <PatchLines
                   text={diff}
-                  isActive={!prompt.isOpen && !isSearching}
+                  isActive={!prompt.isOpen && !isSearching && isInputActive}
                 />
               ) : (
-                <ScrollPanel key={branch.name} keyboardMode="preview" isActive={!prompt.isOpen && !isSearching}>
+                <ScrollPanel key={branch.name} keyboardMode="preview" isActive={!prompt.isOpen && !isSearching && isInputActive}>
                   <Text bold color={branch.isCurrent ? colors.accent : colors.text}>
                     {branch.name}
                   </Text>
