@@ -3,8 +3,10 @@ import formatArg from '@/dev-tools/utils/format/formatArg';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import describePush from '../describePush';
 import getVendoredState from '../getVendoredState';
+import isPushRefused from '../isPushRefused';
 import resolveSubtreeUpstream from '../resolveSubtreeUpstream';
 import runGitStep from '../runGitStep';
+import { removeSubrepoWorktree } from '../subrepoWorktree';
 import type { Vendored, VendoredOutcome } from '../vendored';
 import { plural } from '../vendored';
 import type { FlagTarget, VendoredArgs } from '../vendoredArgs';
@@ -157,6 +159,22 @@ const pushVendored = async (
   const noHooks = kind === 'submodule' ? [] : ['-c', 'core.hooksPath=/dev/null'];
   const step = await runGitStep(`${label}  pushing${what}`, [...noHooks, ...config, ...command], runIn);
   if (step.exitCode !== 0) {
+    //? A refused git-subrepo push leaves its worktree under .git/tmp registered, and the next pull
+    //? of the subrepo trips over it — nothing in it is worth keeping, whatever the failure was
+    if (kind === 'subrepo') await removeSubrepoWorktree(dir, cwd);
+
+    //? Someone who may read the subrepo's upstream but not push to it: its changes are commits in
+    //? this repository all the same, so they still go out with it, and the next push by someone
+    //? who can carries them upstream — a note, not a failure. A submodule is different: its
+    //? commits live only in its own repository, and the parent would point at one nobody can fetch.
+    if (kind !== 'submodule' && isPushRefused(step.output)) {
+      step.warn(
+        `${label}  ${formatColor('not sent upstream', 'warning')} · no push access — kept here for ` +
+          'someone who can',
+      );
+      return 'skipped';
+    }
+
     step.fail(`${label}  ${formatColor('push failed', 'error')}`);
     return 'failed';
   }

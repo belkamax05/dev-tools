@@ -13,6 +13,11 @@ export interface GitStep {
    * contradict it (git-subrepo's "finish the pull by hand" after giti has undone the pull).
    */
   fail: (message: string, options?: { quiet?: boolean }) => void;
+  /**
+   * Close the step as not done, but not as an error either: this one line, and none of what git
+   * printed — for a refusal the caller has already explained and that the run lets pass.
+   */
+  warn: (message: string) => void;
 }
 
 /**
@@ -53,6 +58,7 @@ const runGitStep = async (title: string, args: string[], cwd: string): Promise<G
       stepProgress.log.error(message);
       if (output && !quiet) stepProgress.log.message(output.split('\n'));
     },
+    warn: (message) => stepProgress.log.warn(message),
   };
 };
 

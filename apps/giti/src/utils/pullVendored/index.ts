@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import stepProgress from '../stepProgress';
+import subrepoWorktree, { removeSubrepoWorktree } from '../subrepoWorktree';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import describePull from '../describePull';
 import getTrackedBranch from '../getTrackedBranch';
@@ -31,37 +32,12 @@ import {
 const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
 
 /**
- * A pull aborted half-way leaves the worktree git-subrepo builds under `.git/tmp/subrepo/<dir>`
- * registered, and every later pull of that subrepo then fails with "There is already a worktree
- * with branch subrepo/<dir>". It is knowable up front.
- *
- * ! The worktree is the tell, not the `subrepo/<dir>` branch. git-subrepo keeps that branch after
- * ! every *successful* pull (it is what a later `git subrepo push` starts from), and a pull with
- * ! the branch present but no worktree on it works fine — checked against git-subrepo 0.4.9.
- * ! Testing for the branch refused to pull any subrepo that had ever been pulled before.
- */
-const subrepoWorktree = async (dir: string, cwd: string) => {
-  const worktrees = await gitExec(['worktree', 'list', '--porcelain'], cwd);
-  if (worktrees.exitCode !== 0) return undefined;
-  //? Porcelain output is blank-line separated records: `worktree <path>` first, then `branch`.
-  for (const record of worktrees.stdout.split('\n\n')) {
-    const lines = record.split('\n');
-    if (lines.includes(`branch refs/heads/subrepo/${dir}`)) {
-      return lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length);
-    }
-  }
-  return undefined;
-};
-
-/**
  * Throw away a subrepo pull's half-done state — its worktree, then git-subrepo's branch and refs
  * — so the host is exactly where it was and the next pull starts clean. Nothing here touches the
  * host's working tree: a merge-method pull only changes the host once it has fully succeeded.
  */
 const discardSubrepoAttempt = async (dir: string, cwd: string) => {
-  const worktree = await subrepoWorktree(dir, cwd);
-  if (worktree) await gitExec(['worktree', 'remove', '--force', worktree], cwd);
-  await gitExec(['worktree', 'prune'], cwd);
+  await removeSubrepoWorktree(dir, cwd);
   await gitExec([...NO_HOOKS, 'subrepo', 'clean', dir], cwd);
 };
 
@@ -163,7 +139,7 @@ const pullVendored = async (
   //? up front, so a past failure never blocks a later run.
   if (kind === 'subrepo' && (await subrepoWorktree(dir, cwd))) {
     await discardSubrepoAttempt(dir, cwd);
-    stepProgress.log.info(`${label}  cleared what an earlier, unfinished pull left behind`);
+    stepProgress.log.info(`${label}  cleared what an earlier, unfinished pull or push left behind`);
   }
 
   //? No passthrough on this one: it is giti's own look at the upstream, not the pull the user
@@ -171,7 +147,16 @@ const pullVendored = async (
   const { behind, dirty, localChanges } = await getVendoredState({ ...vendored, ...upstream }, cwd);
 
   if (behind === 0) {
-    stepProgress.log.success(`${label}  ${formatColor('up to date', 'success')}`);
+    //? Nothing to pull, but this copy may hold changes upstream has not got yet — a colleague's,
+    //? kept here because they could not push them (`send` let that pass). Said in the same one
+    //? line, softly: it is not this pull's problem, only worth knowing
+    const unsent = kind === 'subrepo' ? (localChanges?.length ?? 0) : 0;
+    if (unsent > 0) {
+      stepProgress.log.warn(
+        `${label}  ${formatColor('up to date', 'success')} · ` +
+          formatColor(`${plural(unsent, 'changed file')} here not sent upstream yet`, 'warning'),
+      );
+    } else stepProgress.log.success(`${label}  ${formatColor('up to date', 'success')}`);
     return 'current';
   }
 
