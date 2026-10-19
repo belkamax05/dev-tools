@@ -3,6 +3,7 @@ import formatArg from '@/dev-tools/utils/format/formatArg';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import cleanVendored from '../cleanVendored';
 import describePull from '../describePull';
+import describePush from '../describePush';
 import getMegaSelfState from '../getMegaSelfState';
 import getMegaTree from '../getMegaTree';
 import type { MegaGroup, MegaRepo, MegaTree } from '../getMegaTree';
@@ -351,6 +352,7 @@ const pushSelf = async (
 ): Promise<VendoredOutcome> => {
   //? The repository is pushed by a plain `git push`, so every flag the user typed is one it
   //? understands: `--no-verify`, `--force-with-lease`, `--tags`, `--push-option=` all land unchanged.
+  const label = vendoredLabel('self');
   const { flags } = forwardVendoredFlags(args.passthrough, 'git');
   const where = targetArgs(target);
   const forced = flags.some(isForce);
@@ -358,44 +360,49 @@ const pushSelf = async (
   const trial = isDryRun(flags) ? ' (dry run)' : '';
   const { upstream, ahead, behind } = await getMegaSelfState(repo.path);
 
-  const push = async (command: string[]) => {
-    const result = await gitExec(command, repo.path, { stream: true });
-    if (result.exitCode === 0) return 'done' as const;
-    console.error('❌ (this repo): push failed.');
-    return 'failed' as const;
+  //? Run as a clack step, as the pull is: git's progress live while it works, then one line
+  //? saying what moved — the refs git reports — instead of everything it printed
+  const push = async (title: string, command: string[]) => {
+    const step = await runGitStep(`${label}  ${title}${trial}`, command, repo.path);
+    if (step.exitCode !== 0) {
+      step.fail(`${label}  ${formatColor('push failed', 'error')}`);
+      return 'failed' as const;
+    }
+    const done = trial ? 'would push' : 'pushed';
+    step.succeed([`${label}  ${formatColor(`${done} — ${title}`, 'success')}`, ...describePush(step.output)].join('\n'));
+    return 'done' as const;
   };
 
   //? Named remote/branch: pushed as named — the tracking branch says nothing about them
   if (where.length > 0 && upstream) {
-    console.log(`⬆️  (this repo): pushing to ${where.join(' ')}${trial}...`);
-    return push(['push', ...flags, ...where]);
+    return push(`to ${where.join(' ')}`, ['push', ...flags, ...where]);
   }
 
   if (!upstream) {
     const branch = repo.branch && repo.branch !== 'HEAD' ? repo.branch : '';
     if (!branch) {
-      console.error('❌ (this repo): detached HEAD — switch to a branch to push it.');
+      log.warn(`${label}  ${formatColor('skipped', 'warning')} · detached HEAD — switch to a branch to push it.`);
       return 'skipped';
     }
     //? The usual first push, `git push -u origin <branch>`: without it a new branch could only
     //? ever be sent by hand
     const remote = target.remote ?? 'origin';
     const into = target.branch ?? branch;
-    console.log(
-      `⬆️  (this repo): ${branch} tracks nothing yet — pushing it to ${remote}/${into} and setting it as upstream${trial}...`,
+    return push(
+      `${branch} to ${remote}/${into}, set as its upstream (it tracked nothing yet)`,
+      ['push', '--set-upstream', ...flags, remote, `${branch}:${into}`],
     );
-    return push(['push', '--set-upstream', ...flags, remote, `${branch}:${into}`]);
   }
 
   if (ahead === 0 && !tags && !forced) {
-    console.log(`ℹ️  (this repo): nothing to push — ${upstream} already has it all.`);
+    log.success(`${label}  ${formatColor('nothing to push', 'success')} · ${upstream} already has it all`);
     return 'current';
   }
 
   if (behind && behind > 0 && !forced) {
-    console.error(
-      `❌ (this repo): ${upstream} moved ${plural(behind, 'commit')}, so the push would be ` +
-        'rejected as non-fast-forward. Run `giti receive` first, or pass --force-with-lease.',
+    log.warn(
+      `${label}  ${formatColor('skipped', 'warning')} · ${upstream} moved ${plural(behind, 'commit')}, so the ` +
+        'push would be rejected as non-fast-forward. Run `giti receive` first, or pass --force-with-lease.',
     );
     return 'skipped';
   }
@@ -407,8 +414,7 @@ const pushSelf = async (
     : ahead
       ? plural(ahead, 'commit')
       : 'HEAD';
-  console.log(`⬆️  (this repo): pushing ${what} to ${upstream}${forced ? ' (forced)' : ''}${trial}...`);
-  return push(['push', ...flags]);
+  return push(`${what} to ${upstream}${forced ? ' (forced)' : ''}`, ['push', ...flags]);
 };
 
 /** Tally across every group, so a run over a whole tree ends on one line. */
@@ -442,30 +448,23 @@ const runMegaTransfer = async (
   rawArgs: string[],
   transfer: Transfer,
   {
+    command,
     verb,
     selfFirst,
     self,
-    framed = false,
   }: {
+    /** The command's name, for the frame's title — `receive` or `send`. */
+    command: string;
     verb: string;
     selfFirst: boolean;
     self: (args: VendoredArgs) => Promise<VendoredOutcome>;
-    /**
-     * Draw the run as one clack frame — `┌` title, a `◇` line per entry labelled with its kind,
-     * `└` tally — instead of group headings and loose lines. Only for bodies that print through
-     * clack themselves (pulls); a push's bodies still print plain lines, which a frame would cut.
-     */
-    framed?: boolean;
   },
 ) => {
-  const say = (message: string) => (framed ? log.info(message) : console.log(`\n${message}`));
-
-  if (framed) {
-    intro(formatColor(`giti ${verb === 'Pulled' ? 'receive' : 'send'}`, 'command'));
-    log.message(formatMegaHeaderLines(tree.repo));
-  } else {
-    console.log(formatMegaHeader(tree.repo));
-  }
+  //? One clack frame for the whole run — `┌` title and the repo header, a line (or a spinner while
+  //? git works) per entry labelled with its kind, `└` tally — the same for a pull and a push,
+  //? since both bodies print through clack
+  intro(formatColor(`giti ${command}`, 'command'));
+  log.message(formatMegaHeaderLines(tree.repo));
 
   const args = splitVendoredArgs(rawArgs, OWN_FLAGS.transfer);
   let groups = select(tree, args.dirs);
@@ -473,8 +472,8 @@ const runMegaTransfer = async (
   const withSelf = !hasOwn(args, '--no-self');
 
   if (selected === 0 && !withSelf) {
-    say(explainEmptyTree(tree, args.dirs));
-    if (framed) outro(formatColor('Nothing to do.', 'info'));
+    log.info(explainEmptyTree(tree, args.dirs));
+    outro(formatColor('Nothing to do.', 'info'));
     return;
   }
 
@@ -482,7 +481,6 @@ const runMegaTransfer = async (
 
   const runSelf = async () => {
     if (!withSelf) return;
-    if (!framed) console.log(`\n${formatColor('this repository', 'catalog')}`);
     outcomes.push(await self(args));
   };
 
@@ -502,7 +500,6 @@ const runMegaTransfer = async (
   for (const group of groups) {
     if (group.entries.length === 0) continue;
 
-    if (!framed) console.log(heading(group));
     if (!(await hasVendorTooling(group.kind))) continue;
 
     for (const entry of group.entries) outcomes.push(await transfer(entry, cwd, args));
@@ -510,7 +507,7 @@ const runMegaTransfer = async (
 
   if (!selfFirst) await runSelf();
 
-  if (selected === 0) say(explainEmptyTree(tree, args.dirs));
+  if (selected === 0) log.info(explainEmptyTree(tree, args.dirs));
 
   const movedSubmodule = groups.some((group) => group.kind === 'submodule' && group.entries.length);
   const gitlinkNote =
@@ -518,17 +515,11 @@ const runMegaTransfer = async (
       ? 'The parent repo now has updated gitlinks — commit them to keep the move.'
       : '';
 
-  if (framed) {
-    //? The note comes before the tally so the frame still closes on the one line that says how
-    //? the run went.
-    if (gitlinkNote) log.info(gitlinkNote);
-    const { text, left } = tallyTree(outcomes, verb);
-    outro(formatColor(text, left > 0 ? 'warning' : 'success'));
-    return;
-  }
-
-  console.log(summariseTree(outcomes, verb));
-  if (gitlinkNote) console.log(`ℹ️  ${gitlinkNote}`);
+  //? The note comes before the tally so the frame still closes on the one line that says how
+  //? the run went.
+  if (gitlinkNote) log.info(gitlinkNote);
+  const { text, left } = tallyTree(outcomes, verb);
+  outro(formatColor(text, left > 0 ? 'warning' : 'success'));
 };
 
 /**
@@ -544,10 +535,10 @@ export const runMegaPull = (
   //? The repository first: its own pull is what moves the pins and `.gitmodules` entries that
   //? every vendored directory below is then measured against.
   runMegaTransfer(tree, cwd, args, pullVendored, {
+    command: 'receive',
     verb: 'Pulled',
     selfFirst: true,
     self: (own) => pullSelf(tree.repo, own, target),
-    framed: true,
   });
 
 /**
@@ -563,6 +554,7 @@ export const runMegaPush = (
   //? The repository last: it records which upstream commit each copy sits on, and publishing that
   //? before the copies themselves would point everyone at commits no remote has yet.
   runMegaTransfer(tree, cwd, args, pushVendored, {
+    command: 'send',
     verb: isDryRun(args) ? 'Would push' : 'Pushed',
     selfFirst: false,
     self: (own) => pushSelf(tree.repo, own, target),

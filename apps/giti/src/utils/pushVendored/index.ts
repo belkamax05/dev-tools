@@ -1,11 +1,15 @@
+import { log } from '@clack/prompts';
 import formatArg from '@/dev-tools/utils/format/formatArg';
+import formatColor from '@/dev-tools/utils/format/formatColor';
+import describePush from '../describePush';
 import getVendoredState from '../getVendoredState';
-import gitExec from '../gitExec';
 import resolveSubtreeUpstream from '../resolveSubtreeUpstream';
+import runGitStep from '../runGitStep';
 import type { Vendored, VendoredOutcome } from '../vendored';
 import { plural } from '../vendored';
 import type { FlagTarget, VendoredArgs } from '../vendoredArgs';
 import { explainDroppedFlags, forwardVendoredFlags } from '../vendoredArgs';
+import vendoredLabel from '../vendoredLabel';
 
 /** `git push` flags that are about the repository's own branch, not a vendored copy's. */
 const SELF_ONLY = new Set(['-u', '--set-upstream']);
@@ -18,6 +22,10 @@ const SELF_ONLY = new Set(['-u', '--set-upstream']);
  * that then have to be cleaned up by hand. Every one of them is answerable before any of that
  * work starts, so this refuses up front instead.
  *
+ * Each entry prints as clack lines, the way `pullVendored` does — its kind and path, then what
+ * happened — with the push command's own output live only while it runs, so `send` reads as one
+ * list just as `receive` does.
+ *
  * @param vendored - Entry from `getSubrepos`, `getSubmodules` or `getSubtrees`
  * @param cwd - Any directory inside the parent repository
  * @param args - Split arguments; giti's own half targets the subtree, the rest reaches git
@@ -29,14 +37,22 @@ const pushVendored = async (
   args: VendoredArgs = { dirs: [], own: [], passthrough: [] },
 ): Promise<VendoredOutcome> => {
   const { kind, dir, path } = vendored;
+  const label = vendoredLabel(kind, dir);
+  const skipped = (why: string) => {
+    log.warn(`${label}  ${formatColor('skipped', 'warning')} · ${why}`);
+    return 'skipped' as const;
+  };
+  const current = (why: string) => {
+    log.success(`${label}  ${formatColor('nothing to push', 'success')} · ${why}`);
+    return 'current' as const;
+  };
 
   const upstream = kind === 'subtree' ? await resolveSubtreeUpstream(vendored, args, cwd) : null;
   if (kind === 'subtree' && !upstream) {
-    console.error(
-      `❌ ${dir}: git subtree records no remote, and none was given. ` +
+    return skipped(
+      'git subtree records no remote, and none was given. ' +
         'Pass --remote=<name-or-url> (and --branch= if it is not the default).',
     );
-    return 'skipped';
   }
 
   const { behind, localChanges, ahead, gitlinkBehind, dirty } = await getVendoredState(
@@ -51,11 +67,10 @@ const pushVendored = async (
         : kind === 'subtree'
           ? 'under the prefix'
           : 'in the subrepo';
-    console.error(
-      `❌ ${dir}: ${plural(dirty.length, 'uncommitted file')} ${where}. Commit or stash them — ` +
-        'push only sends committed history.',
+    return skipped(
+      `${plural(dirty.length, 'uncommitted file')} ${where} — commit or stash them: ` +
+        'a push only sends committed history.',
     );
-    return 'skipped';
   }
 
   //? A submodule sends its own commits, so whether there is anything to send is a question about
@@ -65,25 +80,22 @@ const pushVendored = async (
   if (kind === 'submodule' && ahead === 0) {
     const stale = gitlinkBehind !== null && gitlinkBehind > 0;
     const tail = stale ? ' — commit the moved gitlink in the parent to record it' : '';
-    console.log(`ℹ️  ${dir}: nothing to push — every commit is already upstream${tail}.`);
-    return 'current';
+    return current(`every commit is already upstream${tail}`);
   }
 
   if (kind !== 'submodule' && localChanges !== null && localChanges.length === 0) {
     const pinned = vendored.commit ? formatArg(vendored.commit.slice(0, 7)) : 'upstream';
     const same =
       kind === 'subtree' ? 'the prefix matches upstream' : `identical to ${pinned} upstream`;
-    console.log(`ℹ️  ${dir}: nothing to push — ${same}.`);
-    return 'current';
+    return current(same);
   }
 
   if (behind !== null && behind > 0) {
     const rejected = kind === 'subrepo' ? 'unmerged' : 'non-fast-forward';
-    console.error(
-      `❌ ${dir}: upstream moved ${plural(behind, 'commit')} since the last pull, so the push ` +
-        `would be rejected as ${rejected}. Run \`giti receive ${dir}\` first.`,
+    return skipped(
+      `upstream moved ${plural(behind, 'commit')} since the last pull, so the push would be ` +
+        `rejected as ${rejected}. Run \`giti receive ${dir}\` first.`,
     );
-    return 'skipped';
   }
 
   //? `git subrepo push` and `git subtree push` have no dry run — forwarded, the flag would be
@@ -94,7 +106,7 @@ const pushVendored = async (
     const what =
       localChanges && localChanges.length > 0 ? plural(localChanges.length, 'changed file') : 'its changes';
     const to = kind === 'subtree' ? ` to ${upstream?.remote} ${upstream?.branch}` : '';
-    console.log(`🧪 ${dir}: dry run — would push ${what}${to}.`);
+    log.info(`${label}  ${formatColor('dry run', 'info')} · would push ${what}${to}`);
     return 'done';
   }
 
@@ -106,7 +118,7 @@ const pushVendored = async (
   //? `git subrepo` `-u` is --update, which would rewrite the entry's .gitrepo remote
   const forwardable = args.passthrough.filter((flag) => !SELF_ONLY.has(flag));
   const { flags, config, dropped } = forwardVendoredFlags(forwardable, forwardTo);
-  if (dropped.length > 0) console.warn(`   ${dir}: ${explainDroppedFlags(dropped, forwardTo)}`);
+  if (dropped.length > 0) log.warn(`${label}  ${explainDroppedFlags(dropped, forwardTo)}`);
 
   //? A submodule's copy is a repository of its own and its own commits are what travel, so its
   //? push runs inside it. The other two are trees in the parent, pushed by the parent.
@@ -138,17 +150,20 @@ const pushVendored = async (
         : localChanges
           ? ` ${plural(localChanges.length, 'changed file')}`
           : '';
-  console.log(`⬆️  ${dir}: pushing${what}...`);
 
   //? A subrepo or subtree push runs in the host, and the host's hooks have no business there:
   //? its pre-commit would rewrite the `.gitrepo` commit git-subrepo makes, its pre-push would
   //? judge a push to another project's remote. A submodule push runs its own repository's hooks.
   const noHooks = kind === 'submodule' ? [] : ['-c', 'core.hooksPath=/dev/null'];
-  const result = await gitExec([...noHooks, ...config, ...command], runIn, { stream: true });
-  if (result.exitCode === 0) return 'done';
-
-  console.error(`❌ ${dir}: push failed.`);
-  return 'failed';
+  const step = await runGitStep(`${label}  pushing${what}`, [...noHooks, ...config, ...command], runIn);
+  if (step.exitCode !== 0) {
+    step.fail(`${label}  ${formatColor('push failed', 'error')}`);
+    return 'failed';
+  }
+  //? A submodule push of a dry run moves nothing; git still lists the refs it would update
+  const verb = dryRun ? 'would push' : 'pushed';
+  step.succeed([`${label}  ${formatColor(`${verb}${what}`, 'success')}`, ...describePush(step.output)].join('\n'));
+  return 'done';
 };
 
 export default pushVendored;
