@@ -339,10 +339,15 @@ export const runVendoredPush = async (
     return [];
   }
 
+  //? Same frame as `send` and `pull` above: pushVendored prints each entry as a clack line
+  intro(formatColor(`giti ${kind} push`, 'command'));
+  log.message(formatColor(`Checking ${plural(targets.length, kind)}`, 'info'));
+
   const outcomes: VendoredOutcome[] = [];
   for (const entry of targets) outcomes.push(await pushVendored(entry, cwd, args));
 
-  console.log(summarise(outcomes, 'Pushed'));
+  const tally = summarise(outcomes, 'Pushed');
+  outro(formatColor(tally.replace(/^(✅|⚠️)\s*/, ''), tally.startsWith('✅') ? 'success' : 'warning'));
   return outcomes;
 };
 
