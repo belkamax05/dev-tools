@@ -352,3 +352,215 @@ test('a branch switched to from the dashboard picker closes it, and says so in a
     repo.cleanup();
   }
 });
+
+/** The fixture, with a submodule `mod` whose upstream also has `feature-a`. */
+const withSubmodule = () => {
+  const repo = fixture();
+  const upstream = mkdtempSync(join(tmpdir(), 'giti-branches-mod-'));
+  const inUpstream = (...args: string[]) => gitExecSync(args, upstream);
+  inUpstream('init', '-q', '-b', 'main');
+  inUpstream('config', 'user.name', 'Test');
+  inUpstream('config', 'user.email', 'test@example.com');
+  inUpstream('commit', '-q', '--allow-empty', '-m', 'initial');
+  inUpstream('branch', 'feature-a');
+  //? file:// submodules are refused by default since git 2.38.1 — allowed for this test only
+  repo.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', upstream, 'mod');
+  repo.git('commit', '-qm', 'add mod');
+  //? Moved up to the commit that has the submodule — on the old one there is nothing to follow
+  repo.git('branch', '-f', 'feature-a');
+  const modBranch = () => gitExecSync(['branch', '--show-current'], join(repo.root, 'mod')).stdout;
+  return {
+    ...repo,
+    modBranch,
+    cleanup: () => {
+      repo.cleanup();
+      rmSync(upstream, { recursive: true, force: true });
+    },
+  };
+};
+
+for (const mode of ['keyboard', 'mouse'])
+  test(`a dashboard switch offers the branch to submodules, applied with ${mode}`, async () => {
+    const repo = withSubmodule();
+    const term = terminal();
+    const captured: boolean[] = [];
+    const Harness = () => {
+      const [refreshKey, setRefreshKey] = useState(0);
+      return (
+        <BranchesView
+          root={repo.root}
+          refreshKey={refreshKey}
+          reload={() => setRefreshKey((key) => key + 1)}
+          notify={() => {}}
+          onCaptureInput={(on) => captured.push(on)}
+          offerUndo={() => {}}
+          handoff={() => {}}
+          reservedChrome={[]}
+          sync={sync}
+        />
+      );
+    };
+    const app = render(<Harness />, term.options);
+    const reporting = isMouseReporting();
+    const click = (text: string) => {
+      const lines = term.text().split('\n');
+      const row = lines.findIndex((line) => line.includes(text));
+      if (row < 0) throw new Error(`No click target: ${text}`);
+      emitMouseEvent({
+        type: 'release',
+        button: 'left',
+        row: row + 1,
+        column: lines[row]!.indexOf(text) + 2,
+        ctrl: false,
+        alt: false,
+        shift: false,
+      });
+    };
+    try {
+      await until(() => term.text().includes('Branches (2)'));
+      await Bun.sleep(60);
+      term.stdin.write('\u001b[B');
+      await Bun.sleep(80);
+      term.stdin.write(' ');
+      await until(() => term.text().includes('Follow feature-a in vendored repos'), 20_000);
+      //? Ticked for you: the submodule's upstream has the branch
+      expect(term.text()).toContain('[x]');
+      await until(() => captured.at(-1) === true);
+      if (mode === 'mouse') {
+        setMouseReporting(true);
+        click('Apply 1');
+      } else term.stdin.write('\r');
+      await until(() => repo.modBranch().trim() === 'feature-a', 20_000);
+      await until(() => !term.text().includes('Follow feature-a'));
+      await until(() => captured.at(-1) === false);
+    } finally {
+      setMouseReporting(reporting);
+      app.unmount();
+      repo.cleanup();
+    }
+  }, 30_000);
+
+test('a click unticks a submodule, and Esc leaves it where it was', async () => {
+  const repo = withSubmodule();
+  const term = terminal();
+  const Harness = () => {
+    const [refreshKey, setRefreshKey] = useState(0);
+    return (
+      <BranchesView
+        root={repo.root}
+        refreshKey={refreshKey}
+        reload={() => setRefreshKey((key) => key + 1)}
+        notify={() => {}}
+        onCaptureInput={() => {}}
+        offerUndo={() => {}}
+        handoff={() => {}}
+        reservedChrome={[]}
+        sync={sync}
+      />
+    );
+  };
+  const app = render(<Harness />, term.options);
+  const reporting = isMouseReporting();
+  try {
+    await until(() => term.text().includes('Branches (2)'));
+    await Bun.sleep(60);
+    term.stdin.write('\u001b[B');
+    await Bun.sleep(80);
+    term.stdin.write(' ');
+    await until(() => term.text().includes('[x]'), 20_000);
+    setMouseReporting(true);
+    const lines = term.text().split('\n');
+    const row = lines.findIndex((line) => line.includes('[x]'));
+    emitMouseEvent({
+      type: 'release',
+      button: 'left',
+      row: row + 1,
+      column: lines[row]!.indexOf('mod') + 2,
+      ctrl: false,
+      alt: false,
+      shift: false,
+    });
+    await until(() => term.text().includes('[ ]') && term.text().includes('Done'));
+    term.stdin.write('\u001b');
+    await until(() => term.text().includes('Branches (2)'));
+    expect(repo.modBranch().trim()).toBe('main');
+  } finally {
+    setMouseReporting(reporting);
+    app.unmount();
+    repo.cleanup();
+  }
+}, 30_000);
+
+test('`giti hop` (followVendored off) gets no checklist here — it asks after its screen closes', async () => {
+  const repo = withSubmodule();
+  const term = terminal();
+  const switched: string[] = [];
+  const app = render(
+    <BranchesView
+      root={repo.root}
+      refreshKey={0}
+      reload={() => {}}
+      notify={() => {}}
+      onCaptureInput={() => {}}
+      offerUndo={() => {}}
+      handoff={() => {}}
+      reservedChrome={[]}
+      sync={sync}
+      onSwitched={(message) => switched.push(message)}
+      followVendored={false}
+    />,
+    term.options,
+  );
+  const plan = spyOn(await import('../../../../core/vendoredHop'), 'planVendoredHopAtHead');
+  try {
+    await until(() => term.text().includes('Branches (2)'));
+    await Bun.sleep(60);
+    term.stdin.write('\u001b[B');
+    await Bun.sleep(80);
+    term.stdin.write(' ');
+    await until(() => switched.length === 1);
+    await Bun.sleep(200);
+    expect(plan).not.toHaveBeenCalled();
+    expect(term.text()).not.toContain('vendored repos');
+    expect(repo.modBranch().trim()).toBe('main');
+  } finally {
+    plan.mockRestore();
+    app.unmount();
+    repo.cleanup();
+  }
+}, 30_000);
+
+test('the dashboard asks about submodules before its picker closes back to Overview', async () => {
+  const repo = withSubmodule();
+  const term = terminal();
+  const app = render(
+    <App
+      cwd={repo.root}
+      commands={[]}
+      onRunCommand={() => {}}
+      onHandoff={() => {}}
+      initialRefreshSeconds={0}
+    />,
+    term.options,
+  );
+  try {
+    await until(() => term.text().includes('Fetch'), 10_000);
+    await Bun.sleep(150);
+    term.stdin.write('b');
+    await until(() => term.text().includes('Branches (2)'));
+    await Bun.sleep(80);
+    term.stdin.write('\u001b[B');
+    await Bun.sleep(80);
+    term.stdin.write(' ');
+    await until(() => term.text().includes('Follow feature-a in vendored repos'), 20_000);
+    expect(repo.git('branch', '--show-current').trim()).toBe('feature-a');
+    await Bun.sleep(80);
+    term.stdin.write('\r');
+    await until(() => repo.modBranch().trim() === 'feature-a', 20_000);
+    //? Answered: the picker closes as a plain switch always did
+    await until(() => !term.text().includes('Branches (2)') && term.text().includes('Fetch'));
+  } finally {
+    app.unmount();
+    repo.cleanup();
+  }
+}, 30_000);

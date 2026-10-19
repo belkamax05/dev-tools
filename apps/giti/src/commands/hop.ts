@@ -4,6 +4,7 @@ import type { CommandRun } from '../types/CommandRun';
 import getBranches from '../utils/getBranches';
 import getWorkingDir from '../utils/getWorkingDir';
 import gitExec from '../utils/gitExec';
+import runVendoredHop from '../utils/runVendoredHop';
 
 const KNOWN_FLAGS = new Set([
   '--new',
@@ -18,6 +19,7 @@ const KNOWN_FLAGS = new Set([
   '--discard-changes',
   '--yes',
   '-y',
+  '--no-vendored',
 ]);
 
 const SwitchArgs = z.object({
@@ -27,6 +29,7 @@ const SwitchArgs = z.object({
   noTrack: z.boolean().default(false),
   force: z.boolean().default(false),
   yes: z.boolean().default(false),
+  noVendored: z.boolean().default(false),
   branch: z.string().optional(),
   newBranchName: z.string().optional(),
 });
@@ -46,6 +49,7 @@ const run: CommandRun = async (rawArgs) => {
       'no-track': { type: 'boolean' },
       force: { type: 'boolean', short: 'f' },
       yes: { type: 'boolean', short: 'y' },
+      'no-vendored': { type: 'boolean' },
     },
     allowPositionals: true,
     strict: false,
@@ -58,6 +62,7 @@ const run: CommandRun = async (rawArgs) => {
     noTrack: values['no-track'],
     force: values.force,
     yes: values.yes,
+    noVendored: values['no-vendored'],
     //? When -c is used: first positional is the new branch name, second is start point
     branch: values.new ? positionals[1] : positionals[0],
     newBranchName: values.new ? positionals[0] : undefined,
@@ -74,6 +79,15 @@ const run: CommandRun = async (rawArgs) => {
     //? A single remote match is what plain `git switch` already creates a tracking branch from;
     //? two remotes carrying the same name is ambiguous, so leave that to the picker.
     return remote.filter((r) => r.slice(r.indexOf('/') + 1) === parsed.branch).length === 1;
+  };
+
+  //? The step after every switch that lands on a branch: the same name, offered to each submodule
+  //? and subrepo. Asked on a terminal; with --yes (or piped) only the recommended ones run.
+  const followIntoVendored = async () => {
+    if (parsed.noVendored || parsed.detach) return;
+    await runVendoredHop(cwd, {
+      interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY) && !parsed.yes,
+    });
   };
 
   const isUnambiguous =
@@ -97,11 +111,12 @@ const run: CommandRun = async (rawArgs) => {
     if (result.stdout) console.log(result.stdout);
     if (result.stderr) console.error(result.stderr);
     if (result.exitCode !== 0) process.exit(result.exitCode ?? 1);
+    await followIntoVendored();
     return;
   }
 
   const { default: renderInkSwitch } = await import('../ui/renderInkSwitch');
-  await renderInkSwitch({
+  const switched = await renderInkSwitch({
     //? A name that matched no branch outright: the search starts on it
     initialBranch: parsed.branch,
     //? `-c` with no name yet (with one, it ran above without the screen)
@@ -115,12 +130,13 @@ const run: CommandRun = async (rawArgs) => {
     passthroughFlags,
     cwd,
   });
+  if (switched) await followIntoVendored();
 };
 
 export const meta = {
   name: 'hop',
   description:
-    "Switch branches — the dashboard's branch picker full screen: search local & remote branches, details, compare, flags",
+    "Switch branches — the dashboard's branch picker full screen: search local & remote branches, details, compare, flags; then offers the branch to submodules & subrepos",
 };
 
 export default run;

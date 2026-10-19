@@ -29,6 +29,12 @@ import {
   switchBranch,
 } from '../../../../core/branches';
 import type { OperationResult } from '../../../../core/status';
+import {
+  applyVendoredHop,
+  planVendoredHopAtHead,
+  type VendoredHop,
+} from '../../../../core/vendoredHop';
+import { VendoredHopForm } from '../../../renderInkVendoredHop';
 import PatchLines from '../../PatchLines';
 import SpinnerGlyph from '../../SpinnerGlyph';
 import type { GitViewProps } from '../../types';
@@ -45,11 +51,25 @@ export interface BranchesViewProps extends GitViewProps {
   switchOptions?: SwitchOptions;
   /** A switch or a new branch went through — `giti hop` is done then, and closes. */
   onSwitched?: (message: string) => void;
+  /**
+   * After a switch, offer the branch to submodules and subrepos before `onSwitched` — on by
+   * default (the dashboard). `giti hop` turns it off: it asks once its own screen has closed.
+   */
+  followVendored?: boolean;
   /** Open on the new-branch prompt — `giti hop -c` with no name yet. */
   startCreating?: boolean;
   /** False while something else on screen has the keyboard (`giti hop`'s flags). */
   isInputActive?: boolean;
 }
+
+/**
+ * Where following a dashboard switch into the vendored repos is: asking each upstream, waiting on
+ * the checklist, or carrying out what was ticked.
+ */
+type VendoredStep =
+  | { phase: 'planning'; branch?: string; count?: number }
+  | { phase: 'asking'; branch: string; entries: VendoredHop[] }
+  | { phase: 'applying'; branch: string; done: number; total: number };
 
 const trackHint = (branch: Branch) =>
   [
@@ -88,6 +108,7 @@ export const BranchesView = ({
   onSwitched,
   startCreating = false,
   isInputActive = true,
+  followVendored = true,
 }: BranchesViewProps) => {
   const colors = useColors();
   const viewport = useViewport();
@@ -98,6 +119,18 @@ export const BranchesView = ({
   const [query, setQuery] = useState(initialQuery);
   const [isSearching, setIsSearching] = useState(false);
   const lastClick = useRef<{ id: string; at: number } | undefined>(undefined);
+  const [vendored, setVendored] = useState<VendoredStep>();
+  //? Bumped by every new switch and on unmount: a plan still asking upstream for an older switch
+  //? (`ls-remote` can take seconds) lands on nothing rather than over the newer one
+  const vendoredRun = useRef(0);
+  useEffect(
+    () => () => {
+      vendoredRun.current++;
+    },
+    [],
+  );
+  //? The checklist, and the applying after it, own the keyboard; planning leaves the list usable
+  const isVendoredOpen = vendored?.phase === 'asking' || vendored?.phase === 'applying';
 
   const { data: branches = [], isLoading } = useLoader(() => getBranches(root), [root, refreshKey]);
   const checkedOut = branches.find((b) => b.isCurrent);
@@ -105,8 +138,8 @@ export const BranchesView = ({
   //? The search box takes the keyboard, so the app's own keys (digits, q, r)
   //? must stand down while it is open — and get it back on Esc or unmount.
   useEffect(() => {
-    onCaptureInput(isSearching);
-  }, [isSearching, onCaptureInput]);
+    onCaptureInput(isSearching || isVendoredOpen);
+  }, [isSearching, isVendoredOpen, onCaptureInput]);
   useEffect(() => () => onCaptureInput(false), [onCaptureInput]);
   const current = branches.find((b) => `${b.isRemote ? 'r' : 'l'}:${b.name}` === currentId);
   const { data: diff = '' } = useLoader(
@@ -123,12 +156,68 @@ export const BranchesView = ({
     reload();
   };
 
-  //? A switch that went through is the end of `giti hop`; on the dashboard it is one more action
+  //? The dashboard's half of `giti hop`'s vendored step: the same plan and the same checklist,
+  //? shown in place of the list. `then` is the end of the switch (the dashboard's `onSwitched`,
+  //? which closes the picker) — held back until the checklist is answered or there is none
+  const afterVendored = useRef<() => void>(undefined);
+  const followIntoVendored = async (then: () => void) => {
+    const run = ++vendoredRun.current;
+    const isCurrent = () => run === vendoredRun.current;
+    setVendored({ phase: 'planning' });
+    const plan = await planVendoredHopAtHead(root, (branch, count) => {
+      if (isCurrent()) setVendored({ phase: 'planning', branch, count });
+    });
+    if (!isCurrent()) return;
+    if (!plan?.entries.some((entry) => entry.action !== 'none')) {
+      setVendored(undefined);
+      return then();
+    }
+    afterVendored.current = then;
+    setVendored({ phase: 'asking', ...plan });
+  };
+  const applyVendored = async (branch: string, picked: VendoredHop[]) => {
+    const then = afterVendored.current;
+    afterVendored.current = undefined;
+    if (picked.length === 0) {
+      setVendored(undefined);
+      notify('Vendored repos left where they were', 'info');
+      return then?.();
+    }
+    const run = vendoredRun.current;
+    const failures: string[] = [];
+    //? One at a time: subrepo commands each commit in the parent, and two at once race the index
+    for (const [done, entry] of picked.entries()) {
+      if (run === vendoredRun.current) {
+        setVendored({ phase: 'applying', branch, done, total: picked.length });
+      }
+      const result = await applyVendoredHop(root, entry, branch);
+      if (!result.ok) failures.push(result.message);
+    }
+    if (run === vendoredRun.current) setVendored(undefined);
+    const followed = picked.length - failures.length;
+    if (failures.length) notify(failures.join(' · '), 'error');
+    else notify(`${followed} vendored repo${followed === 1 ? '' : 's'} on ${branch}`, 'ok');
+    reload();
+    then?.();
+  };
+
+  //? A switch that went through is the end of `giti hop` and closes the dashboard's picker — on
+  //? the dashboard only once the vendored step is answered. Without `onSwitched` it is one more action
   const runSwitch = async (action: () => Promise<OperationResult>) => {
     const result = await action();
-    if (result.ok && onSwitched) return onSwitched(result.message);
-    notify(result.message, result.ok ? 'ok' : 'error');
+    const finish = () => {
+      if (onSwitched) return onSwitched(result.message);
+      notify(result.message, 'ok');
+      reload();
+    };
+    if (!result.ok) {
+      notify(result.message, 'error');
+      return reload();
+    }
+    if (!followVendored) return finish();
+    //? The list shows the new branch as current while upstream is asked
     reload();
+    await followIntoVendored(finish);
   };
   const switchTo = (branch: Branch) => {
     if (branch.isCurrent && !switchOptions?.detach)
@@ -240,7 +329,7 @@ export const BranchesView = ({
       else if (input === 'd') remove(current);
       else if (input === 'u') track(current);
     },
-    { isActive: !prompt.isOpen && isInputActive },
+    { isActive: !prompt.isOpen && !isVendoredOpen && isInputActive },
   );
 
   const needle = query.toLowerCase();
@@ -344,94 +433,119 @@ export const BranchesView = ({
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>
-        {prompt.line ?? (
-          <>
+        {prompt.line ??
+          (vendored?.phase === 'planning' || vendored?.phase === 'applying' ? (
             <Text wrap="truncate" color={colors.muted}>
-              {isLoading && !branches.length && <SpinnerGlyph />}
-              {isLoading && !branches.length
-                ? 'Reading branches…'
-                : `${local.length} local · ${remote.length} remote · by ${sort} `}
+              <SpinnerGlyph />
+              {vendored.phase === 'applying'
+                ? `Following ${vendored.branch} in vendored repos — ${vendored.done + 1} of ${vendored.total}…`
+                : vendored.branch && vendored.count
+                  ? `Looking for ${vendored.branch} in ${vendored.count} vendored repo${vendored.count === 1 ? '' : 's'}…`
+                  : 'Checking vendored repos…'}
             </Text>
-            {isSearching || query ? (
-              <>
-                <Text color={colors.accent}>/{query}</Text>
-                {isSearching && <Text color={colors.highlight}>▌</Text>}
-              </>
-            ) : (
-              <Text color={colors.muted}>— press / to search</Text>
-            )}
-          </>
-        )}
-      </Box>
-      <ListDetail
-        detailScroll={false}
-        key={`${root}:${checkedOut?.name ?? ''}`}
-        initialSelectedId={checkedOut ? `l:${checkedOut.name}` : undefined}
-        title={`Branches (${shown.length})`}
-        items={items}
-        emptyText={
-          query
-            ? `No branch matches "${query}".`
-            : 'No branches — this repository has no commits yet.'
-        }
-        detailTitle={current?.name ?? 'Branch'}
-        reservedChrome={['viewHeader', ...reservedChrome]}
-        activateLabel="switch"
-        activateOnClick={(item) => {
-          const now = Date.now();
-          const previous = lastClick.current;
-          if (previous?.id === item.id && now - previous.at < 400) {
-            lastClick.current = undefined;
-            return true;
-          }
-          lastClick.current = { id: item.id, at: now };
-          return false;
-        }}
-        isInputActive={!prompt.isOpen && !isSearching && isInputActive}
-        hints={hints}
-        onActivate={(item) => item.value && switchTo(item.value)}
-        onSelectionChange={(item) => setCurrentId(item?.id)}
-        renderDetail={(item) => {
-          const branch = item?.value;
-          if (!branch) return null;
-          const actions = actionsFor(branch);
-          return (
-            <Box flexDirection="column" flexGrow={1} minHeight={0}>
-              {/* The same shape whether Compare is on or off: it is the diff that gives up
-                  rows, never the buttons that move. */}
-              <Toolbar actions={actions} maxRows={rows - 1} />
-              {compare && !branch.isCurrent ? (
-                <PatchLines
-                  text={diff}
-                  isActive={!prompt.isOpen && !isSearching && isInputActive}
-                />
+          ) : (
+            <>
+              <Text wrap="truncate" color={colors.muted}>
+                {isLoading && !branches.length && <SpinnerGlyph />}
+                {isLoading && !branches.length
+                  ? 'Reading branches…'
+                  : `${local.length} local · ${remote.length} remote · by ${sort} `}
+              </Text>
+              {isSearching || query ? (
+                <>
+                  <Text color={colors.accent}>/{query}</Text>
+                  {isSearching && <Text color={colors.highlight}>▌</Text>}
+                </>
               ) : (
-                <ScrollPanel key={branch.name} keyboardMode="preview" isActive={!prompt.isOpen && !isSearching && isInputActive}>
-                  <Text bold color={branch.isCurrent ? colors.accent : colors.text}>
-                    {branch.name}
-                  </Text>
-                  <Text color={colors.muted} wrap="truncate">
-                    {branch.author} · {branch.when} · {branch.subject}
-                  </Text>
-                  {!branch.isRemote && (
-                    <Text color={branch.upstream ? colors.text : colors.warn} wrap="truncate">
-                      tracks {branch.upstream || 'nothing'}
-                      {branch.upstream ? ` · ${branch.ahead} ahead, ${branch.behind} behind` : ''}
-                    </Text>
-                  )}
-                  {!branch.isRemote && !branch.isCurrent && (
-                    <Text color={branch.merged ? colors.ok : colors.muted}>
-                      {branch.merged
-                        ? `every commit is already in ${checkedOut?.name ?? 'HEAD'} — deleting loses nothing`
-                        : 'has commits HEAD does not'}
-                    </Text>
-                  )}
-                </ScrollPanel>
+                <Text color={colors.muted}>— press / to search</Text>
               )}
-            </Box>
-          );
-        }}
-      />
+            </>
+          ))}
+      </Box>
+      {vendored?.phase === 'asking' ? (
+        <Box flexDirection="column" flexGrow={1} overflow="hidden">
+          <VendoredHopForm
+            branch={vendored.branch}
+            entries={vendored.entries}
+            isActive={isInputActive}
+            onDone={(picked) => void applyVendored(vendored.branch, picked)}
+          />
+        </Box>
+      ) : (
+        <ListDetail
+          detailScroll={false}
+          key={`${root}:${checkedOut?.name ?? ''}`}
+          initialSelectedId={checkedOut ? `l:${checkedOut.name}` : undefined}
+          title={`Branches (${shown.length})`}
+          items={items}
+          emptyText={
+            query
+              ? `No branch matches "${query}".`
+              : 'No branches — this repository has no commits yet.'
+          }
+          detailTitle={current?.name ?? 'Branch'}
+          reservedChrome={['viewHeader', ...reservedChrome]}
+          activateLabel="switch"
+          activateOnClick={(item) => {
+            const now = Date.now();
+            const previous = lastClick.current;
+            if (previous?.id === item.id && now - previous.at < 400) {
+              lastClick.current = undefined;
+              return true;
+            }
+            lastClick.current = { id: item.id, at: now };
+            return false;
+          }}
+          isInputActive={!prompt.isOpen && !isSearching && isInputActive}
+          hints={hints}
+          onActivate={(item) => item.value && switchTo(item.value)}
+          onSelectionChange={(item) => setCurrentId(item?.id)}
+          renderDetail={(item) => {
+            const branch = item?.value;
+            if (!branch) return null;
+            const actions = actionsFor(branch);
+            return (
+              <Box flexDirection="column" flexGrow={1} minHeight={0}>
+                {/* The same shape whether Compare is on or off: it is the diff that gives up
+                  rows, never the buttons that move. */}
+                <Toolbar actions={actions} maxRows={rows - 1} />
+                {compare && !branch.isCurrent ? (
+                  <PatchLines
+                    text={diff}
+                    isActive={!prompt.isOpen && !isSearching && isInputActive}
+                  />
+                ) : (
+                  <ScrollPanel
+                    key={branch.name}
+                    keyboardMode="preview"
+                    isActive={!prompt.isOpen && !isSearching && isInputActive}
+                  >
+                    <Text bold color={branch.isCurrent ? colors.accent : colors.text}>
+                      {branch.name}
+                    </Text>
+                    <Text color={colors.muted} wrap="truncate">
+                      {branch.author} · {branch.when} · {branch.subject}
+                    </Text>
+                    {!branch.isRemote && (
+                      <Text color={branch.upstream ? colors.text : colors.warn} wrap="truncate">
+                        tracks {branch.upstream || 'nothing'}
+                        {branch.upstream ? ` · ${branch.ahead} ahead, ${branch.behind} behind` : ''}
+                      </Text>
+                    )}
+                    {!branch.isRemote && !branch.isCurrent && (
+                      <Text color={branch.merged ? colors.ok : colors.muted}>
+                        {branch.merged
+                          ? `every commit is already in ${checkedOut?.name ?? 'HEAD'} — deleting loses nothing`
+                          : 'has commits HEAD does not'}
+                      </Text>
+                    )}
+                  </ScrollPanel>
+                )}
+              </Box>
+            );
+          }}
+        />
+      )}
     </Box>
   );
 };

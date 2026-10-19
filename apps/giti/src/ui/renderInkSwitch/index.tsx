@@ -196,6 +196,8 @@ export const SwitchForm = ({
           }}
           startCreating={startCreating}
           isInputActive={section === 'branches'}
+          //? `hop` follows into the vendored repos itself, after this screen has closed
+          followVendored={false}
         />
       ) : (
         <Box flexGrow={1} justifyContent="center" alignItems="center">
@@ -243,6 +245,8 @@ const renderInkSwitch = async (options: RenderInkSwitchOptions) => {
   );
   //? Said once the terminal is back, where it stays: the screen itself is gone by then
   if (switched) console.log(`✅ ${switched}`);
+  //? Whether HEAD moved — `hop` follows it into the vendored repos only then
+  return Boolean(switched);
 };
 
 export default renderInkSwitch;

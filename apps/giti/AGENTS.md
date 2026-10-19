@@ -310,6 +310,32 @@ an alias cannot shadow a built-in. One body, `src/utils/runTransferCommand`, ove
   no dry run — they say what they would push instead; `-u`/`--set-upstream` is the repository's
   alone (to `git subrepo`, `-u` is --update).
 
+### `hop` follows the branch into submodules and subrepos
+
+After any `hop` that lands on a branch (named, `-c`, or picked on the screen), `runVendoredHop`
+offers the same name to every submodule and subrepo (`core/vendoredHop`; subtrees have no branch
+to be on). Each entry gets one possible action, found by local refs and `ls-remote`:
+
+- submodule has the branch → `switch` (fetched first if only upstream has it) — **ticked**, unless
+  its checkout is dirty;
+- submodule lacks it → `create` (`git switch -c` at what is checked out) — offered, never ticked;
+- subrepo upstream has it → `retarget` (`git subrepo pull -b <branch> -u`) — offered, never ticked;
+- subrepo upstream lacks it → `publish` (`git subrepo push -b <branch> -u`) — offered, never ticked.
+
+On a terminal an inline checklist (`renderInkVendoredHop`) asks; Enter applies the ticks, Esc skips
+all. `--yes` or a pipe runs the ticked-by-default ones and prints the rest as hints.
+`--no-vendored` (and `--detach`) skip the step.
+
+The dashboard's Branches view (`b` on Overview) takes the same step after a switch or a new branch:
+`planVendoredHopAtHead` runs in the background (a spinner line in place of the counts), and when
+anything can follow, `VendoredHopForm` replaces the list with the same ticks. Enter / Apply applies
+them and Esc / Skip all skips. Rows tick by click as well as Space, and `a` / `n` (Recommended /
+None) are buttons too. The form only reports through `onDone`; `renderInkVendoredHop` wraps it to
+exit its inline app. The dashboard's `onSwitched` (close the picker, flash the branch on Overview)
+runs only once the checklist is answered, or right away when nothing can follow. `giti hop`'s
+screen passes `followVendored={false}`, so the view never plans there: hop asks once, after its
+screen closes.
+
 ### Flags: giti's own vs. everything else
 
 These families do **not** use the `KNOWN_FLAGS` + `parseArgs` shape above. `src/utils/vendoredArgs`

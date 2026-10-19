@@ -67,7 +67,7 @@ hash = "!git giti hash"
 # List giti commands (alias for giti list)
 help = "!git giti help"
 
-# Switch branches — the dashboard's branch picker full screen: search local & remote branches, details, compare, flags
+# Switch branches — the dashboard's branch picker full screen: search local & remote branches, details, compare, flags; then offers the branch to submodules & subrepos
 hop = "!git giti hop"
 
 # Every giti command with what it does, grouped by folder — giti list <word> narrows it
