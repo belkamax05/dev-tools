@@ -35,15 +35,56 @@ const MessageField = ({ onFocus, children }: { onFocus: () => void; children: Re
   return <Box ref={ref}>{children}</Box>;
 };
 
+/** Each flag: what reaches git, its button, and what it does — shown for the one under the cursor. */
 const FLAGS = [
-  ['--no-verify', 'Skip hooks'],
-  ['--amend', 'Amend'],
-  ['--allow-empty', 'Allow empty'],
-  ['--signoff', 'Sign off'],
-  ['--push', 'Push after commit'],
+  [
+    '--no-verify',
+    'Skip hooks',
+    'Commit without running the pre-commit and commit-msg hooks (lint-staged, commitlint…).',
+  ],
+  [
+    '--amend',
+    'Amend',
+    'Fold the staged changes into the last commit (an empty message keeps its own). Rewrites it — not once pushed.',
+  ],
+  [
+    '--allow-empty',
+    'Allow empty',
+    'Commit even with nothing staged — a marker commit, or one that only re-runs CI.',
+  ],
+  [
+    '--signoff',
+    'Sign off',
+    'Add a "Signed-off-by: <you>" trailer, for projects that ask for a DCO sign-off.',
+  ],
+  [
+    '--push',
+    'Push after commit',
+    'Once the commit succeeds, run giti send — this repository and everything vendored in it.',
+  ],
 ] as const;
 
 type Section = 'files' | 'message' | 'flags';
+
+/** What one flag does, under the row: the git flag it adds and a line of why you would. */
+const FlagDetail = ({
+  index,
+  on,
+  focused,
+}: {
+  index: number;
+  on: ReadonlySet<string>;
+  focused: boolean;
+}) => {
+  const colors = useColors();
+  const [flag, label, about] = FLAGS[index] ?? FLAGS[0];
+  return (
+    <Text wrap="wrap">
+      <Text color={focused ? colors.accent : colors.muted}>{`${label} (${flag}${on.has(flag) ? ', on' : ''}): `}</Text>
+      <Text color={colors.muted}>{about}</Text>
+    </Text>
+  );
+};
 
 //? How long the message pane stays red after an empty submit
 const MESSAGE_ERROR_MS = 2500;
@@ -77,6 +118,9 @@ export const CommitForm = ({
   const [section, setSection] = useState<Section>('files');
   const [message, setMessage] = useState(initialMessage ?? '');
   const [flags, setFlags] = useState(new Set(initialFlags));
+  //? The flag the arrows are on, and the one the pointer is over — that one is explained first
+  const [flagCursor, setFlagCursor] = useState(0);
+  const [hoveredFlag, setHoveredFlag] = useState<number>();
   const [refreshKey, setRefreshKey] = useState(0);
   const reload = useCallback(() => setRefreshKey((key) => key + 1), []);
 
@@ -213,8 +257,22 @@ export const CommitForm = ({
       setSection(sections[(sections.indexOf(section) + (key.shift ? 2 : 1)) % 3] ?? 'files');
     } else if (key.return) advance();
     else if (section === 'flags') {
-      const flag = FLAGS[Number(input) - 1]?.[0];
-      if (flag) toggle(flag);
+      const step = key.leftArrow || key.upArrow ? -1 : key.rightArrow || key.downArrow ? 1 : 0;
+      if (step) {
+        setFlagCursor((at) => (at + step + FLAGS.length) % FLAGS.length);
+        return;
+      }
+      if (input === ' ') {
+        const flag = FLAGS[flagCursor]?.[0];
+        if (flag) toggle(flag);
+        return;
+      }
+      const index = Number(input) - 1;
+      const flag = FLAGS[index]?.[0];
+      if (flag) {
+        setFlagCursor(index);
+        toggle(flag);
+      }
     }
   });
 
@@ -307,24 +365,37 @@ export const CommitForm = ({
           >
             {messageInput}
           </Panel>
-          <Panel title="Flags · 1–5 toggle · Enter to save" isFocused={section === 'flags'}>
+          <Panel
+            title="Flags · ←/→ choose · Space or 1–5 toggle · Enter to save"
+            isFocused={section === 'flags'}
+          >
             <Box flexDirection="row" flexWrap="wrap">
               {FLAGS.map(([flag, label], index) => (
                 <ActionButton
                   key={flag}
                   hotkey={String(index + 1)}
-                  label={label}
+                  //? The cursor is drawn only while the panel has the keys, as a list's is
+                  label={`${section === 'flags' && index === flagCursor ? '▸' : ''}${label}`}
+                  color={section === 'flags' && index === flagCursor ? colors.highlight : undefined}
                   isOn={flags.has(flag)}
+                  onHover={(hovered) =>
+                    setHoveredFlag((was) => (hovered ? index : was === index ? undefined : was))
+                  }
                   onPress={() => {
                     setSection('flags');
+                    setFlagCursor(index);
                     toggle(flag);
                   }}
                 />
               ))}
             </Box>
+            <FlagDetail index={hoveredFlag ?? flagCursor} on={flags} focused={section === 'flags'} />
           </Panel>
           <Text color={colors.muted} wrap="truncate">
-            {notice || `Space stage/unstage · Tab change focus · Enter → ${nextStep}`}
+            {notice ||
+              (section === 'flags'
+                ? `←/→ choose · Space toggle · Tab change focus · Enter → ${nextStep}`
+                : `Space stage/unstage · Tab change focus · Enter → ${nextStep}`)}
           </Text>
         </Box>
       )}

@@ -245,3 +245,27 @@ test('a file changed outside the open form shows up in its list without a key pr
     form.dispose();
   }
 });
+
+test('the arrows walk the flags, Space toggles the one under the cursor, and each is explained', async () => {
+  const form = mountForm();
+  try {
+    await until(() => form.frame.output.includes('file.txt'));
+    form.stdin.write('\t');
+    await until(() => form.frame.output.includes('Focus: message'));
+    form.stdin.write('\t');
+    await until(() => form.frame.output.includes('Focus: flags'));
+    expect(form.frame.output).toContain('Skip hooks (--no-verify): Commit without running');
+    form.stdin.write('\u001b[C');
+    await until(() => form.frame.output.includes('Amend (--amend): Fold the staged changes'));
+    expect(form.frame.output).toContain('▸Amend');
+    form.stdin.write(' ');
+    await until(() => form.frame.output.includes('Amend (--amend, on)'));
+    form.stdin.write('\u001b[D');
+    await until(() => form.frame.output.includes('▸Skip hooks'));
+    //? Wraps around: left of the first flag is the last
+    form.stdin.write('\u001b[D');
+    await until(() => form.frame.output.includes('Push after commit (--push): Once the commit succeeds'));
+  } finally {
+    form.dispose();
+  }
+});
