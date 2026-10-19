@@ -28,7 +28,7 @@ export interface DepliState {
 /** `~/.config/depli/config.json`: what a person chose — the theme. Fine to keep in dotfiles. */
 export const configStore = createConfigStore<DepliConfig>({
   appName: 'depli',
-  defaults: { theme: 'lagoon' },
+  defaults: { theme: 'sakura' },
 });
 
 /**
