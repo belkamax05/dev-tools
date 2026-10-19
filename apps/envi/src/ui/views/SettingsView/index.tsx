@@ -18,6 +18,7 @@ import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
 
 import {
   DEFAULT_MASK_PATTERNS,
+  isSecretKey,
   SET_TARGET_LABELS,
   SET_TARGETS,
   type SetTarget,
@@ -55,6 +56,34 @@ const SET_TARGET_DETAIL: Record<SetTarget, string> = {
     'Machine vars in ~/.local/state/envi/state.json — set in every folder, on this machine only: they never travel with dotfiles.',
 };
 
+/** How many masked names the panel lists before it only counts the rest. */
+const LISTED = 8;
+
+/** What a pattern masks here, and which of those only it masks — what removing it would show. */
+const PatternMatches = ({ masked, onlyThis }: { masked: string[]; onlyThis: string[] }) => {
+  const colors = useColors();
+  if (!masked.length)
+    return (
+      <Box marginTop={1}>
+        <Text color={colors.muted}>No variable here has a name containing it.</Text>
+      </Box>
+    );
+  const only = new Set(onlyThis);
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color={colors.heading}>{`Masks ${masked.length} here`}</Text>
+      {masked.slice(0, LISTED).map((name) => (
+        <Text key={name} color={only.has(name) ? colors.warn : colors.muted} wrap="truncate">
+          {`  ${name}${only.has(name) ? '  — shown in full without it' : ''}`}
+        </Text>
+      ))}
+      {masked.length > LISTED && (
+        <Text color={colors.muted}>{`  …and ${masked.length - LISTED} more`}</Text>
+      )}
+    </Box>
+  );
+};
+
 const HOOK_FILES = {
   zsh: '~/.zshrc',
   bash: '~/.bashrc',
@@ -69,6 +98,7 @@ const hookLine = (shell: 'zsh' | 'bash' | 'fish') =>
  * line that hooks it into a shell, the theme, and the config file itself. Saved as it changes.
  */
 export const SettingsView = ({
+  resolution,
   config,
   configPath,
   session,
@@ -96,11 +126,33 @@ export const SettingsView = ({
       });
     });
 
-  const removePattern = (pattern: string) =>
-    onConfigChange({
-      ...config,
-      maskPatterns: config.maskPatterns.filter((entry) => entry !== pattern),
+  /**
+   * The names here a pattern masks — envi's and the shell's — and which of them only it does:
+   * those are the values that would show in full without it.
+   */
+  const maskedBy = (pattern: string) => {
+    const names = [
+      ...new Set([...(resolution?.vars ?? []).map((entry) => entry.key), ...Object.keys(launchEnv())]),
+    ].sort();
+    const others = config.maskPatterns.filter((entry) => entry !== pattern);
+    const masked = names.filter((name) => isSecretKey(name, [pattern]));
+    return { masked, onlyThis: masked.filter((name) => !isSecretKey(name, others)) };
+  };
+
+  //? Asked first: dropping a pattern unmasks values, and is one key or click away
+  const removePattern = (pattern: string) => {
+    const { onlyThis } = maskedBy(pattern);
+    const effect = onlyThis.length
+      ? `${onlyThis.length} value${onlyThis.length === 1 ? '' : 's'} here would show in full`
+      : 'nothing here would show differently';
+    prompt.confirm(`Stop masking names containing ${pattern}? (${effect})`, () => {
+      onConfigChange({
+        ...config,
+        maskPatterns: config.maskPatterns.filter((entry) => entry !== pattern),
+      });
+      notify(`${pattern} no longer marks a secret`, 'ok');
     });
+  };
 
   const copyHook = (shell: 'zsh' | 'bash' | 'fish') => {
     copyToClipboard(hookLine(shell));
@@ -116,7 +168,8 @@ export const SettingsView = ({
     } else if (setting.kind === 'override')
       onConfigChange({ ...config, override: !config.override });
     else if (setting.kind === 'expand') onConfigChange({ ...config, expand: !config.expand });
-    else if (setting.kind === 'pattern') removePattern(setting.pattern);
+    //? A pattern row is only selected — its panel says what it masks, and Remove is there
+    else if (setting.kind === 'pattern') return;
     else if (setting.kind === 'addPattern') addPattern();
     else if (setting.kind === 'hook') copyHook(setting.shell);
     else if (setting.kind === 'state') onEdit(stateStore.path);
@@ -244,6 +297,7 @@ export const SettingsView = ({
             <Text color={colors.muted} wrap="wrap">
               {`A variable whose name contains ${setting.pattern} (any case) has its value masked until [v] reveals secrets — one toggle for the whole dashboard, kept across runs.${(DEFAULT_MASK_PATTERNS as readonly string[]).includes(setting.pattern) ? ' One of the defaults.' : ''}`}
             </Text>
+            <PatternMatches {...maskedBy(setting.pattern)} />
           </Box>
         );
       case 'addPattern':
@@ -327,7 +381,7 @@ export const SettingsView = ({
         items={items}
         detailTitle="Setting"
         reservedChrome={['viewHeader']}
-        activateLabel="apply"
+        activateLabel={current?.kind === 'pattern' ? 'select' : 'apply'}
         initialSelectedId={session.selected.settings}
         isInputActive={!prompt.isOpen}
         hints={[

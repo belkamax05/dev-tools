@@ -81,6 +81,7 @@ export const ValuesView = ({
   session,
   reveal,
   secrets,
+  onToggleReveal,
   notify,
   reload,
   onConfigChange,
@@ -351,6 +352,8 @@ export const ValuesView = ({
             secret={secret}
             reveal={reveal}
             {...secrets.blockProps(entry.value)}
+            onReveal={onToggleReveal}
+            onCopySecret={() => copySecret({ kind: 'var', entry })}
           />
         </Box>
         <Box flexDirection="column" marginTop={1}>
@@ -393,6 +396,8 @@ export const ValuesView = ({
           secret={isSecret(row.key)}
           reveal={reveal}
           {...secrets.blockProps(row.value)}
+          onReveal={onToggleReveal}
+          onCopySecret={() => copySecret(row)}
         />
       </Box>
     </Box>

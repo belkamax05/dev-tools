@@ -85,6 +85,7 @@ export const LocationsView = ({
   session,
   reveal,
   secrets,
+  onToggleReveal,
   notify,
   reload,
   onConfigChange,
@@ -648,6 +649,8 @@ export const LocationsView = ({
             secret={isSecret(key)}
             reveal={reveal}
             {...secrets.blockProps(value)}
+            onReveal={onToggleReveal}
+            onCopySecret={() => copySecret(key, value)}
           />
         </Box>
         {(elsewhere.length > 0 || winner?.shell !== undefined) && (

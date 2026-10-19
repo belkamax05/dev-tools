@@ -1,6 +1,7 @@
 import { Text } from 'ink';
 import { useEffect } from 'react';
 
+import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
@@ -30,9 +31,42 @@ export interface ValueBlockProps {
    * secrets are revealed the block reads it on its own, so the secret is one key away.
    */
   secretPreview?: { state: SecretPreviewState; onRead: () => void };
+  /** [v]: reveal every secret in the app — the note offers it as a button too. */
+  onReveal?: () => void;
+  /** [C]: the secret itself onto the clipboard, a reference read first. */
+  onCopySecret?: () => void;
 }
 
-const HIDDEN_NOTE = 'Secret — [v] reveals every secret · [C] copies it.';
+/**
+ * "Secret — [v] Reveal secrets [C] Copy secret": what can be done about a hidden value, as
+ * buttons — each the key it names, and clickable, as every other hint in the app. A caller that
+ * gives neither handler gets the same words as plain text.
+ */
+const SecretActions = ({
+  lead,
+  onReveal,
+  onCopySecret,
+}: {
+  lead: string;
+  onReveal?: () => void;
+  onCopySecret?: () => void;
+}) => {
+  const colors = useColors();
+  if (!onReveal && !onCopySecret)
+    return (
+      <Text color={colors.muted} wrap="wrap">
+        {`${lead} — [v] reveals every secret · [C] copies it.`}
+      </Text>
+    );
+  return (
+    <Box flexDirection="row" flexWrap="wrap">
+      <Text color={colors.muted}>{`${lead} — `}</Text>
+      {onReveal && <ActionButton hotkey="v" label="Reveal secrets" onPress={onReveal} />}
+      {onReveal && onCopySecret && <Text> </Text>}
+      {onCopySecret && <ActionButton hotkey="C" label="Copy secret" onPress={onCopySecret} />}
+    </Box>
+  );
+};
 
 /**
  * A variable's value as the detail pane draws it: masked when it is a secret and secrets are
@@ -40,7 +74,15 @@ const HIDDEN_NOTE = 'Secret — [v] reveals every secret · [C] copies it.';
  * that has grown the same folder twice is the usual reason to look at it), wrapped otherwise.
  * Always whole: the detail pane scrolls, so a long `PATH` is read to its last entry.
  */
-export const ValueBlock = ({ name, value, secret, reveal, secretPreview }: ValueBlockProps) => {
+export const ValueBlock = ({
+  name,
+  value,
+  secret,
+  reveal,
+  secretPreview,
+  onReveal,
+  onCopySecret,
+}: ValueBlockProps) => {
   const colors = useColors();
   const ref = isOpRef(value);
   const read = secretPreview?.state;
@@ -60,11 +102,17 @@ export const ValueBlock = ({ name, value, secret, reveal, secretPreview }: Value
         </Text>
         <Box marginTop={1} flexDirection="column">
           {!reveal ? (
-            <Text color={colors.muted} wrap="wrap">
-              {secretPreview
-                ? `Read with op when a command needs it — [v] reveals secrets (reads it from ${OP_LABEL}), [C] copies it.`
-                : 'Read with op when a command needs it (envi get, envi run, dfs deploy).'}
-            </Text>
+            secretPreview ? (
+              <SecretActions
+                lead={`Read with op when a command needs it; revealing reads it from ${OP_LABEL}`}
+                onReveal={onReveal}
+                onCopySecret={onCopySecret}
+              />
+            ) : (
+              <Text color={colors.muted} wrap="wrap">
+                Read with op when a command needs it (envi get, envi run, dfs deploy).
+              </Text>
+            )
           ) : !read || read.status === 'idle' || read.status === 'loading' ? (
             <Text color={colors.muted}>{`Asking ${OP_LABEL}…`}</Text>
           ) : read.status === 'error' ? (
@@ -85,7 +133,7 @@ export const ValueBlock = ({ name, value, secret, reveal, secretPreview }: Value
     return (
       <Box flexDirection="column">
         <Text color={colors.warn}>{maskValue(value) || '(empty)'}</Text>
-        <Text color={colors.muted}>{HIDDEN_NOTE}</Text>
+        <SecretActions lead="Secret" onReveal={onReveal} onCopySecret={onCopySecret} />
       </Box>
     );
   }

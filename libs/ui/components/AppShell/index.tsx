@@ -51,8 +51,9 @@ export interface AppShellProps<Id extends string = string> {
   onPaletteChange?: (id: string) => void;
 
   /**
-   * The app's own keys, as `[r] refresh · [P] pause`. The shell's are added around them —
-   * switching tabs, the theme, quitting — so no app repeats them, or forgets one.
+   * The app's own keys that have no footer button, as `[B] checkout branch · [/] filter`. Switching
+   * tabs is added in front; a key one of the buttons carries (theme, quit, any `footerActions`
+   * hotkey) is left out — it is on its button already, and there it can be clicked.
    */
   footerHints?: string;
   /**
@@ -146,14 +147,18 @@ export const AppShell = <Id extends string = string>({
   const hoveredTip = actions.some((action) => action.id === hovered?.id)
     ? hovered?.tooltip
     : undefined;
+  //? The hint text names only keys that have no button: one beside its own button — `[q] quit`
+  //? next to [q] Quit — read as something to click, and it is not. Theme and Quit are always
+  //? buttons, and an app's hint for a key one of its buttons carries goes the same way.
+  const buttonKeys = new Set(actions.map((action) => action.hotkey));
   const hints =
     hoveredTip ??
     footerTooltip ??
     [
       tabs.length > 1 ? `[1-${Math.min(tabs.length, 9)}] / Tab switch tab` : '',
-      footerHints ?? '',
-      onPaletteChange ? '[t] theme' : '',
-      '[q] quit',
+      ...(footerHints ?? '')
+        .split(' · ')
+        .filter((hint) => !buttonKeys.has(/^\[([^\]]+)\]/.exec(hint.trim())?.[1] ?? '')),
     ]
       .filter(Boolean)
       .join(' · ');

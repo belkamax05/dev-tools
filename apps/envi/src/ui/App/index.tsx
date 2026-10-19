@@ -60,6 +60,8 @@ export interface ViewProps {
   reveal: boolean;
   /** The app's 1Password reads, shared by every tab. */
   secrets: Secrets;
+  /** [v] — flip the app-wide reveal, as the footer button does. */
+  onToggleReveal: () => void;
   notify: (text: string, tone?: Tone) => void;
   reload: () => void;
   onConfigChange: (config: EnviConfig) => void;
@@ -183,6 +185,7 @@ export const App = ({
     session,
     reveal,
     secrets,
+    onToggleReveal: toggleReveal,
     notify,
     reload,
     onConfigChange: updateConfig,
@@ -203,7 +206,6 @@ export const App = ({
       palette={config.theme}
       onPaletteChange={(theme) => updateConfig({ ...config, theme })}
       isInputCaptured={isInputCaptured}
-      footerHints={`[r] refresh · [v] ${reveal ? 'hide' : 'reveal'} secrets`}
       footerActions={footerActions}
     >
       {tab === 'values' && <ValuesView {...viewProps} />}
