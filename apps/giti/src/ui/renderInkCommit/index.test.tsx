@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { render } from 'ink';
 
+import { emitMouseEvent, isMouseReporting, setMouseReporting } from '@/dev-tools/ui/terminal/mouse';
+
 import gitExecSync from '../../utils/gitExecSync';
 import { CommitForm } from '.';
 
@@ -187,6 +189,39 @@ test('Enter walks an empty message into focus, and only flags it once there', as
     await until(() => form.frame.output.includes('Commit message required'));
     expect(form.frame.output).toContain('Enter a commit message.');
   } finally {
+    form.dispose();
+  }
+});
+
+test('the message sits right under its title, and a click on it puts the cursor there', async () => {
+  const form = mountForm();
+  const reporting = isMouseReporting();
+  try {
+    await until(() => form.frame.output.includes('file.txt'));
+    const lines = form.frame.output.split('\n');
+    const title = lines.findIndex((line) => line.includes('Commit message') && !line.includes('…'));
+    expect(lines[title + 1]).toContain('Commit message…');
+    //? Tab steps from panel to panel; a button naming it as the way into the message misled
+    expect(form.frame.output).not.toContain('Edit message');
+
+    setMouseReporting(true);
+    const row = title + 1;
+    emitMouseEvent({
+      type: 'release',
+      button: 'left',
+      row: row + 1,
+      column: (lines[row] ?? '').indexOf('Commit message…') + 2,
+      ctrl: false,
+      alt: false,
+      shift: false,
+    });
+    await until(() => form.frame.output.includes('Focus: message'));
+    //? Focused, `q` is a letter of the message rather than quit
+    form.stdin.write('q');
+    await until(() => /│\s*q/.test(form.frame.output));
+    expect(form.hasExited()).toBe(false);
+  } finally {
+    setMouseReporting(reporting);
     form.dispose();
   }
 });

@@ -1,12 +1,13 @@
 import { TextInput } from '@inkjs/ui';
-import { render, Text, useApp, useInput } from 'ink';
-import { useEffect, useRef, useState } from 'react';
+import { type DOMElement, render, Text, useApp, useInput } from 'ink';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
 import Panel from '@/dev-tools/ui/components/Panel';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
+import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import useTerminalSize from '@/dev-tools/ui/hooks/useTerminalSize';
 import {
   TuiThemeProvider,
@@ -19,6 +20,17 @@ import { getChanges } from '../../core/status';
 import saveCommit from '../../utils/saveCommit';
 import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
 import StatusView from '../dashboard/views/StatusView';
+
+/**
+ * The message line, clickable: a click puts the cursor in it, as Tab reaching it does. It is the
+ * field itself that answers the pointer — a separate "edit" button beside it named Tab, which
+ * only steps from panel to panel.
+ */
+const MessageField = ({ onFocus, children }: { onFocus: () => void; children: ReactNode }) => {
+  const ref = useRef<DOMElement>(null);
+  useClickable(ref, { onClick: onFocus, pointer: 'text' });
+  return <Box ref={ref}>{children}</Box>;
+};
 
 const FLAGS = [
   ['--no-verify', 'Skip hooks'],
@@ -180,7 +192,7 @@ export const CommitForm = ({
 
   const showMessageError = Boolean(messageError) && !message;
   const messageInput = (
-    <Box>
+    <MessageField onFocus={() => setSection('message')}>
       <TextInput
         defaultValue={message}
         placeholder={showMessageError ? '' : 'Commit message…'}
@@ -195,7 +207,7 @@ export const CommitForm = ({
       />
       {/* In the placeholder's place: `TextInput` greys its own placeholder, so it cannot go red */}
       {showMessageError && <Text color={colors.error}>Commit message required</Text>}
-    </Box>
+    </MessageField>
   );
   const messageColor = messageError ? colors.error : undefined;
 
@@ -265,7 +277,6 @@ export const CommitForm = ({
             isFocused={section === 'message'}
             color={messageColor}
           >
-            <ActionButton hotkey="Tab" label="Edit message" onPress={() => setSection('message')} />
             {messageInput}
           </Panel>
           <Panel title="Flags · 1–5 toggle · Enter to save" isFocused={section === 'flags'}>

@@ -622,7 +622,7 @@ const renderInkPull = async ({
 }: RenderInkPullOptions) => {
   //? The fetch is the slow part — the run's own spinner covers it, and is gone before anything
   //? else draws: the screen, or the run itself when there is nothing to choose
-  stepProgress.working('Fetching upstream info', { framed: false });
+  stepProgress.working('Fetching upstream info');
   const info = await loadPullInfo(cwd, initialRemote, initialBranch);
   stepProgress.settle();
 

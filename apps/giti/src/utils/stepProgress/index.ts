@@ -26,26 +26,28 @@ const fit = (message: string) => {
   return Bun.stringWidth(line) > room ? `${line.slice(0, room - 1)}…` : line;
 };
 
-/**
- * Spin with `message` — starting the spinner, or retitling the one already turning.
- *
- * @param options.framed - Whether a clack frame is open. clack starts a spinner by drawing the
- *   frame's `│` above it, which clearing the spinner leaves behind — right between two steps,
- *   a stray bar before the frame's `┌` exists. Off, the spinner draws no guide at all.
- */
-const working = (message: string, { framed = true }: { framed?: boolean } = {}) => {
+/** Spin with `message` — starting the spinner, or retitling the one already turning. */
+const working = (message: string) => {
   if (!canSpin()) return;
   if (active) active.message(fit(message));
   else {
-    active = spinner({ indicator: 'dots', withGuide: framed });
+    active = spinner({ indicator: 'dots' });
     active.start(fit(message));
   }
 };
 
-/** Take the spinner off the screen without leaving a line of its own. */
+/**
+ * Take the spinner off the screen without leaving a line of its own.
+ *
+ * clack starts a spinner by drawing the frame's `│` above it, and its `clear()` erases only the
+ * spinner's line — the bar stayed, so the logged line after it (which brings its own bar) sat
+ * under two, and a spinner before the frame's `┌` left a stray bar on top. Erased here too.
+ */
 const settle = () => {
-  active?.clear();
+  if (!active) return;
+  active.clear();
   active = undefined;
+  process.stdout.write('\x1b[1A\x1b[1G\x1b[J');
 };
 
 /** clack's `log`, with the spinner taken off before each line. */
