@@ -269,3 +269,51 @@ test('the arrows walk the flags, Space toggles the one under the cursor, and eac
     form.dispose();
   }
 });
+
+test('a clean tree says so in the middle, the commits to push are counted, and files bring the list back', async () => {
+  const base = mkdtempSync(join(import.meta.dir, '.commit-test-'));
+  const remote = join(base, 'remote.git');
+  const root = join(base, 'work');
+  const git = (cwd: string, ...args: string[]) => {
+    const result = gitExecSync(args, cwd);
+    if (result.exitCode) throw new Error(result.stderr);
+  };
+  git(base, 'init', '-q', '--bare', '-b', 'main', remote);
+  git(base, 'clone', '-q', remote, root);
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'init');
+  git(root, 'push', '-q', '-u', 'origin', 'main');
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'one');
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'two');
+  const stdout = Object.assign(new PassThrough(), { columns: 110, rows: 30, isTTY: true });
+  const stdin = Object.assign(new PassThrough(), {
+    isTTY: true,
+    setRawMode: () => {},
+    ref: () => {},
+    unref: () => {},
+  });
+  let output = '';
+  stdout.on('data', (chunk) => {
+    output = Bun.stripANSI(chunk.toString());
+  });
+  const app = render(
+    <CommitForm cwd={root} initialFlags={[]} passthroughFlags={[]} refreshSeconds={0} onCommit={() => {}} />,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      debug: true,
+      patchConsole: false,
+    },
+  );
+  try {
+    await until(() => output.includes('Nothing to commit — the working tree is clean'));
+    expect(output).not.toContain('Status (0)');
+    await until(() => output.includes('2 commits to push') && output.includes('↑2'));
+    writeFileSync(join(root, 'new.txt'), 'x\n');
+    await until(() => output.includes('new.txt'));
+    expect(output).not.toContain('Nothing to commit — the working tree is clean');
+  } finally {
+    app.unmount();
+    app.cleanup();
+    rmSync(base, { recursive: true, force: true });
+  }
+});

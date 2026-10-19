@@ -17,9 +17,12 @@ import {
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import { getChanges } from '../../core/status';
-import gitExec from '../../utils/gitExec';
 import saveCommit from '../../utils/saveCommit';
+import { plural } from '../../utils/vendored';
 import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
+import SyncSummary from '../dashboard/SyncSummary';
+import useRemoteSync from '../dashboard/useRemoteSync';
+import useRepoSnapshot from '../dashboard/useRepoSnapshot';
 import useRepoWatch from '../dashboard/useRepoWatch';
 import { DEFAULT_REFRESH_SECONDS } from '../dashboard/views/SettingsView';
 import StatusView from '../dashboard/views/StatusView';
@@ -122,19 +125,24 @@ export const CommitForm = ({
   const [flagCursor, setFlagCursor] = useState(0);
   const [hoveredFlag, setHoveredFlag] = useState<number>();
   const [refreshKey, setRefreshKey] = useState(0);
-  const reload = useCallback(() => setRefreshKey((key) => key + 1), []);
+  //? The branch against its remote, as the dashboard reads it — and the top of the work tree,
+  //? which is what is watched: `save` may run in a subfolder, and a watch on that alone would
+  //? miss every change beside it and in `.git`
+  const { snapshot, refresh } = useRepoSnapshot(cwd);
+  const root = snapshot?.isRepo ? snapshot.root : undefined;
+  const reload = useCallback(() => {
+    setRefreshKey((key) => key + 1);
+    refresh();
+  }, [refresh]);
 
   //? Kept current the way the dashboard is: an edit saved in another window, a `git add` in a
-  //? shell, a commit elsewhere — all show up in the open form rather than on the next one. The
-  //? watch is on the top of the work tree: `save` may run in a subfolder, and a watch on that
-  //? alone would miss every change beside it and in `.git`.
-  const [root, setRoot] = useState<string>();
-  useEffect(() => {
-    void gitExec(['rev-parse', '--show-toplevel'], cwd).then((top) =>
-      setRoot(top.exitCode === 0 ? top.stdout.trim() : cwd),
-    );
-  }, [cwd]);
+  //? shell, a commit elsewhere — all show up in the open form rather than on the next one
   useRepoWatch(root, reload);
+  //? The dashboard's one quiet fetch on open, so the commits to pull are counted against the
+  //? remote as it is now, not as of the last fetch
+  const sync = useRemoteSync(root, { notify: (text) => setNotice(text), reload });
+  const toPush = snapshot?.isRepo ? snapshot.ahead : 0;
+  const toPull = snapshot?.isRepo ? snapshot.behind + sync.vendoredBehind : 0;
   //? The net under the watcher, as on the dashboard: what it missed is on screen within this
   useEffect(() => {
     if (refreshSeconds <= 0) return;
@@ -338,6 +346,23 @@ export const CommitForm = ({
               { hotkey: 'Shift+Enter', label: 'Commit now', onPress: quickCommit },
             ]}
           />
+          {snapshot?.isRepo && (
+            <Box flexDirection="row">
+              <SyncSummary snapshot={snapshot} sync={sync} />
+              {(toPush > 0 || toPull > 0) && (
+                <Box flexShrink={0}>
+                  <Text>
+                    {toPush > 0 && (
+                      <Text color={colors.ok}>{`  ${plural(toPush, 'commit')} to push`}</Text>
+                    )}
+                    {toPull > 0 && (
+                      <Text color={colors.warn}>{`  ${plural(toPull, 'commit')} to pull`}</Text>
+                    )}
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          )}
           <Text color={colors.accent}>Enter → {nextStep}</Text>
         </Box>
       )}

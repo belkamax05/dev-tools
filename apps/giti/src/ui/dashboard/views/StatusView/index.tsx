@@ -112,7 +112,8 @@ export const StatusView = ({
     onPreviewModeChange?.(false);
   };
 
-  const { data: changes = [], isLoading } = useLoader(() => getChanges(root), [root, refreshKey]);
+  const { data: read, isLoading } = useLoader(() => getChanges(root), [root, refreshKey]);
+  const changes = read ?? [];
 
   const rows: Row[] = [
     ...changes.filter((c) => c.conflicted).map((change) => ({ change, side: 'conflict' as const })),
@@ -464,6 +465,27 @@ export const StatusView = ({
           : 'Working tree clean'}
     </Text>
   );
+
+  //? The commit form with nothing to commit: one plain answer in the middle, in place of an
+  //? empty file list beside an empty diff — and the list is back the moment a file changes (the
+  //? form watches the tree). Only once the tree has been read, so it never flashes up on open.
+  if (stagingOnly && read !== undefined && rows.length === 0 && !prompt.isOpen)
+    return (
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        borderStyle="round"
+        borderColor={colors.muted}
+        justifyContent="center"
+        alignItems="center"
+        paddingX={2}
+      >
+        <Text color={colors.ok} bold>
+          Nothing to commit — the working tree is clean
+        </Text>
+        <Text color={colors.muted}>Files show up here as soon as they change.</Text>
+      </Box>
+    );
 
   if (preview && preview.side !== 'conflict')
     return (

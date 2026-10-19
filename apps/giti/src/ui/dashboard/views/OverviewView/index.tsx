@@ -10,8 +10,8 @@ import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import type { RepoSnapshot } from '../../../../utils/getRepoSnapshot';
 import type { GitViewProps } from '../../types';
 import copyToClipboard from '../../clipboard';
-import SpinnerGlyph from '../../SpinnerGlyph';
-import type { LastFetch, RemoteSync } from '../../useRemoteSync';
+import SyncSummary from '../../SyncSummary';
+import type { RemoteSync } from '../../useRemoteSync';
 import IgnoredView from '../IgnoredView';
 import StatusView from '../StatusView';
 
@@ -29,17 +29,6 @@ export interface OverviewViewProps extends GitViewProps {
   onOpenStash: () => void;
   onOpenRemotes: () => void;
 }
-
-const clock = (at: Date) =>
-  `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
-
-const fetchState = (progress: string | undefined, lastFetch: LastFetch | undefined) =>
-  progress ??
-  (lastFetch
-    ? lastFetch.ok
-      ? `fetched ${clock(lastFetch.at)}`
-      : `fetch failed ${clock(lastFetch.at)}`
-    : 'not fetched yet');
 
 /**
  * Where the branch stands against its remote, and the three things done about it.
@@ -59,48 +48,14 @@ const SyncBar = ({
   'snapshot' | 'sync' | 'details' | 'onToggleDetails' | 'onPickBranch'
 >) => {
   const colors = useColors();
-  const { branch, detached, headShort, upstream, remote, ahead, behind } = snapshot;
+  const { ahead, behind } = snapshot;
   const busy = Boolean(sync.progress);
-  const branchRef = useRef<DOMElement>(null);
-  const { isHovered } = useClickable(branchRef, { onClick: onPickBranch });
   //? A mega pull brings in the vendored directories too, so their waiting commits count here
   const incoming = behind + sync.vendoredBehind;
 
   return (
     <Box flexDirection="row" flexShrink={0}>
-      <Box flexDirection="row" flexShrink={1} flexGrow={1} overflow="hidden">
-        <Box ref={branchRef} flexShrink={1}>
-          <Text
-            color={isHovered ? colors.highlight : detached ? colors.warn : colors.accent}
-            bold
-            underline={isHovered}
-            wrap="truncate"
-          >
-            {detached ? `detached @ ${headShort}` : branch || '—'}
-          </Text>
-        </Box>
-        <Text wrap="truncate">
-          <Text color={colors.muted}> → </Text>
-          <Text color={upstream ? colors.text : colors.warn}>
-            {upstream ? `${remote || 'origin'}/${upstream}` : 'no upstream'}
-          </Text>
-          <Text color={ahead ? colors.ok : colors.muted}>{`  ↑${ahead}`}</Text>
-          <Text color={behind ? colors.warn : colors.muted}>{` ↓${behind}`}</Text>
-          <Text color={colors.muted}>{'  · '}</Text>
-          {sync.progress && <SpinnerGlyph color={colors.accent} />}
-          <Text
-            color={
-              sync.progress
-                ? colors.accent
-                : sync.lastFetch?.ok === false
-                  ? colors.warn
-                  : colors.muted
-            }
-          >
-            {fetchState(sync.progress, sync.lastFetch)}
-          </Text>
-        </Text>
-      </Box>
+      <SyncSummary snapshot={snapshot} sync={sync} onPickBranch={onPickBranch} />
       <Box flexShrink={0} flexDirection="row">
         <Text> </Text>
         <ActionButton hotkey="f" label="Fetch" disabled={busy} onPress={sync.fetch} />
