@@ -1,5 +1,5 @@
 import type { Connection, Env, StepConfig, StepState, StepStatus } from '../plugin';
-import { contextFor, type Project } from '../registry';
+import { contextFor, inputFor, missingLinkedBranch, type Project } from '../registry';
 
 export interface ChainStep {
   step: StepConfig;
@@ -54,18 +54,18 @@ export const evaluateChain = async (
       (step.after ?? []).filter((id) => done[id]).map((id) => [id, done[id] as StepStatus]),
     );
     let status: StepStatus;
+    const noLinked = missingLinkedBranch(project, step);
     if (!provider || !kind)
       status = { state: 'error', summary: `not configured (${step.provider}/${step.kind})` };
+    else if (noLinked) status = { state: 'blocked', summary: noLinked };
     else if (!connection?.transport)
       status = { state: 'offline', summary: `${provider.name} is not connected` };
     else {
       try {
-        status = await kind.status(contextFor(project, provider, env, connection), {
-          step,
-          branch,
-          env: targetEnv,
-          upstream,
-        });
+        status = await kind.status(
+          contextFor(project, provider, env, connection),
+          inputFor(project, step, branch, targetEnv, upstream),
+        );
       } catch (error) {
         status = { state: 'error', summary: (error as Error).message };
       }
@@ -91,6 +91,7 @@ export const evaluateChain = async (
   //? frontier: two builds after the same push are recommended together, they can run in parallel
   for (const entry of result) {
     entry.recommended =
+      !entry.step.observeOnly &&
       (entry.status.state === 'stale' || entry.status.state === 'none') &&
       (entry.step.after ?? []).every((id) => done[id]?.state === 'done');
   }

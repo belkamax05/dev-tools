@@ -92,7 +92,24 @@ export interface DepliProjectConfig {
     recent?: BranchRecentRule;
     /** Which provider instance lists branches; the first that can when unset. */
     provider?: string;
+    /**
+     * Where that provider reads them, when it is not a repository — Jenkins:
+     * `{ job: 'build_ts-app', param: 'CODE_BRANCH' }`, the job's choice list and the branches it
+     * built.
+     */
+    source?: Record<string, unknown>;
+    /**
+     * The picker also takes a name typed into its filter that is not listed — for a list that is
+     * not every branch (a Jenkins choice list); a trigger offers to add it where it is refused.
+     */
+    custom?: boolean;
   };
+  /**
+   * Branches picked in another flow that this one shows and uses — `{ fe: { flow: 'fe' } }`: the
+   * fe flow's pick, read-only here. Steps run on one with `branchFrom: 'fe'`; params get them as
+   * `input.branches.fe`.
+   */
+  linkedBranches?: Record<string, { flow: string; label?: string }>;
   providers?: Record<string, ProviderConfig>;
   envs?: EnvConfig[];
   defaultEnv?: string;
@@ -108,7 +125,62 @@ export interface DepliProjectConfig {
    * `envi set` when unset. Either writes where envi's setTarget setting says.
    */
   envSet?: string[];
+  /**
+   * Several deploy flows in one file — e.g. `fe` and `be`, each with its own repo, branches,
+   * envs and pipeline. A flow is a config of its own laid over the top-level one: its keys replace
+   * the shared ones, except `providers`, which are merged by name. One flow is open at a time —
+   * `depli --flow=<id>` (or `depli <id>`, or `DEPLI_FLOW`), else `defaultFlow`, else the first.
+   */
+  flows?: Record<string, FlowConfig>;
+  /** The flow opened when none is named; the first in `flows` when unset. */
+  defaultFlow?: string;
 }
+
+/** One flow of a multi-flow config: a project config of its own, minus the flow keys. */
+export interface FlowConfig extends Omit<DepliProjectConfig, 'flows' | 'defaultFlow'> {
+  /** Shown beside the project name; the flow's id when unset. */
+  label?: string;
+}
+
+export interface ResolvedFlow {
+  /** The config of the flow chosen, shared keys included — what the rest of depli reads. */
+  config: DepliProjectConfig;
+  /** Its id; undefined for a config without `flows`. */
+  flow?: string;
+  /** Its `label`, else its id. */
+  label?: string;
+  /** Every flow id, in file order; empty for a config without `flows`. */
+  flows: string[];
+  /** Why the flow asked for (or `defaultFlow`) could not be used — the fallback is opened. */
+  error?: string;
+}
+
+/**
+ * The config of one flow: the top-level keys with the flow's own laid over them (`providers`
+ * merged by name). A config without `flows` is returned as it is, whatever is asked.
+ */
+export const resolveFlow = (config: DepliProjectConfig, requested?: string): ResolvedFlow => {
+  const { flows: byId, defaultFlow, ...shared } = config;
+  const flows = Object.keys(byId ?? {});
+  if (!byId || !flows.length) return { config, flows };
+  const unknown = (id: string) => `no flow "${id}" — flows: ${flows.join(', ')}`;
+  const fallback = defaultFlow && byId[defaultFlow] ? defaultFlow : flows[0]!;
+  const flow = requested && byId[requested] ? requested : fallback;
+  const { label, ...own } = byId[flow]!;
+  const error =
+    requested && !byId[requested]
+      ? unknown(requested)
+      : defaultFlow && !byId[defaultFlow]
+        ? `defaultFlow: ${unknown(defaultFlow)}`
+        : undefined;
+  return {
+    config: { ...shared, ...own, providers: { ...shared.providers, ...own.providers } },
+    flow,
+    label: label ?? flow,
+    flows,
+    error,
+  };
+};
 
 /** Typing help for a `depli.config.ts`; returns its argument. */
 export const defineConfig = (config: DepliProjectConfig): DepliProjectConfig => config;
@@ -120,16 +192,31 @@ export const defineConfig = (config: DepliProjectConfig): DepliProjectConfig => 
  */
 export const secretEnvNames = (config: DepliProjectConfig): string[] => [
   ...new Set(
-    Object.values(config.providers ?? {}).flatMap((provider) =>
-      Object.entries(provider)
-        .filter(([option, value]) => /Env$/.test(option) && typeof value === 'string' && value)
-        .map(([, value]) => value as string),
-    ),
+    [
+      config.providers ?? {},
+      //? Every flow's too — the launcher does not know which flow will be opened
+      ...Object.values(config.flows ?? {}).map((flow) => flow.providers ?? {}),
+    ]
+      .flatMap((providers) => Object.values(providers))
+      .flatMap((provider) =>
+        Object.entries(provider)
+          .filter(([option, value]) => /Env$/.test(option) && typeof value === 'string' && value)
+          .map(([, value]) => value as string),
+      ),
   ),
 ];
 
 export interface ProjectConfigResult {
+  /** The config of the flow opened (see `resolveFlow`) — the file's own when it has no flows. */
   config: DepliProjectConfig;
+  /** The file's export as it is, every flow included. */
+  raw: DepliProjectConfig;
+  /** The flow opened; undefined for a config without `flows`. */
+  flow?: string;
+  /** Its `label`, else its id. */
+  flowLabel?: string;
+  /** Every flow id, in file order; empty for a config without `flows`. */
+  flows: string[];
   /** The folder the file is in — the project deploys run from. */
   dir: string;
   path?: string;
@@ -157,6 +244,7 @@ export const findProjectConfig = (dir: string): string | undefined => {
 /**
  * The nearest `depli.config.ts`. `DEPLI_PROJECT_DIR` names the project outright, as
  * `PORTI_PROJECT_DIR` does for porti, for a tool that runs depli on behalf of one repository.
+ * `DEPLI_FLOW` picks the flow of a multi-flow config (`depli --flow=<id>` sets it).
  */
 export const loadProjectConfig = async (
   dir = process.cwd(),
@@ -164,12 +252,20 @@ export const loadProjectConfig = async (
 ): Promise<ProjectConfigResult> => {
   const start = env.DEPLI_PROJECT_DIR || dir;
   const path = findProjectConfig(start);
-  if (!path) return { config: {}, dir: resolve(start) };
+  if (!path) return { config: {}, raw: {}, flows: [], dir: resolve(start) };
   try {
     const module = await import(pathToFileURL(path).href);
-    const config = (module.default ?? module.config ?? {}) as DepliProjectConfig;
-    return { config, dir: dirname(path), path };
+    const raw = (module.default ?? module.config ?? {}) as DepliProjectConfig;
+    const { config, flow, label, flows, error } = resolveFlow(raw, env.DEPLI_FLOW || undefined);
+    return { config, raw, flow, flowLabel: label, flows, dir: dirname(path), path, error };
   } catch (error) {
-    return { config: {}, dir: dirname(path), path, error: (error as Error).message };
+    return {
+      config: {},
+      raw: {},
+      flows: [],
+      dir: dirname(path),
+      path,
+      error: (error as Error).message,
+    };
   }
 };

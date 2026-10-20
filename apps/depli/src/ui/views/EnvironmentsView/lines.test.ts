@@ -5,7 +5,8 @@ import type { EnvRow } from '../../../core/matrix';
 import type { StepConfig } from '../../../core/plugin';
 import {
   type DetailInput,
-  detailDoc,
+  type DetailTab,
+  detailTabs,
   graphLines,
   lineText,
   linksOf,
@@ -13,7 +14,11 @@ import {
   runLine,
   jobFolds,
   jobLines,
+  jobTabLines,
+  overviewDoc,
   stepContent,
+  tabId,
+  tabLines,
 } from './lines';
 
 const step = (id: string, extra: Partial<StepConfig> = {}) =>
@@ -284,7 +289,7 @@ test('relations say when nothing is configured or running', () => {
   expect(linksOf(lines)[0]?.url).toBe('https://ci-www');
 });
 
-test('the detailed document has every section, every env, and the shared builds', () => {
+test('the detailed view: overview and relations on top, envs and jobs as tabs', () => {
   const input: DetailInput = {
     configs: [{ id: 'ci', url: 'https://ci-www' }],
     pipeline,
@@ -295,20 +300,49 @@ test('the detailed document has every section, every env, and the shared builds'
     targetEnv: 'ci',
     width: 80,
   };
-  const doc = detailDoc({ ...input, isOpen: () => true });
-  expect(doc.sections.map((section) => section.id)).toEqual([
-    'overview',
-    'relations',
-    'ci',
-    'builds',
-  ]);
-  const text = doc.lines.map(lineText);
-  expect(text.some((line) => line.includes('▾ deploy_ci ↗  1 run'))).toBe(true);
-  expect(text.some((line) => line.includes('Mon 19 Oct 2026'))).toBe(true);
-  //? The shared build says where it is deployed now
+  const overview = overviewDoc(input).map(lineText);
+  expect(overview.some((line) => line.includes('Branches → envs'))).toBe(true);
+  expect(linksOf(overviewDoc(input)).map((link) => link.url)).toContain('https://ci-www');
+  const tabs = detailTabs(input);
+  expect(tabs.envs.map(tabId)).toEqual(['env:ci']);
+  //? Only steps with jobs read: the push is per branch, build-b was not read, deploy once
+  expect(tabs.jobs.map(tabId)).toEqual(['job:build-a', 'job:deploy']);
+
+  const env = tabLines({ ...input, isOpen: () => true }, tabs.envs[0] as DetailTab).map(lineText);
+  expect(env.some((line) => line.includes('▾ deploy_ci ↗  1 run'))).toBe(true);
+  expect(env.some((line) => line.includes('Mon 19 Oct 2026'))).toBe(true);
+
+  //? A build's tab opens its runs and says where each build is deployed now
+  const job = tabLines(input, tabs.jobs[0] as DetailTab);
+  const text = job.map(lineText);
+  expect(text.some((line) => line.includes('#42  → ci'))).toBe(true);
+  expect(text.some((line) => line.includes('▾ build_a'))).toBe(true);
   expect(text.some((line) => line.includes('#42') && line.includes('→ on ci'))).toBe(true);
-  const urls = linksOf(doc.lines).map((link) => link.url);
-  expect(urls).toContain('https://ci-www');
-  expect(urls).toContain('https://ci/job/deploy_ci/7/');
-  expect(urls).toContain('https://ci/job/build_a/');
+  expect(linksOf(job).map((link) => link.url)).toContain('https://ci/job/build_a/');
+});
+
+test("an env-scoped job's tab: its latest run on every env, then each env's jobs", () => {
+  const deploy = pipeline[3] as StepConfig;
+  const input: DetailInput = {
+    configs: [{ id: 'ci' }, { id: 'qa' }],
+    pipeline,
+    stepsFor: () => pipeline,
+    rows,
+    history: {
+      ...history,
+      envs: ['ci', 'qa'].map((env) => ({
+        env,
+        steps: [{ step: deploy, jobs: [{ job: `deploy_${env}`, runs: [] }] }],
+      })),
+    },
+    branch: 'develop',
+    targetEnv: 'ci',
+    width: 80,
+  };
+  const text = jobTabLines(input, deploy).map(lineText);
+  expect(text.some((line) => line.includes('Deploy to *'))).toBe(true);
+  expect(
+    text.some((line) => line.includes('ci') && line.includes('#7') && line.includes('develop')),
+  ).toBe(true);
+  expect(text.some((line) => line.includes('deploy_qa'))).toBe(true);
 });

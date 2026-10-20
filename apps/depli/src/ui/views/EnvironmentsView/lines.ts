@@ -42,18 +42,6 @@ export interface Segment {
 
 export type Line = Segment[];
 
-export interface Section {
-  id: string;
-  label: string;
-  /** The line it starts on. */
-  line: number;
-}
-
-export interface LinesDoc {
-  lines: Line[];
-  sections: Section[];
-}
-
 /** Every link and toggle in reading order, with where it is — what the keyboard steps through. */
 export const linksOf = (lines: readonly Line[]) =>
   lines.flatMap((line, at) =>
@@ -958,47 +946,191 @@ export const envLines = (input: DetailInput, env: string, withBuilds = false): L
   ];
 };
 
-/** Builds shared by every env — the relation the other way: which envs each build reached. */
-export const sharedLines = (input: DetailInput): Line[] => {
-  const { history, rows, branch, width, isOpen = closedByDefault } = input;
-  const deployed = deployedBuilds(rows);
-  return [
-    heading('Builds (shared by every env)', width),
-    ...(history?.shared ?? []).flatMap((stepHistory): Line[] => {
-      if (stepHistory.error && !stepHistory.jobs.length)
-        return [[{ text: `  ${stepHistory.step.id}: ${stepHistory.error}`, role: 'muted' }]];
-      return stepHistory.jobs.flatMap((job) =>
-        jobLines(
-          stepHistory.step,
-          job,
-          { history, branch, deployedOn: deployed.get(stepHistory.step.id) },
-          'builds',
-          isOpen,
-        ),
-      );
-    }),
+/** The top of the detailed view: the overview table, then branches → envs. */
+export const overviewDoc = (input: DetailInput): Line[] => [
+  heading('Environments', input.width),
+  ...overviewLines(input),
+  [],
+  heading('Branches → envs (envs[].branches, and what runs)', input.width),
+  ...relationLines(input.configs, input.rows),
+  [],
+];
+
+/** A page of the detailed view's tabs: one env with its jobs, or one job across its envs. */
+export type DetailTab =
+  | { kind: 'env'; id: string; label: string }
+  | { kind: 'job'; id: string; label: string; step: StepConfig };
+
+/** The tab's id — `env:ci`, `job:deploy` — unique across both kinds. */
+export const tabId = (tab: Pick<DetailTab, 'kind' | 'id'>) => `${tab.kind}:${tab.id}`;
+
+/**
+ * The detailed view's tabs: every env, then every step with jobs read — the builds, and each
+ * env-scoped step once (`deploy_frontend_only_{env}` is one tab, its envs inside it).
+ */
+export const detailTabs = (input: Pick<DetailInput, 'configs' | 'pipeline' | 'history'>) => {
+  const { configs, pipeline, history } = input;
+  const read = (step: StepConfig) =>
+    Boolean(
+      history?.shared.some((entry) => entry.step.id === step.id) ||
+        history?.envs.some((env) => env.steps.some((entry) => entry.step.id === step.id)),
+    );
+  return {
+    envs: configs.map((config): DetailTab => ({ kind: 'env', id: config.id, label: config.id })),
+    jobs: pipeline.filter(read).map(
+      (step): DetailTab => ({
+        kind: 'job',
+        id: step.id,
+        label: step.label.replaceAll('{env}', '*'),
+        step,
+      }),
+    ),
+  };
+};
+
+/** Scoped to one job its runs are what the page is for — open until closed. */
+const jobsOpen =
+  (isOpen: IsOpen): IsOpen =>
+  (key, byDefault) =>
+    isOpen(key, key.startsWith('job:') || byDefault);
+
+/** A step's jobs as folds, or why they could not be read. */
+const stepJobs = (
+  stepHistory: StepHistory | undefined,
+  context: RunContext,
+  scope: string,
+  isOpen: IsOpen,
+): Line[] => {
+  if (!stepHistory) return [[{ text: '  not read', role: 'muted' }]];
+  if (stepHistory.error && !stepHistory.jobs.length)
+    return [[{ text: `  ${stepHistory.error}`, role: 'warn' }]];
+  if (!stepHistory.jobs.length) return [[{ text: '  no jobs', role: 'muted' }]];
+  return stepHistory.jobs.flatMap((job) =>
+    jobLines(stepHistory.step, job, context, scope, isOpen),
+  );
+};
+
+/**
+ * One job across the envs: a build — which envs run which of its builds now, then its runs; an
+ * env-scoped step — its latest run on every env, then per env its jobs (`alsoDeployedBy` ones
+ * too) and their runs.
+ */
+export const jobTabLines = (input: DetailInput, step: StepConfig): Line[] => {
+  const { configs, rows, history, branch = '', width } = input;
+  const isOpen = jobsOpen(input.isOpen ?? closedByDefault);
+  const deployedOn = deployedBuilds(rows).get(step.id);
+  const job = typeof step.job === 'string' ? step.job : step.id;
+  const also = Array.isArray(step.alsoDeployedBy) ? (step.alsoDeployedBy as string[]) : [];
+  const top: Line[] = [
+    heading(step.label.replaceAll('{env}', '*'), width),
+    [
+      { text: 'job ', role: 'muted' },
+      { text: job, role: 'text' },
+      ...(also.length
+        ? [
+            { text: '  also deployed by ', role: 'muted' } as Segment,
+            { text: also.join(' '), role: 'text' } as Segment,
+          ]
+        : []),
+    ],
     [],
+  ];
+  if (!history) return [...top, [{ text: '  reading…', role: 'muted' }]];
+
+  const shared = history.shared.find((entry) => entry.step.id === step.id);
+  if (shared) {
+    const builds = [...(deployedOn ?? new Map<number, string[]>())].sort(([a], [b]) => b - a);
+    return [
+      ...top,
+      subheading('On envs now', 'the builds each env runs, from its deploy'),
+      ...(builds.length
+        ? builds.map(([number, envs]): Line => [
+            { text: '    ' },
+            {
+              text: `#${number}`.padStart(6),
+              role: 'accent',
+              url: findRun(history, step.id, number)?.url,
+            },
+            { text: '  → ', role: 'muted' },
+            { text: envs.join(', '), role: 'ok', bold: true },
+          ])
+        : [[{ text: '    none of its builds is on an env', role: 'muted' } as Segment]]),
+      [],
+      subheading('Runs', 'by day — ▾ closes a job or a day'),
+      ...stepJobs(shared, { history, branch, deployedOn }, 'jobtab', isOpen),
+      [],
+    ];
+  }
+
+  const envs = configs.filter((config) =>
+    input.stepsFor(config.id).some((item) => item.id === step.id),
+  );
+  const envWidth = Math.max(3, ...envs.map((config) => config.id.length));
+  const latest = envs.map((config): Line => {
+    const cell = cellOf(
+      rows.find((row) => row.env === config.id),
+      step,
+    );
+    const versions = cell
+      ? versionsOf(step, { params: cell.latest.versions }).filter(
+          (version) => version.number !== undefined,
+        )
+      : [];
+    return [
+      { text: '    ' },
+      {
+        text: config.id.padEnd(envWidth),
+        role: config.protected ? 'error' : 'heading',
+        bold: true,
+        url: config.url,
+      },
+      ...(cell
+        ? ([
+            { text: `  ${STATE_ICON[cell.latest.state]} `, role: 'text' },
+            { text: cell.latest.summary, role: 'accent', url: cell.latest.url },
+            { text: `  ${when(cell.latest.at)}`, role: 'muted' },
+            ...(cell.latest.branch
+              ? [
+                  {
+                    text: `  ${cell.latest.branch}`,
+                    role: cell.latest.branch === branch ? 'accent' : 'text',
+                    bold: cell.latest.branch === branch,
+                  },
+                ]
+              : []),
+            ...versions.flatMap((version): Segment[] => [
+              { text: `  ${version.stepId} `, role: 'muted' },
+              {
+                text: `#${version.number}`,
+                role: 'accent',
+                url: findRun(history, version.stepId, version.number as number)?.url,
+              },
+            ]),
+          ] as Segment[])
+        : [{ text: '  …', role: 'muted' } as Segment]),
+    ];
+  });
+  return [
+    ...top,
+    subheading('Per env', 'its latest run on each env'),
+    ...latest,
+    [],
+    ...envs.flatMap((config): Line[] => {
+      const stepHistory = history.envs
+        .find((entry) => entry.env === config.id)
+        ?.steps.find((entry) => entry.step.id === step.id);
+      return [
+        subheading(config.id, config.url),
+        ...stepJobs(stepHistory, { history, branch }, 'jobtab', isOpen),
+        [],
+      ];
+    }),
   ];
 };
 
-/** The whole detailed view, with where each section starts. */
-export const detailDoc = (input: DetailInput): LinesDoc => {
-  const lines: Line[] = [];
-  const sections: Section[] = [];
-  const add = (id: string, label: string, part: Line[]) => {
-    sections.push({ id, label, line: lines.length });
-    lines.push(...part);
-  };
-  add('overview', 'Overview', [heading('Environments', input.width), ...overviewLines(input), []]);
-  add('relations', 'Relations', [
-    heading('Branches → envs (envs[].branches, and what runs)', input.width),
-    ...relationLines(input.configs, input.rows),
-    [],
-  ]);
-  for (const config of input.configs) add(config.id, config.id, envLines(input, config.id));
-  add('builds', 'Builds', sharedLines(input));
-  return { lines, sections };
-};
+/** The page of a tab. An env tab lists the builds' runs too — the view has no other place for them. */
+export const tabLines = (input: DetailInput, tab: DetailTab): Line[] =>
+  tab.kind === 'env' ? envLines(input, tab.id, true) : jobTabLines(input, tab.step);
 
 /** The jobs' folds in the lines, and whether any is closed — what "open all" acts on. */
 export const jobFolds = (lines: readonly Line[]) => {

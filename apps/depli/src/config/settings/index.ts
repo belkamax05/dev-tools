@@ -22,7 +22,10 @@ export interface ProjectState extends BranchSelection {
 
 export interface DepliState {
   tab: TabId;
+  /** Keyed by folder, or `folder#flow` for each flow of a multi-flow config. */
   projects: Record<string, ProjectState>;
+  /** Per project folder: the flow last switched to (`f`). */
+  flows: Record<string, string>;
 }
 
 /** `~/.config/depli/config.json`: what a person chose — the theme. Fine to keep in dotfiles. */
@@ -38,13 +41,15 @@ export const configStore = createConfigStore<DepliConfig>({
 export const stateStore = createConfigStore<DepliState>({
   appName: 'depli',
   kind: 'state',
-  defaults: { tab: 'chain', projects: {} },
+  defaults: { tab: 'chain', projects: {}, flows: {} },
   coerce: (raw, defaults) => ({
     tab: TAB_IDS.includes(raw.tab as TabId) ? (raw.tab as TabId) : defaults.tab,
     projects:
       raw.projects && typeof raw.projects === 'object'
         ? (raw.projects as Record<string, ProjectState>)
         : {},
+    flows:
+      raw.flows && typeof raw.flows === 'object' ? (raw.flows as Record<string, string>) : {},
   }),
 });
 

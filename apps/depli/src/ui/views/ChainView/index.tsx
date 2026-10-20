@@ -63,6 +63,12 @@ export interface ChainViewProps {
   onPickBranch: () => void;
   /** Bumped from outside (the status row) to open the environments panel. */
   envOpenRequest?: number;
+  /**
+   * Branches picked in another flow that this chain uses (`linkedBranches` — the FE branch in
+   * the backend flow): shown read-only under the branch; a click opens that flow to change it.
+   */
+  linked?: Array<{ id: string; flow: string; label: string; branch?: string }>;
+  onOpenFlow?: (flow: string) => void;
 }
 
 const RUN_ICON: Record<StepRun['state'], string> = {
@@ -198,6 +204,8 @@ export const ChainView = ({
   onCaptureInput,
   onPickBranch,
   envOpenRequest = 0,
+  linked,
+  onOpenFlow,
 }: ChainViewProps) => {
   const colors = useColors();
   const theme = useTuiTheme();
@@ -1041,6 +1049,17 @@ export const ChainView = ({
               }
               onPress={onPickBranch}
             />
+            {linked?.map((entry) => (
+              <SelectorRow
+                key={entry.id}
+                hotkey="F"
+                label={entry.label}
+                value={entry.branch ?? '— none picked'}
+                valueColor={entry.branch ? colors.accent : colors.warn}
+                note={`the ${entry.flow} flow's pick, used here as it is · [F] or a click changes it (${entry.flow}'s branch list, then back)`}
+                onPress={() => onOpenFlow?.(entry.flow)}
+              />
+            ))}
             <SelectorRow
               hotkey="e"
               label="Env"

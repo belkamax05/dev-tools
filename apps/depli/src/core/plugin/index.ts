@@ -311,15 +311,25 @@ export interface StepConfig {
    * defined, who to ask — project knowledge, so it lives in the project's config.
    */
   blockedHelp?: string;
+  /**
+   * Run on a linked branch (`linkedBranches` in the config — another flow's pick) instead of the
+   * one picked here: e.g. the backend flow reading the frontend's builds for the FE branch.
+   */
+  branchFrom?: string;
+  /** Shown and compared, never triggered from this pipeline — another flow builds it. */
+  observeOnly?: boolean;
   [option: string]: unknown;
 }
 
 export interface StepInput {
   step: StepConfig;
+  /** The step's branch: the one picked, or its `branchFrom` linked branch. */
   branch: string;
   env: string;
   /** The finished statuses of `step.after`, by step id. */
   upstream: Record<string, StepStatus>;
+  /** Every linked branch by id (`linkedBranches`), for params that send one — e.g. `fe`. */
+  branches?: Record<string, string>;
 }
 
 /**
@@ -445,11 +455,15 @@ export interface ProviderPlugin<Options = Record<string, unknown>> {
   /** In order of preference; `options.transports` may narrow or reorder them. */
   transports: readonly Transport<Options>[];
   steps: Record<string, StepKind<Options>>;
-  /** Branches matching any of the glob patterns, for providers that know branches. */
+  /**
+   * Branches matching any of the glob patterns, for providers that know branches. `source` is
+   * the config's `branches.source` — where this provider reads them (Jenkins: a job's choice list).
+   */
   branches?: (
     context: PluginContext<Options>,
     connection: Connection,
     patterns: readonly string[],
+    source?: Record<string, unknown>,
   ) => Promise<BranchHead[]>;
 }
 

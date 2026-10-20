@@ -1,4 +1,5 @@
 import { otherActiveRuns, readOtherActiveRuns } from './activeRuns';
+import { branchSourceOf, jenkinsBranches } from './branches';
 import { actorOf, readJobHistory, runOf } from './history';
 import { readJenkinsTimings } from './timings';
 import {
@@ -75,6 +76,11 @@ export interface JobStepOptions {
    * triggers, runs and logs stay on `job`. A job missing on the server is skipped.
    */
   alsoDeployedBy?: string[];
+  /**
+   * Params that send a linked branch (`linkedBranches` — another flow's pick): param → its id,
+   * e.g. `{ FE_CODE_BRANCH: 'fe' }` for a full deploy started from the backend flow.
+   */
+  linkedBranchParams?: Record<string, string>;
 }
 
 /** The job, or undefined when it does not exist on this server. */
@@ -358,6 +364,14 @@ const jobPlan = async (
     params[step.branchParam] = input.branch;
     sources[step.branchParam] = 'branch';
   }
+  const blockers: string[] = [];
+  for (const [param, linked] of Object.entries(step.linkedBranchParams ?? {})) {
+    const value = input.branches?.[linked];
+    if (value) {
+      params[param] = value;
+      sources[param] = `${linked} branch`;
+    } else blockers.push(`${param}: no ${linked} branch picked — pick one in that flow`);
+  }
   for (const [param, stepId] of Object.entries(step.versions ?? {})) {
     const version = input.upstream[stepId]?.ref?.version;
     if (version) {
@@ -374,7 +388,6 @@ const jobPlan = async (
   //? Checked against the job as Jenkins defines it now (a read): a value its choice list refuses
   //? would come back as a 500 with nothing started
   const fixes: PlanFix[] = [];
-  const blockers: string[] = [];
   try {
     const checked = checkParams(params, await jobParameters(options, env, job), job);
     blockers.push(...checked.blockers);
@@ -574,6 +587,15 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
       probe: probeJenkinsSsh,
     },
   ],
+  branches: async ({ options, env }, _connection, patterns, source) => {
+    const from = branchSourceOf(source);
+    const [definitions, data] = await Promise.all([
+      jobParameters(options, env, from.job),
+      readJob(options, env, from.job),
+    ]);
+    if (!data) throw new Error(`no job ${from.job} on ${options.url} (branches.source)`);
+    return jenkinsBranches(definitions, data.builds, from, patterns);
+  },
   steps: {
     job: {
       status: (context, input) =>

@@ -1,6 +1,6 @@
 import type { Connection, Env, StepConfig, StepRun, TriggerPlan } from '../plugin';
 import type { ChainStep } from '../chain';
-import { contextFor, type Project } from '../registry';
+import { contextFor, inputFor, type Project } from '../registry';
 
 export interface PlannedTrigger {
   step: StepConfig;
@@ -25,19 +25,18 @@ export const planTrigger = async (
   const { step } = entry;
   const provider = project.providers.find((item) => item.name === step.provider);
   const kind = provider?.plugin.steps[step.kind];
-  if (!provider || !kind?.plan) throw new Error(`${step.label} is observe-only`);
+  if (!provider || !kind?.plan || step.observeOnly)
+    throw new Error(`${step.label} is observe-only here`);
   const upstream = Object.fromEntries(
     chain
       .filter((item) => (step.after ?? []).includes(item.step.id))
       .map((item) => [item.step.id, item.status]),
   );
   const connection = connections[step.provider];
-  const plan = await kind.plan(contextFor(project, provider, env, connection), {
-    step,
-    branch,
-    env: targetEnv,
-    upstream,
-  });
+  const plan = await kind.plan(
+    contextFor(project, provider, env, connection),
+    inputFor(project, step, branch, targetEnv, upstream),
+  );
   const blockers: string[] = [];
   if (!project.config.triggers?.enabled)
     blockers.push('triggers are off (triggers.enabled in depli.config.ts)');
@@ -129,7 +128,7 @@ export const stopRun = async (
     throw new Error(`${input.targetEnv} is protected: confirm by typing its name`);
   return kind.stop(
     contextFor(project, provider, env, connection),
-    { step: entry.step, branch: input.branch, env: input.targetEnv, upstream: {} },
+    inputFor(project, entry.step, input.branch, input.targetEnv),
     run,
   );
 };

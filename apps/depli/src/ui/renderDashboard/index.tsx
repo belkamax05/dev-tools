@@ -1,4 +1,5 @@
 import { render } from 'ink';
+import { useState } from 'react';
 
 import { probeGraphicsSupport } from '@/dev-tools/terminal-canvas';
 
@@ -13,9 +14,46 @@ import {
   type TabId,
   updateState,
 } from '../../config/settings';
-import { openSession } from '../../core/session';
-import App from '../App';
+import { type Session as DepliSession, openSession, saveFlow, stateKey } from '../../core/session';
+import App, { type AppProps } from '../App';
 import type { Session } from '../types';
+
+/**
+ * The App for the flow open. `f` switches flow in place: the session is opened again for the
+ * other flow and the App mounted afresh on it — its own branch, env and connections. `F` (a
+ * linked branch) opens the other flow on its branch picker, and comes back once one is picked.
+ */
+const FlowHost = ({
+  initial,
+  onSwitched,
+  ...props
+}: Omit<AppProps, 'depli' | 'onSwitchFlow' | 'flowIntent'> & {
+  initial: DepliSession;
+  onSwitched: (depli: DepliSession) => void;
+}) => {
+  const [depli, setDepli] = useState(initial);
+  const [intent, setIntent] = useState<AppProps['flowIntent']>();
+  return (
+    <App
+      key={stateKey(depli.project)}
+      {...props}
+      depli={depli}
+      flowIntent={intent}
+      onSwitchFlow={async (flow, next) => {
+        //? A pick made just before (the linked branch) must be saved before the flow reads it
+        await flushState();
+        const opened = await openSession(undefined, flow);
+        //? A visit to pick a branch is not where the dashboard should open next time
+        if (!next?.returnTo) await saveFlow(opened.project);
+        props.session.selected = {};
+        if (next?.pickBranch) props.session.tab = 'chain';
+        onSwitched(opened);
+        setIntent(next);
+        setDepli(opened);
+      }}
+    />
+  );
+};
 
 /**
  * Open the dashboard, and keep reopening it after a handoff until the user quits.
@@ -41,8 +79,12 @@ export const renderDashboard = async (
 
   await runTuiSession(
     (frame) => (
-      <App
-        depli={depli}
+      <FlowHost
+        initial={depli}
+        //? Back from a handoff on the flow switched to, not the one started with
+        onSwitched={(next) => {
+          depli = next;
+        }}
         config={config}
         configPath={configStore.path}
         session={session}
@@ -71,7 +113,10 @@ export const renderDashboard = async (
           state = await stateStore.load();
           session.tab = state.tab;
         }
-        [config, depli] = await Promise.all([configStore.load(), openSession()]);
+        [config, depli] = await Promise.all([
+          configStore.load(),
+          openSession(undefined, depli.project.flow?.id),
+        ]);
       },
       describe: (intent) =>
         intent.type === 'edit' ? `Back from editing ${intent.path}` : `Back from ${intent.label}`,

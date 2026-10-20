@@ -20,7 +20,7 @@ import {
   type StepRun,
 } from '../../core/plugin';
 import { type Session, saveSession } from '../../core/session';
-import { contextFor } from '../../core/registry';
+import { contextFor, inputFor } from '../../core/registry';
 import {
   applyFix,
   type PlannedTrigger,
@@ -260,7 +260,12 @@ export const useDepli = (
         return;
       }
       provider.plugin
-        .branches(contextFor(project, provider, env, connection), connection, [])
+        .branches(
+          contextFor(project, provider, env, connection),
+          connection,
+          [],
+          project.config.branches?.source,
+        )
         .then((heads) =>
           setAllHeads(
             [...heads].sort((a, b) => (b.committedAt ?? '').localeCompare(a.committedAt ?? '')),
@@ -478,6 +483,7 @@ export const useDepli = (
       return { id: plugin?.id ?? entry.step.provider, label: entry.step.provider };
     },
     triggerable: (entry) =>
+      !entry.step.observeOnly &&
       Boolean(
         project.providers.find((item) => item.name === entry.step.provider)?.plugin.steps[
           entry.step.kind
@@ -502,7 +508,7 @@ export const useDepli = (
       if (!provider || !kind?.activeRuns) return Promise.resolve([]);
       return kind.activeRuns(
         contextFor(project, provider, env, connectionsRef.current[provider.name]),
-        { step: entry.step, branch: branch ?? '', env: targetEnv, upstream: {} },
+        inputFor(project, entry.step, branch ?? '', targetEnv),
       );
     },
     timingsExpanded,
@@ -524,7 +530,7 @@ export const useDepli = (
         return Promise.resolve({ stages: [], previousRuns: [], more: false });
       return kind.timings(
         contextFor(project, provider, env, connectionsRef.current[provider.name]),
-        { step: entry.step, branch: branch ?? '', env: targetEnv, upstream: {} },
+        inputFor(project, entry.step, branch ?? '', targetEnv),
         run,
       );
     },

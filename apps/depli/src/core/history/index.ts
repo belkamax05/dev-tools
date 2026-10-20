@@ -9,7 +9,7 @@ import {
   matchesPatterns,
   type StepConfig,
 } from '../plugin';
-import { contextFor, type Project } from '../registry';
+import { contextFor, inputFor, type Project } from '../registry';
 
 /** One step's jobs and their runs — or why they could not be read. */
 export interface StepHistory {
@@ -53,12 +53,10 @@ const readStep = async (
   if (!kind.history) return { step, jobs: [] };
   if (!connection?.transport) return { step, jobs: [], error: `${provider.name} offline` };
   try {
-    const jobs = await kind.history(contextFor(project, provider, env, connection), {
-      step,
-      branch,
-      env: targetEnv,
-      upstream: {},
-    });
+    const jobs = await kind.history(
+      contextFor(project, provider, env, connection),
+      inputFor(project, step, branch, targetEnv),
+    );
     return { step, jobs };
   } catch (error) {
     return { step, jobs: [], error: (error as Error).message };

@@ -138,11 +138,15 @@ test('the Environments window extends the picker table and draws the env at the 
   expect(out).toContain('on qa: #42 ✓');
 });
 
-test('the detailed view shows every env, the relations and the shared builds', () => {
+test('the detailed view: envs and jobs are tabs in their own panel, one page at a time', () => {
   const out = draw(
     <EnvironmentsDetail data={data} project={project} notify={() => {}} onClose={() => {}} />,
   );
   expect(out).toContain('Environments — detailed');
-  expect(out).toContain('Branches → envs');
-  expect(out).toContain('develop   ─┬─▶ qa');
+  expect(out).toContain('━━ Environments ━');
+  expect(out).toMatch(/envs\s+ qa \s+ staging /);
+  expect(out).toMatch(/jobs\s+ Build \s+ Deploy to \* /);
+  //? The chain's env is the page open: qa's runs, not staging's
+  expect(out).toContain('deploy_qa');
+  expect(out).not.toContain('deploy_staging ↗');
 });

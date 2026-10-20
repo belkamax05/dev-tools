@@ -1,3 +1,4 @@
+import { loadProjectConfig } from './config/project';
 import { TAB_IDS, type TabId } from './config/settings';
 import { pickRecentBranches } from './core/branch';
 import { type ChainStep, evaluateChain, STATE_ICON } from './core/chain';
@@ -32,6 +33,10 @@ usage:
                                   send it — refused unless triggers.enabled is on in
                                   depli.config.ts; a protected env needs --confirm-env=<env>
 
+A config with flows (e.g. fe and be) opens one at a time: --flow=<id> (or the flow as the
+first word: \`depli be\`, \`depli be status\`) on any command, else the one last switched to
+in the dashboard ([f]), else defaultFlow. Each flow keeps its own branch and env picks.
+
 The branch defaults to the pick saved in the dashboard, else the newest branch the provider
 lists (branches.recent) — never the checkout's;
 the env to the saved one, else the config's defaultEnv. Secrets come from the environment —
@@ -63,7 +68,15 @@ const printChain = (chain: ChainStep[]) => {
  * The dashboard is imported lazily, as processi's is, so the scripted commands never load React
  * or Ink.
  */
-export const run = async (...argv: string[]) => {
+export const run = async (...input: string[]) => {
+  //? A flow of a multi-flow config, by --flow=<id> or as the first word (`depli be status`);
+  //? DEPLI_FLOW carries it to every load from here on
+  const named = input.find((arg) => !arg.startsWith('-'));
+  const { flows } = await loadProjectConfig();
+  const argv =
+    named && flows.includes(named) ? input.filter((arg) => arg !== named) : [...input];
+  const flow = flagValue(argv, 'flow') ?? (named && flows.includes(named) ? named : undefined);
+  if (flow) process.env.DEPLI_FLOW = flow;
   const flags = new Set(argv.filter((arg) => arg.startsWith('--')));
   const [first, ...rest] = argv.filter((arg) => !arg.startsWith('--'));
   const json = flags.has('--json');
@@ -99,6 +112,7 @@ export const run = async (...argv: string[]) => {
       contextFor(project, provider, session.env, connection),
       connection,
       patterns,
+      project.config.branches?.source,
     );
     return heads.sort((a, b) => (b.committedAt ?? '').localeCompare(a.committedAt ?? ''));
   };
@@ -179,7 +193,10 @@ export const run = async (...argv: string[]) => {
 
   if (first === 'status') {
     if (json) return void console.log(JSON.stringify({ branch, env: targetEnv, chain }, null, 2));
-    console.log(`${branch} → ${targetEnv}\n`);
+    const linked = Object.values(project.linked ?? {})
+      .map((entry) => ` · ${entry.label} ${entry.branch ?? '(none picked)'}`)
+      .join('');
+    console.log(`${branch} → ${targetEnv}${linked}\n`);
     printChain(chain);
     return;
   }

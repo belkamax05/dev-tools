@@ -27,6 +27,13 @@ export interface BranchesViewProps {
   watch: string[];
   /** `branches.recent` is set: the list is its pick, not the watch patterns. */
   recent?: { limit?: number };
+  /**
+   * `branches.custom`: a name typed into the filter that is not listed can be picked as it is —
+   * the list is not every branch (a Jenkins choice list).
+   */
+  custom?: boolean;
+  /** Where the list comes from (`branches.provider`) — named in its title. */
+  source?: string;
   session: Session;
   onCaptureInput: (captured: boolean) => void;
   /** A branch was picked: show its chain. */
@@ -37,7 +44,8 @@ export interface BranchesViewProps {
 
 /**
  * The provider's branches by newest commit — `branches.recent`'s pick (or the watched ones), or
- * on [a] every branch it has. Read from the provider (GitHub), never from the local checkout. `/`
+ * on [a] every branch it has. Read from the provider (GitHub, a Jenkins job), never from the local
+ * checkout. With `custom`, a typed name that is not listed can be used as it is. `/`
  * filters fuzzily as you type (`r2616` finds `release-26.16`), over all branches when the
  * listed ones do not have it. Enter makes one the chain's branch; the pick lasts until another.
  */
@@ -45,6 +53,8 @@ export const BranchesView = ({
   data,
   watch,
   recent,
+  custom = false,
+  source = 'the provider',
   session,
   onCaptureInput,
   onPicked,
@@ -92,13 +102,29 @@ export const BranchesView = ({
     value: head,
   });
   //? Filtering ranks across everything; unfiltered, newest commit first
-  const items: PickItem<BranchHead>[] = filter
+  const matched: PickItem<BranchHead>[] = filter
     ? fuzzyFilter(listed, filter, (head) => head.name).map(row)
     : listed.map(row);
+  //? A name nobody listed: offered as typed, last — a trigger then offers to add it where refused
+  const typed =
+    custom && filter && !listed.some((head) => head.name === filter)
+      ? {
+          id: `typed:${filter}`,
+          label: `+ ${filter}`,
+          hint: 'as typed — not listed',
+          hintColor: colors.warn,
+          value: {
+            name: filter,
+            sha: '',
+            message: `Not one of ${source}'s branches: used exactly as typed. A trigger whose job refuses it offers to add it to that job's list.`,
+          },
+        }
+      : undefined;
+  const items = typed ? [...matched, typed] : matched;
   const scope = allBranches
     ? `All branches (${branches?.length ?? '…'})`
     : recent
-      ? `Most recent on GitHub (${branches?.length ?? '…'})`
+      ? `Most recent on ${source} (${branches?.length ?? '…'})`
       : `Watched: ${watch.join(' ')}`;
 
   return (
@@ -156,10 +182,13 @@ export const BranchesView = ({
           return (
             <Box flexDirection="column">
               <Text color={colors.text}>{head.name}</Text>
-              <Text color={colors.muted}>
-                {head.sha.slice(0, 12)}
-                {head.committedAt ? ` · ${head.committedAt}` : ''}
-              </Text>
+              {(head.sha || head.committedAt) && (
+                <Text color={colors.muted}>
+                  {head.sha.slice(0, 12)}
+                  {head.sha && head.committedAt ? ' · ' : ''}
+                  {head.committedAt ?? ''}
+                </Text>
+              )}
               {head.message && (
                 <Text color={colors.text} wrap="wrap">
                   {head.message}

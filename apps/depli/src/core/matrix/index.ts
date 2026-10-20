@@ -1,6 +1,6 @@
 import { isEnvScoped, stepsFor } from '../chain';
 import type { Connection, Env, LatestRun, StepConfig } from '../plugin';
-import { contextFor, type Project } from '../registry';
+import { contextFor, inputFor, type Project } from '../registry';
 
 export interface EnvCell {
   step: StepConfig;
@@ -39,12 +39,10 @@ export const evaluateEnvs = async (
           try {
             return {
               step,
-              latest: await kind.latest(contextFor(project, provider, env, connection), {
-                step,
-                branch,
-                env: entry.id,
-                upstream: {},
-              }),
+              latest: await kind.latest(
+                contextFor(project, provider, env, connection),
+                inputFor(project, step, branch, entry.id),
+              ),
             };
           } catch (error) {
             return { step, latest: { state: 'error', summary: (error as Error).message } };

@@ -19,6 +19,7 @@ depli list-branches [glob…] [--json]           # branches.recent (else the wat
 depli where [--json]                           # what every env runs now
 depli plan <step> [--branch=B] [--env=E]       # dry run of one step's trigger
 depli trigger <step> … --yes [--confirm-env=E] # refused unless triggers.enabled
+depli be [command…]  |  depli … --flow=be      # a flow of a multi-flow config (see Flows)
 ```
 
 ## Tabs and keys
@@ -30,7 +31,43 @@ depli trigger <step> … --yes [--confirm-env=E] # refused unless triggers.enabl
 | 🔌 Connections | per provider: **Auto** (the first transport that works — only one is needed), each transport, and for SSH each key. The detail says how it connects (remote, host alias, agent, key offered/accepted; token source and scopes), why it fails and how to fix it, and a setup guide (`g`). `Enter` picks: Auto, a pinned transport, or one SSH key — remembered per project. The cursor on a key tests it (`T` again); `o` opens the fix link; `P` probes now. A recommended way in that is not working offers a guided setup in its own panel (`L`): GitHub runs `gh auth login` for you (a code to type on github.com); Jenkins asks for your user id and an API token and stores them with the project's `envSet` command — `dfs env set` here, `envi set` otherwise — then uses them at once |
 | 🔧 Settings | theme, the two files, reset |
 
-Everywhere: `1-3`/`Tab` switch tab, `E` (or the footer's **Environments** button) the Environments window, `r` refresh, `B` back to the checkout's branch, `t` theme, `q` quit. The row under the tabs is clickable: a provider opens Connections, the branch the branch picker, the env the environments panel.
+Everywhere: `1-3`/`Tab` switch tab, `E` (or the footer's **Environments** button) the Environments window, `f` (or the footer's **Flow** button) the next flow of a multi-flow config, `F` (a flow with `linkedBranches`, e.g. **FE branch**) change the linked branch, `r` refresh, `B` back to the checkout's branch, `t` theme, `q` quit. The row under the tabs is clickable: the flow (`⇄ fe [f] → be`) switches flow, a provider opens Connections, the branch the branch picker, the env the environments panel.
+
+## Flows
+
+One `depli.config.ts` can hold several deploy flows — `flows: { fe: {…}, be: {…} }`, each with its
+own repo, branches, envs and pipeline. The top-level keys are shared: a flow's own keys replace
+them, except `providers`, which are merged by name (a shared `jenkins`, a `github` per flow). One
+flow is open at a time:
+
+- in the dashboard, `f` switches to the next flow **in place** — no window: the session is read
+  again for that flow and everything (chain, envs, connections) is about it. The flow open shows in
+  the header and first on the row under the tabs;
+- on the command line, `--flow=<id>` or the flow as the first word (`depli be`, `depli be status`)
+  — on every command, `DEPLI_FLOW` too;
+- otherwise the flow last switched to in the dashboard (per project), else `defaultFlow`, else the
+  first.
+
+Each flow keeps its own branch pick, env and connection choices (state key `<dir>#<flow>`); the
+first flow takes over what was saved before the config had flows. An unknown flow is reported and
+the default one opened. A launcher providing secrets (`dfs deploy`) gets every flow's variables.
+
+**Linked branches** — a flow can use another flow's pick: `linkedBranches: { fe: { flow: 'fe',
+label: 'FE branch' } }`. It shows on the Chain tab under the branch, read-only; `F` (the footer's
+button, or a click on the row) opens that flow on its branch picker and comes back once one is
+picked (Esc too). In the pipeline:
+
+- `branchFrom: 'fe'` — the step runs on the linked branch, not the one picked here (blocked, saying
+  so, while nothing is picked there);
+- `observeOnly: true` — shown and compared, never triggered or recommended from this flow;
+- Jenkins `linkedBranchParams: { FE_CODE_BRANCH: 'fe' }` — a param that sends it (`← fe branch`);
+  every step's input also has `branches.fe` for a param function.
+
+**Branches without a repository** — `branches: { provider: 'jenkins', source: { job, param },
+custom: true }` lists the job's choice list for `param` plus the branches its recent builds were
+for (newest build first, no commit). `custom` lets the picker take a typed name that is not listed
+(`+ name`, last); a job whose choice list refuses it then offers **Add** before triggering — the
+same fix as any refused branch, which Jenkins keeps for one build.
 
 **Triggers** (only with `triggers.enabled`): whether the selected step can be sent is worked out as soon as it is selected (a dry run — reads only): the button reads `[T] Trigger…` when it can, and orange **⊘ Trigger blocked** with every reason under it (plus the step's `blockedHelp` from the project config when the target itself would refuse) when it cannot. When the target refuses a value it could be taught (a branch outside a Jenkins job's choice list), an **Add …** action — `A` — appears directly under the reason in the same group, labelled “Resolve before triggering”, with a shared-configuration notice. It offers to change the target: a red popover says exactly what changes and for how long, and clickable Apply and Cancel buttons confirm or dismiss it (Enter applies, Esc cancels). Applying is refused while triggers are off. The step is planned again afterwards; triggering still has its own confirmation. `T`, or the Trigger button, plans the request, shows it in a popover and asks to confirm — for a protected env by typing its name. With triggers off, `T` is not bound at all and the button says what blocks it. **Stop**: while a step is running and its plugin can stop runs (Jenkins jobs), the detail shows a framed red **■ Stop #N** button — `X` or a click — that aborts the running build after a confirmation (a protected env by typing its name); it is not shown otherwise, nor while triggers are off.
 
@@ -75,15 +112,23 @@ dashboard on it.
   links and folds, `o` opens the link or toggles the fold focused (the env's latest deploy when
   nothing is), `w` the site. The wheel, `j`/`k`, PgUp/PgDn and `g`/`G` scroll it.
 - **Open detailed**: while the window is open the same footer button reads **Open detailed**
-  (`E`). It fills the whole terminal with everything at once: an overview table (each env's
-  site, deploy run, deployer and deployed build numbers as links), **Branches → envs** — a graph
-  of every `envs[].branches` pattern fanning out to the envs that track it and the ones that run
-  it now (an env tracking one branch and running another sits under both), every running branch
-  no pattern covers — then per env the same pipeline graph and job folds as the window, and last the
-  shared builds (`build_fe-*`) as folds, each run saying which envs run it now (`→ on ci, uat3`).
-  The section names along the top are clickable (`[`/`]` too); Tab/Shift+Tab (or `n`/`p`) step
-  through links and folds, Enter/`o` opens a link or toggles a fold, `x` opens or closes every job, `r` reads it all again, Esc closes it back to the
-  window. Nothing under it can be clicked while it is open.
+  (`E`). It fills the whole terminal with two panels. On top: an overview table (each env's
+  site, deploy run, deployer and deployed build numbers as links) and **Branches → envs** — a
+  graph of every `envs[].branches` pattern fanning out to the envs that track it and the ones that
+  run it now (an env tracking one branch and running another sits under both), every running
+  branch no pattern covers. Under it, **tabs** —
+  one page at a time, the chain's env open first:
+  - **an env tab** (`envs` row): the same pipeline graph and job folds as the window, the builds'
+    runs included;
+  - **a job tab** (`jobs` row, one per step with jobs read — `deploy_frontend_only_{env}` is one
+    tab): its runs alone, open by day. A build says which envs run which of its builds now
+    (`#1008 → ci, uat3`), each run too (`→ on ci, uat3`); an env-scoped step lists its latest run
+    on every env, then per env its jobs (`alsoDeployedBy` ones too) and their runs.
+
+  `←`/`→` (`h`/`l`, or a click) switch tab; `Tab` moves the keys between the two panels (the
+  focused one framed in the accent). `n`/`p` step through links and folds, Enter/`o` opens a link
+  or toggles a fold, `x` opens or closes every job, `r` reads it all again, Esc closes it back to
+  the window. Nothing under it can be clicked while it is open.
 
 Runs come from the step plugin's `history`: Jenkins reads the last 100 builds of the step's job and
 of every `alsoDeployedBy` job (one request each, with the commit each build checked out); GitHub
@@ -116,7 +161,7 @@ globs. The branch shown always stays listed. In the picker the cursor starts on 
 check runs, PRs, Actions runs) then `ssh` (`git ls-remote` from `checkout`: heads only). Step kind
 `branch`, observe-only.
 
-`jenkins` — step kind `job` also has `history` (the Environments window's runs). Transport `api` (`userEnv` + `tokenEnv`, basic auth; reachability is checked first,
+`jenkins` — lists branches from a job's choice list (`branches.source`, see Flows). Step kind `job` also has `history` (the Environments window's runs). Transport `api` (`userEnv` + `tokenEnv`, basic auth; reachability is checked first,
 so a VPN-only server reads as offline, not as an error). `ssh` is a reported slot, not used yet.
 Step kind `job`: `job` (with `{env}`/`{branch}`), `branchParam`, `revisionRepo`, `versions`,
 `versionFromLog` (a RegExp whose first group is what the build produced, read from its console —
@@ -165,10 +210,29 @@ export default {
 };
 ```
 
+With flows, the same keys go per flow, and the shared ones stay at the top:
+
+```ts
+export default {
+  providers: { jenkins: { plugin: 'jenkins', url: 'https://ci.example.com', userEnv: 'CI_USER', tokenEnv: 'CI_TOKEN' } },
+  triggers: { enabled: false },
+  flows: {
+    fe: { label: 'Frontend', repo: { path: '~/code/fe' }, providers: { github: { plugin: 'github', repo: 'owner/fe' } }, envs: […], pipeline: […] },
+    be: { label: 'Backend', repo: { path: '~/code/be' }, providers: { github: { plugin: 'github', repo: 'owner/be' } }, envs: […], pipeline: […] },
+  },
+  defaultFlow: 'fe',
+};
+```
+
+The dfs repository's `depli.config.ts` is a full example: `fe` (GitHub push → two builds → frontend
+deploy → propagate) and `be` (four GitLab-built backend jobs and fe's two builds for the FE branch,
+in parallel → `deploy_environment_{env}` → full propagation), branches from Jenkins.
+
 ## Where settings are kept
 
 `~/.config/depli/config.json` — the theme. State, in `~/.local/state/depli/state.json`: the last
-tab and, per project, the env and the branch pick.
+tab and, per project (per flow, `<dir>#<flow>`), the env and the branch pick; per project folder,
+the flow last switched to.
 
 In Settings, the Files section exposes both **Settings in $EDITOR** and **State in $EDITOR**. Select a file to see its path and contents description; Enter opens it. Edits are reloaded when the dashboard returns.
 
