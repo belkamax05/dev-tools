@@ -1,3 +1,4 @@
+import { readBranchHistory } from './history';
 import exec from '@/dev-tools/utils/process/exec';
 
 import { expandHome } from '../../config/project';
@@ -302,6 +303,8 @@ export const githubPlugin = definePlugin<GithubOptions>({
       status: (context, input) =>
         branchStatus(context, input.branch, context.connection?.transport),
       logs: ({ options, env }, _input, run) => checkLog(options, env, run),
+      history: (context, input) => readBranchHistory(context, input.branch),
+      historyByBranch: true,
     },
   },
   branches: async (context, connection, patterns) => {

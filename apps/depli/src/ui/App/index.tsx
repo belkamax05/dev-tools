@@ -9,7 +9,7 @@ import type { FooterAction } from '@/dev-tools/ui/components/Footer';
 import type { TabDefinition } from '@/dev-tools/ui/components/TabStrip';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import useStatus from '@/dev-tools/ui/hooks/useStatus';
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import TuiThemeProvider, { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
   configStore,
@@ -26,6 +26,8 @@ import useDepli, { type DepliData } from '../useDepli';
 import BranchesView from '../views/BranchesView';
 import ChainView from '../views/ChainView';
 import ConnectionsView from '../views/ConnectionsView';
+import EnvironmentsDetail from '../views/EnvironmentsDetail';
+import EnvironmentsView from '../views/EnvironmentsView';
 import SettingsView from '../views/SettingsView';
 
 /** Every icon is East Asian Width *Wide* with no U+FE0F selector — see `TabDefinition`. */
@@ -112,6 +114,8 @@ export interface AppProps {
   configPath: string;
   session: Session;
   notice?: string;
+  /** Open on the Environments window (`depli environments`) rather than the tab alone. */
+  environments?: boolean;
   onConfigChange: (config: DepliConfig) => void;
   /** The tab changed — the session already holds the new value. */
   onStateChange: () => void;
@@ -127,6 +131,7 @@ export const App = ({
   configPath,
   session,
   notice,
+  environments = false,
   onConfigChange,
   onStateChange,
   onHandoff,
@@ -142,7 +147,12 @@ export const App = ({
   //? The branch picker: the Chain tab's whole area while open — `filter` opens with the filter
   const [branchPicker, setBranchPicker] = useState(false);
   //? Bumped to open the Chain's environments panel from the status row
-  const [envOpenRequest, setEnvOpenRequest] = useState(0);
+  const [envOpenRequest] = useState(0);
+  //? The Environments window, over whichever tab is open (footer E), and its detailed view —
+  //? the whole interface while open. Esc steps back: detailed → window → the tab
+  const [envView, setEnvView] = useState<'closed' | 'window' | 'detailed'>(
+    environments ? 'window' : 'closed',
+  );
   const { status, notify, setStatus } = useStatus(notice ?? project.problems[0]);
   const data = useDepli(depli, notify);
   const envs = project.config.envs ?? [];
@@ -154,6 +164,7 @@ export const App = ({
   };
 
   const changeTab = (next: TabId) => {
+    setEnvView('closed');
     setTab(next);
     session.tab = next;
     onStateChange();
@@ -167,7 +178,7 @@ export const App = ({
       data.resetBranch();
       notify(`Back on ${data.current}`, 'ok');
     },
-    { isActive: !isInputCaptured },
+    { isActive: !isInputCaptured && envView !== 'detailed' },
   );
 
   const footerActions: FooterAction[] = [
@@ -181,7 +192,36 @@ export const App = ({
       },
       tooltip: 'Read the chain, the branches and the envs again',
     },
+    envView === 'window'
+      ? {
+          id: 'environments',
+          label: 'Open detailed',
+          hotkey: 'E',
+          onPress: () => setEnvView('detailed'),
+          tooltip:
+            'Every env in full: all jobs, every run by day, how they relate — over everything',
+        }
+      : {
+          id: 'environments',
+          label: 'Environments',
+          hotkey: 'E',
+          onPress: () => setEnvView('window'),
+          tooltip: 'Every env: what it runs, what it should, its jobs and runs (Esc back)',
+        },
   ];
+
+  if (envView === 'detailed')
+    return (
+      <TuiThemeProvider theme={depliTheme} palette={config.theme}>
+        <EnvironmentsDetail
+          data={data}
+          project={project}
+          status={status}
+          notify={notify}
+          onClose={() => setEnvView('window')}
+        />
+      </TuiThemeProvider>
+    );
 
   return (
     <AppShell
@@ -220,7 +260,15 @@ export const App = ({
       footerHints="[r] refresh · [B] checkout branch"
       footerActions={footerActions}
     >
-      {tab === 'chain' && branchPicker && (
+      {envView === 'window' && (
+        <EnvironmentsView
+          data={data}
+          project={project}
+          notify={notify}
+          onClose={() => setEnvView('closed')}
+        />
+      )}
+      {envView === 'closed' && tab === 'chain' && branchPicker && (
         <BranchesView
           data={data}
           watch={project.config.branches?.watch ?? []}
@@ -231,7 +279,7 @@ export const App = ({
           onClose={() => setBranchPicker(false)}
         />
       )}
-      {tab === 'chain' && !branchPicker && (
+      {envView === 'closed' && tab === 'chain' && !branchPicker && (
         <ChainView
           data={data}
           envIds={envs.map((entry) => entry.id)}
@@ -244,7 +292,7 @@ export const App = ({
           envOpenRequest={envOpenRequest}
         />
       )}
-      {tab === 'connections' && (
+      {envView === 'closed' && tab === 'connections' && (
         <ConnectionsView
           data={data}
           providers={project.providers}
@@ -254,7 +302,7 @@ export const App = ({
           onCaptureInput={setIsInputCaptured}
         />
       )}
-      {tab === 'settings' && (
+      {envView === 'closed' && tab === 'settings' && (
         <SettingsView
           configPath={configPath}
           projectPath={depli.path}

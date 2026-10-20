@@ -4,6 +4,7 @@ import { type AutoDecision, type AutoTrigger, autoKey, decideAuto } from '../../
 import { currentBranch, pickRecentBranches } from '../../core/branch';
 import { type ChainStep, evaluateChain } from '../../core/chain';
 import { connectAll, probeChoice } from '../../core/connection';
+import { type History, readHistory } from '../../core/history';
 import { type EnvRow, evaluateEnvs } from '../../core/matrix';
 import { readLog } from '../../core/logs';
 import {
@@ -51,6 +52,9 @@ export interface DepliData {
   allBranches: boolean;
   /** What every env runs now; undefined until asked for, or while being read. */
   envs?: EnvRow[];
+  /** Every job and its recent runs, per env — undefined until asked for; kept while re-read. */
+  history?: History;
+  historyLoading: boolean;
   selectBranch: (name: string) => void;
   /** Back to the checkout's branch, dropping the pick. */
   resetBranch: () => void;
@@ -82,6 +86,8 @@ export interface DepliData {
   ) => Promise<Connection['probes'][number]>;
   loadBranches: (all: boolean) => void;
   loadEnvs: () => void;
+  /** Read `history` (again) — the Environments window asks for it. */
+  loadHistory: () => void;
   plan: (stepId: string) => Promise<PlannedTrigger>;
   /** Whether a step can be triggered at all — its plugin plans it; observe-only steps do not. */
   triggerable: (entry: ChainStep) => boolean;
@@ -143,6 +149,10 @@ export const useDepli = (
   const [allHeads, setAllHeads] = useState<BranchHead[]>();
   const [allBranches, setAllBranches] = useState(false);
   const [envs, setEnvs] = useState<EnvRow[]>();
+  const envsRef = useRef(envs);
+  envsRef.current = envs;
+  const [history, setHistory] = useState<History>();
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [tick, setTick] = useState(0);
   const [probeTick, setProbeTick] = useState(0);
   const [setup, setSetup] = useState<{ key: string; progress: SetupProgress }>();
@@ -272,6 +282,19 @@ export const useDepli = (
       .catch((error: Error) => notify(error.message, 'error'));
   }, [project, env, branch, key, notify]);
 
+  const loadHistory = useCallback(() => {
+    if (!key) return;
+    setHistoryLoading(true);
+    //? The branches the envs run (when read) get their commits read too
+    const running = (envsRef.current ?? []).flatMap((row) =>
+      row.cells.flatMap((cell) => (cell.latest.branch ? [cell.latest.branch] : [])),
+    );
+    readHistory(project, connectionsRef.current, env, branch ?? '', targetEnv, running)
+      .then(setHistory)
+      .catch((error: Error) => notify(error.message, 'error'))
+      .finally(() => setHistoryLoading(false));
+  }, [project, env, branch, targetEnv, key, notify]);
+
   //? Auto triggers for the branch and env shown, against the chain fully read for them
   const shown = evaluated && evaluated.branch === branch && evaluated.env === targetEnv;
   const here = (auto: AutoTrigger) => auto.branch === branch && auto.env === targetEnv;
@@ -365,6 +388,8 @@ export const useDepli = (
     branches,
     allBranches,
     envs,
+    history,
+    historyLoading,
     selectBranch: (name) => {
       state.current = { ...state.current, selected: name, pickedWhileOn: currentRef.current };
       persist();
@@ -388,6 +413,7 @@ export const useDepli = (
       setAllHeads(undefined);
       setTick((value) => value + 1);
       if (envs) loadEnvs();
+      if (history) loadHistory();
     },
     reprobe: () => setProbeTick((value) => value + 1),
     preferences: state.current.connections ?? {},
@@ -409,17 +435,17 @@ export const useDepli = (
       setupRun.current = transport.setup.start(
         contextFor(project, provider, env),
         (progress) => {
-        setSetup({ key, progress });
-        if (progress.state === 'done') {
-          setupRun.current = undefined;
-          setProbeTick((value) => value + 1);
-          //? Once more shortly after: GitHub can take a moment to honour a token just issued
-          setTimeout(() => setProbeTick((value) => value + 1), 3_000);
-        } else if (progress.state === 'failed') {
-          setupRun.current = undefined;
-          setProbeTick((value) => value + 1);
-        }
-      },
+          setSetup({ key, progress });
+          if (progress.state === 'done') {
+            setupRun.current = undefined;
+            setProbeTick((value) => value + 1);
+            //? Once more shortly after: GitHub can take a moment to honour a token just issued
+            setTimeout(() => setProbeTick((value) => value + 1), 3_000);
+          } else if (progress.state === 'failed') {
+            setupRun.current = undefined;
+            setProbeTick((value) => value + 1);
+          }
+        },
         values,
       );
     },
@@ -444,6 +470,7 @@ export const useDepli = (
     },
     loadBranches,
     loadEnvs,
+    loadHistory,
     plan: (stepId) =>
       planTrigger(project, connectionsRef.current, env, chain, stepId, branch ?? '', targetEnv),
     providerOf: (entry) => {

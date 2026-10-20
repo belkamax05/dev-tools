@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import type { ChainStep } from '../../../core/chain';
 import type { EnvRow } from '../../../core/matrix';
 import type { StepConfig } from '../../../core/plugin';
-import { envHeader, envLine, envTags } from '.';
+import { envHeader, envLine, envTable, envTags } from '.';
 
 const step = (id: string, extra: Partial<StepConfig> = {}) =>
   ({ id, label: id, provider: 'jenkins', kind: 'job', ...extra }) as StepConfig;
@@ -14,7 +14,10 @@ const deployStep = step('deploy', {
 
 const chain = [
   { step: step('build-nginx'), status: { state: 'done', summary: '', ref: { buildNumber: 1023 } } },
-  { step: step('build-nodejs'), status: { state: 'done', summary: '', ref: { buildNumber: 3283 } } },
+  {
+    step: step('build-nodejs'),
+    status: { state: 'done', summary: '', ref: { buildNumber: 3283 } },
+  },
 ] as unknown as ChainStep[];
 
 const hoursAgo = (hours: number) => Date.now() - hours * 3_600_000;
@@ -69,4 +72,26 @@ test('the header lines its columns up with the rows', () => {
   for (const name of ['build-nginx', 'build-nodejs', 'propagate'])
     expect(drawn[header.indexOf(name)]).not.toBe(' ');
   expect(drawn.indexOf('#1020')).toBe(header.indexOf('build-nginx'));
+});
+
+test('the extended table adds TRACKS after the branch and tags an env off-track', () => {
+  const colors = { error: 'red', warn: 'orange', accent: 'blue', ok: 'green' };
+  const data = { branch: 'develop', chain, envs: [row], targetEnv: 'ci3' };
+  const plain = envTable({ envIds: ['ci3'], protectedEnvs: [], data, colors });
+  const extended = envTable({
+    envIds: ['ci3'],
+    protectedEnvs: [],
+    data,
+    colors,
+    configs: [{ id: 'ci3', branches: ['develop'] }],
+  });
+  expect(plain.header).not.toContain('TRACKS');
+  expect(plain.items[0]?.prefix.text.trim()).toBe('current');
+  expect(extended.items[0]?.prefix).toEqual({ text: 'current · off-track', color: 'orange' });
+  //? TRACKS sits between the branch and the build columns, in the header and the row alike
+  const label = extended.items[0]?.label ?? '';
+  const drawn = `  ${extended.items[0]?.prefix.text} ${label}`;
+  expect(drawn.indexOf('develop')).toBe(extended.header.indexOf('TRACKS'));
+  expect(label.indexOf('release-sprint-26.14')).toBeLessThan(label.indexOf('develop'));
+  expect(label.indexOf('develop')).toBeLessThan(label.indexOf('#1020'));
 });

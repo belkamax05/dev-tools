@@ -23,7 +23,10 @@ import type { Session } from '../types';
  * The project is read here and again after a handoff, so an edited depli.config.ts takes effect
  * on return.
  */
-export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
+export const renderDashboard = async (
+  initialTab?: TabId,
+  { environments = false }: { environments?: boolean } = {},
+): Promise<void> => {
   //? The probe reads replies from stdin, before Ink turns them into keypresses — then the
   //? graph, history strips and avatars draw with kitty / sixel / iTerm2, or as characters
   await probeGraphicsSupport();
@@ -34,6 +37,7 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
   ]);
   const session: Session = { tab: initialTab ?? state.tab, selected: {} };
   let cleared: string | undefined;
+  let handedOff = false;
 
   await runTuiSession(
     (frame) => (
@@ -43,6 +47,8 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
         configPath={configStore.path}
         session={session}
         notice={frame.notice}
+        //? Only the first frame: back from a handoff, the dashboard is where it was left
+        environments={environments && !handedOff}
         onConfigChange={(next: DepliConfig) => {
           config = next;
           configStore.save(next).catch(() => {});
@@ -60,6 +66,7 @@ export const renderDashboard = async (initialTab?: TabId): Promise<void> => {
     {
       render,
       afterHandoff: async (intent) => {
+        handedOff = true;
         if (intent.type === 'edit' && intent.path === stateStore.path) {
           state = await stateStore.load();
           session.tab = state.tab;

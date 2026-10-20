@@ -12,6 +12,7 @@ the trigger is confirmed, and a protected env is confirmed by its own name.
 ```sh
 depli                            # dashboard
 depli chain|connections|settings
+depli environments                             # dashboard on the Environments window (dfs environments)
 depli status [--branch=B] [--env=E] [--json]   # the chain, and what is recommended next
 depli probe [--json]                           # each provider's transports, probed
 depli list-branches [glob…] [--json]           # branches.recent (else the watch list) by default
@@ -29,7 +30,7 @@ depli trigger <step> … --yes [--confirm-env=E] # refused unless triggers.enabl
 | 🔌 Connections | per provider: **Auto** (the first transport that works — only one is needed), each transport, and for SSH each key. The detail says how it connects (remote, host alias, agent, key offered/accepted; token source and scopes), why it fails and how to fix it, and a setup guide (`g`). `Enter` picks: Auto, a pinned transport, or one SSH key — remembered per project. The cursor on a key tests it (`T` again); `o` opens the fix link; `P` probes now. A recommended way in that is not working offers a guided setup in its own panel (`L`): GitHub runs `gh auth login` for you (a code to type on github.com); Jenkins asks for your user id and an API token and stores them with the project's `envSet` command — `dfs env set` here, `envi set` otherwise — then uses them at once |
 | 🔧 Settings | theme, the two files, reset |
 
-Everywhere: `1-3`/`Tab` switch tab, `r` refresh, `B` back to the checkout's branch, `t` theme, `q` quit. The row under the tabs is clickable: a provider opens Connections, the branch the branch picker, the env the environments panel.
+Everywhere: `1-3`/`Tab` switch tab, `E` (or the footer's **Environments** button) the Environments window, `r` refresh, `B` back to the checkout's branch, `t` theme, `q` quit. The row under the tabs is clickable: a provider opens Connections, the branch the branch picker, the env the environments panel.
 
 **Triggers** (only with `triggers.enabled`): whether the selected step can be sent is worked out as soon as it is selected (a dry run — reads only): the button reads `[T] Trigger…` when it can, and orange **⊘ Trigger blocked** with every reason under it (plus the step's `blockedHelp` from the project config when the target itself would refuse) when it cannot. When the target refuses a value it could be taught (a branch outside a Jenkins job's choice list), an **Add …** action — `A` — appears directly under the reason in the same group, labelled “Resolve before triggering”, with a shared-configuration notice. It offers to change the target: a red popover says exactly what changes and for how long, and clickable Apply and Cancel buttons confirm or dismiss it (Enter applies, Esc cancels). Applying is refused while triggers are off. The step is planned again afterwards; triggering still has its own confirmation. `T`, or the Trigger button, plans the request, shows it in a popover and asks to confirm — for a protected env by typing its name. With triggers off, `T` is not bound at all and the button says what blocks it. **Stop**: while a step is running and its plugin can stop runs (Jenkins jobs), the detail shows a framed red **■ Stop #N** button — `X` or a click — that aborts the running build after a confirmation (a protected env by typing its name); it is not shown otherwise, nor while triggers are off.
 
@@ -40,6 +41,54 @@ A green `●` on the connector marks the completed boundary immediately before t
 **Job badges**: explicit status labels accompany their icons: red `⊘ Blocked`, blue `➜ Next`, orange `○ Never run`, `👁 Read-only`, and `… Checking`. Running jobs take priority and show an animated spinner with “Running”. Blocked takes priority over recommended. Status icons use larger pixel drawings when graphics are supported, with text fallbacks elsewhere. GitHub and Jenkins logos appear in the bottom-right corner; provider names appear only when their logo cannot be rendered.
 
 **Graphics**: the graph and history strips are box-drawing characters in theme colours, so they sit on the app's own background everywhere; avatars (PNG, or JPEG through `jpeg-js` — what GitHub serves for uploaded photos) draw with kitty / sixel / iTerm2 where the terminal supports it (probed at start), half-block characters elsewhere.
+
+## Environments window
+
+`E` — the footer's **Environments** button, on every tab — opens it over the tab you are on; Esc
+goes back there. `depli environments` (`dfs environments`, aliases `environment`, `envs`) starts the
+dashboard on it.
+
+- **The table**: the Chain tab's env picker, extended — every env with its tags, the branch on it,
+  **TRACKS** (what it is meant to run, `envs[].branches`) right beside it, the build numbers, when it
+  was deployed and when the other env steps last ran. An env running a branch outside its
+  `branches` is tagged orange `off-track`. `↑`/`↓` moves; Enter (or a click on a row) makes it the env
+  the chain shows.
+- **Under it, the env at the cursor — pipeline and runs**: its site (`envs[].url`), what it tracks
+  and runs, then the **pipeline as a graph** (the `after` relations) whose boxes say what each
+  step means for *this* env, `◀ on ci` marking the run that is on it:
+  - **push** (GitHub): the branch the env runs, its head commit, the commit(s) the env's builds
+    were made from (`deployed 1a2b3c4d  2 commits behind head ← build-nginx #1008, build-nodejs
+    #3257`, or `= head`), and the branch's newest commits;
+  - **a build**: the build the env runs in full — branch, when, who, the commit — then how it stands
+    among the builds of *that* branch (`2 newer good builds of release-26.14 — newest #3290`, or
+    the newest good one), and that branch's newest builds only (other branches' numbers are not
+    comparable), the deployed one always listed. A build older than the ones read says so;
+  - **a deploy**: what it put on the env (branch), by which run and job (an `alsoDeployedBy` job is
+    named), when and who, and the build numbers it runs; then each job with its tally and newest
+    runs (`+` for an `alsoDeployedBy` job).
+
+  Under the graph, **Runs**: one closed line per job (its tally and newest run) — the branch's
+  commits too; opening it lists its runs by day — each day a fold of its own, the newest open —
+  with number, result, time, duration, branch, the builds it deployed, who started it and, for a
+  commit, its message. A click on a job or a day opens or closes it; `x` opens (or closes) every
+  job. Job names, run numbers and commits are links: a click opens the page. `n`/`p` step through
+  links and folds, `o` opens the link or toggles the fold focused (the env's latest deploy when
+  nothing is), `w` the site. The wheel, `j`/`k`, PgUp/PgDn and `g`/`G` scroll it.
+- **Open detailed**: while the window is open the same footer button reads **Open detailed**
+  (`E`). It fills the whole terminal with everything at once: an overview table (each env's
+  site, deploy run, deployer and deployed build numbers as links), **Branches → envs** — a graph
+  of every `envs[].branches` pattern fanning out to the envs that track it and the ones that run
+  it now (an env tracking one branch and running another sits under both), every running branch
+  no pattern covers — then per env the same pipeline graph and job folds as the window, and last the
+  shared builds (`build_fe-*`) as folds, each run saying which envs run it now (`→ on ci, uat3`).
+  The section names along the top are clickable (`[`/`]` too); Tab/Shift+Tab (or `n`/`p`) step
+  through links and folds, Enter/`o` opens a link or toggles a fold, `x` opens or closes every job, `r` reads it all again, Esc closes it back to the
+  window. Nothing under it can be clicked while it is open.
+
+Runs come from the step plugin's `history`: Jenkins reads the last 100 builds of the step's job and
+of every `alsoDeployedBy` job (one request each, with the commit each build checked out); GitHub
+(`historyByBranch`) the 30 newest commits of every branch an env runs and of the branch shown —
+API transport only. A step whose plugin has none is a box with no runs. Read-only, like everything outside the trigger gate.
 
 ## How steps compare
 
@@ -67,7 +116,7 @@ globs. The branch shown always stays listed. In the picker the cursor starts on 
 check runs, PRs, Actions runs) then `ssh` (`git ls-remote` from `checkout`: heads only). Step kind
 `branch`, observe-only.
 
-`jenkins` — transport `api` (`userEnv` + `tokenEnv`, basic auth; reachability is checked first,
+`jenkins` — step kind `job` also has `history` (the Environments window's runs). Transport `api` (`userEnv` + `tokenEnv`, basic auth; reachability is checked first,
 so a VPN-only server reads as offline, not as an error). `ssh` is a reported slot, not used yet.
 Step kind `job`: `job` (with `{env}`/`{branch}`), `branchParam`, `revisionRepo`, `versions`,
 `versionFromLog` (a RegExp whose first group is what the build produced, read from its console —
@@ -76,7 +125,9 @@ match — plans using it are marked "derived — check"), `params` (values or fu
 parameter explicitly, job defaults are not trusted). Plans are checked against the job's parameters as Jenkins defines them now: a value outside a choice list blocks the trigger (Jenkins would answer 500 and start nothing), and a parameter not sent — Jenkins would use its default — is a warning. A refused send shows Jenkins' own reason.
 
 A plugin of your own is an object with `id`, `transports` (each with a `probe`) and `steps` (each
-with `status`, optionally `plan` and `send`) — see `src/core/plugin`. Add it to the config's
+with `status`, optionally `plan`, `send`, `latest` — the env matrix — and `history` — every job the
+step reads and its recent runs, for the Environments window; `historyByBranch` when that depends on
+the branch) — see `src/core/plugin`. Add it to the config's
 `plugins`; reusing a built-in's id replaces it.
 
 ## depli.config.ts
@@ -92,7 +143,12 @@ export default {
     github: { plugin: 'github', repo: 'owner/app', checkout: '~/code/app' },
     jenkins: { plugin: 'jenkins', url: 'https://ci.example.com', userEnv: 'CI_USER', tokenEnv: 'CI_TOKEN' },
   },
-  envs: [{ id: 'qa' }, { id: 'staging', protected: true }],
+  //? url: the env's site; branches: what it is meant to run (globs) — the Environments window
+  //? relates branches to envs with them and tags an env running anything else off-track
+  envs: [
+    { id: 'qa', url: 'https://qa.example.com', branches: ['develop'] },
+    { id: 'staging', protected: true, branches: ['release-*'] },
+  ],
   defaultEnv: 'qa',
   pipeline: [
     { id: 'push', label: 'Push', provider: 'github', kind: 'branch' },

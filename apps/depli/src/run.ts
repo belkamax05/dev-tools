@@ -14,6 +14,9 @@ const HELP = `depli — a deploy chain (push → build → deploy → …), each
 usage:
   depli                           open the dashboard
   depli <tab>                     open it on a tab: ${TAB_IDS.join(', ')}
+  depli environments              open it on the Environments window (footer [E] anywhere):
+                                  every env, what it runs and should run, its jobs and runs;
+                                  [E] again for the detailed view of all of them
   depli status [--branch=B] [--env=E] [--json]
                                   every step of the chain for a branch and env, and which
                                   one is recommended next
@@ -70,9 +73,11 @@ export const run = async (...argv: string[]) => {
     return;
   }
 
-  if (first === undefined || TAB_IDS.includes(first as TabId)) {
+  if (first === undefined || first === 'environments' || TAB_IDS.includes(first as TabId)) {
     const { default: renderDashboard } = await import('./ui/renderDashboard');
-    await renderDashboard(first as TabId | undefined);
+    await renderDashboard(first === 'environments' ? undefined : (first as TabId | undefined), {
+      environments: first === 'environments',
+    });
     process.exit(0);
   }
 
@@ -121,11 +126,13 @@ export const run = async (...argv: string[]) => {
         console.log(
           `    ${probe.ok ? '✓' : '✗'} ${probe.label} — ${probe.detail}${probe.identity ? ` (as ${probe.identity})` : ''}`,
         );
-        for (const fact of probe.facts ?? []) console.log(`        ${fact.label.padEnd(9)} ${fact.value}`);
+        for (const fact of probe.facts ?? [])
+          console.log(`        ${fact.label.padEnd(9)} ${fact.value}`);
         if (probe.fix?.why) console.log(`        why: ${probe.fix.why}`);
         for (const [index, step] of (probe.fix?.steps ?? []).entries())
           console.log(`        ${index + 1}. ${step}`);
-        for (const link of probe.fix?.links ?? []) console.log(`        → ${link.label}: ${link.url}`);
+        for (const link of probe.fix?.links ?? [])
+          console.log(`        → ${link.label}: ${link.url}`);
       }
     }
     return;

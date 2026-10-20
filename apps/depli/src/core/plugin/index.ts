@@ -370,6 +370,29 @@ export interface LatestRun {
   url?: string;
 }
 
+/** One run in a job's history: the run, every parameter it was given, and who started it. */
+export interface HistoryRun extends StepRun {
+  params?: Record<string, string>;
+  actor?: StepActor;
+  /** The commit it built (a build's checkout), or is (a branch's commit). */
+  sha?: string;
+}
+
+/**
+ * One job a step reads — its own, or another that does the same thing (Jenkins'
+ * `alsoDeployedBy`) — with its recent runs, newest first, whatever branch they were for.
+ */
+export interface JobHistory {
+  /** The job's name on the target, templates filled (`deploy_frontend_only_ci`). */
+  job: string;
+  url?: string;
+  /** How it relates to the step; undefined for the step's own job. */
+  relation?: string;
+  runs: HistoryRun[];
+  /** The job does not exist on the target. */
+  missing?: boolean;
+}
+
 export interface StepKind<Options = Record<string, unknown>> {
   status: (context: PluginContext<Options>, input: StepInput) => Promise<StepStatus>;
   /** Build the request without sending it. Absent: the step is observe-only. */
@@ -379,6 +402,16 @@ export interface StepKind<Options = Record<string, unknown>> {
    * steps that act on an env; the environments matrix is built from it.
    */
   latest?: (context: PluginContext<Options>, input: StepInput) => Promise<LatestRun>;
+  /**
+   * Every job the step reads and their recent runs, whatever the branch — the Environments
+   * window's detailed view. Read-only; absent: the step has no history to show.
+   */
+  history?: (context: PluginContext<Options>, input: StepInput) => Promise<JobHistory[]>;
+  /**
+   * `history` depends on `input.branch` (a branch's commits) rather than listing every branch's
+   * runs: read once per branch an env runs.
+   */
+  historyByBranch?: boolean;
   /** A run's log from `start` (a byte offset; 0 for the whole of it). Read-only. */
   logs?: (
     context: PluginContext<Options>,

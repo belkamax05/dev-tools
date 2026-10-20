@@ -37,7 +37,7 @@ import LogPanel from '../LogPanel';
 import ScrollPanel from '@/dev-tools/ui/components/ScrollPanel';
 import StageTimings from '../StageTimings';
 import OtherRuns from '../OtherRuns';
-import { envHeader, envLegend, envLine, envTags } from '../EnvsPanel';
+import { envLegend, envLine, envTable } from '../EnvsPanel';
 import { stamp } from '../../../core/time';
 import type { Session, Tone } from '../../types';
 import type { DepliData } from '../../useDepli';
@@ -151,7 +151,15 @@ interface SelectorRowProps {
  * One "[key] Label  value ▾" row at the top of the tab — the label in the body colour, the value
  * in its own, the whole of it a button that does what its key does.
  */
-const SelectorRow = ({ hotkey, label, value, valueColor, open, note, onPress }: SelectorRowProps) => {
+const SelectorRow = ({
+  hotkey,
+  label,
+  value,
+  valueColor,
+  open,
+  note,
+  onPress,
+}: SelectorRowProps) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
   const { isHovered } = useClickable(ref, { onClick: onPress });
@@ -251,7 +259,10 @@ export const ChainView = ({
     Math.min(
       envIds.length,
       ENV_ROWS,
-      viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'chipRow'], 6) - autoPanelRows - 7 - 6,
+      viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'chipRow'], 6) -
+        autoPanelRows -
+        7 -
+        6,
     ),
   );
   const envPanelRows = picking !== undefined ? envRowsShown + 7 : 0;
@@ -340,36 +351,11 @@ export const ChainView = ({
   useEffect(() => {
     if (picking !== undefined) data.loadEnvs();
   }, [data.branch]);
-  const envRows = new Map((data.envs ?? []).map((row) => [row.env, row]));
-  const envWidth = Math.max(4, ...envIds.map((env) => env.length));
-  //? Every env as a row of the table: its tags (current, behind… — all that apply, so the
-  //? current env still says it is behind) as a coloured first column, then what it runs
-  const envTable = envIds.map((env) => {
-    const row = envRows.get(env);
-    const line = row
-      ? envLine(row, data, envWidth)
-      : { text: `… ${env.padEnd(envWidth)}`, summary: '', mine: false, stale: false };
-    const isProtected = protectedEnvs.includes(env);
-    const tags = envTags(line, { protected: isProtected, current: env === data.targetEnv });
-    return { env, line, isProtected, tags: tags.join(' · ') };
-  });
-  const tagsWidth = Math.max(6, ...envTable.map((entry) => entry.tags.length));
-  const envItems = envTable.map(({ env, line, isProtected, tags }) => ({
-    id: env,
-    label: line.text,
-    prefix: {
-      text: tags.padEnd(tagsWidth),
-      color: isProtected
-        ? colors.error
-        : line.stale
-          ? colors.warn
-          : env === data.targetEnv
-            ? colors.accent
-            : colors.ok,
-    },
-    isCurrent: env === data.targetEnv,
-    value: env,
-  }));
+  const {
+    items: envItems,
+    header: envTableHeader,
+    rows: envRows,
+  } = envTable({ envIds, protectedEnvs, data, colors });
 
   /** The next recommended step after the selected one, wrapping — `n` cycles through them all. */
   const jumpToNext = () => {
@@ -1085,7 +1071,7 @@ export const ChainView = ({
             width={appWidth}
           >
             <PickList
-              title={envHeader(data.envs?.[0], envWidth, tagsWidth)}
+              title={envTableHeader}
               items={envItems}
               selected={picking ?? 0}
               visibleRows={envRowsShown}
@@ -1194,59 +1180,61 @@ export const ChainView = ({
         >
           {/* The rows it was priced at; more scroll under the wheel and scrollbar, buttons and all */}
           <Box height={Math.min(data.autos.length, AUTO_ROWS)} flexDirection="column">
-          <ScrollPanel isActive={false} isMouseActive={!prompt.isOpen}>
-          {data.autos.map((auto) => {
-            const id = autoKey(auto);
-            const decision = data.autoStatus[id];
-            const here = auto.branch === data.branch && auto.env === data.targetEnv;
-            return (
-              <Box key={id} flexDirection="row" flexShrink={0}>
-                <Box flexGrow={1} flexShrink={1}>
-                  <Text wrap="truncate-end">
-                    <StatusText text="↯ Auto" />
-                    <Text color={colors.text} bold>
-                      {' '}
-                      {auto.label}
-                    </Text>
-                    <Text color={protectedEnvs.includes(auto.env) ? colors.error : colors.muted}>
-                      {' '}
-                      {auto.branch} → {auto.env}
-                      {auto.protectedEnv ? '!' : ''}
-                    </Text>
-                    <Text color={colors.muted}>
-                      {' · '}
-                      {here
-                        ? decision?.kind === 'wait'
-                          ? `${decision.reason} · `
-                          : 'checking… · '
-                        : 'paused — not the branch and env shown'}
-                    </Text>
-                    <Text color={colors.accent} bold>
-                      {here ? timeLeft(auto) : ''}
-                    </Text>
-                    <Text color={colors.muted}>
-                      {' · '}armed{' '}
-                      {Date.now() - auto.armedAt < 60_000 ? 'just now' : ago(auto.armedAt)}
-                    </Text>
-                  </Text>
-                </Box>
-                <ActionButton
-                  label="preview"
-                  color={colors.accent}
-                  onPress={() => previewAuto(auto)}
-                />
-                <ActionButton
-                  label="remove"
-                  color={colors.error}
-                  onPress={() => {
-                    data.disarm(id);
-                    notify(`Auto trigger for ${auto.label} removed`, 'info');
-                  }}
-                />
-              </Box>
-            );
-          })}
-          </ScrollPanel>
+            <ScrollPanel isActive={false} isMouseActive={!prompt.isOpen}>
+              {data.autos.map((auto) => {
+                const id = autoKey(auto);
+                const decision = data.autoStatus[id];
+                const here = auto.branch === data.branch && auto.env === data.targetEnv;
+                return (
+                  <Box key={id} flexDirection="row" flexShrink={0}>
+                    <Box flexGrow={1} flexShrink={1}>
+                      <Text wrap="truncate-end">
+                        <StatusText text="↯ Auto" />
+                        <Text color={colors.text} bold>
+                          {' '}
+                          {auto.label}
+                        </Text>
+                        <Text
+                          color={protectedEnvs.includes(auto.env) ? colors.error : colors.muted}
+                        >
+                          {' '}
+                          {auto.branch} → {auto.env}
+                          {auto.protectedEnv ? '!' : ''}
+                        </Text>
+                        <Text color={colors.muted}>
+                          {' · '}
+                          {here
+                            ? decision?.kind === 'wait'
+                              ? `${decision.reason} · `
+                              : 'checking… · '
+                            : 'paused — not the branch and env shown'}
+                        </Text>
+                        <Text color={colors.accent} bold>
+                          {here ? timeLeft(auto) : ''}
+                        </Text>
+                        <Text color={colors.muted}>
+                          {' · '}armed{' '}
+                          {Date.now() - auto.armedAt < 60_000 ? 'just now' : ago(auto.armedAt)}
+                        </Text>
+                      </Text>
+                    </Box>
+                    <ActionButton
+                      label="preview"
+                      color={colors.accent}
+                      onPress={() => previewAuto(auto)}
+                    />
+                    <ActionButton
+                      label="remove"
+                      color={colors.error}
+                      onPress={() => {
+                        data.disarm(id);
+                        notify(`Auto trigger for ${auto.label} removed`, 'info');
+                      }}
+                    />
+                  </Box>
+                );
+              })}
+            </ScrollPanel>
           </Box>
         </Panel>
       )}
@@ -1279,7 +1267,11 @@ export const ChainView = ({
                   },
                 ]
               : []),
-            { key: 'e', label: pickerOpen ? 'next env' : 'envs', onPress: pickerOpen ? () => movePicker(1) : openPicker },
+            {
+              key: 'e',
+              label: pickerOpen ? 'next env' : 'envs',
+              onPress: pickerOpen ? () => movePicker(1) : openPicker,
+            },
             { key: 'b', label: 'branch', onPress: onPickBranch },
             {
               key: 'l',

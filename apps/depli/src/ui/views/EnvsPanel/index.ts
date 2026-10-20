@@ -1,4 +1,6 @@
+import type { EnvConfig } from '../../../config/project';
 import { STATE_ICON } from '../../../core/chain';
+import { onTrack, runningBranch } from '../../../core/history';
 import type { EnvCell, EnvRow } from '../../../core/matrix';
 import { age, shortStamp } from '../../../core/time';
 import type { DepliData } from '../../useDepli';
@@ -9,7 +11,8 @@ const BRANCH_WIDTH = 24;
 /** `17 Oct 06:51 44h25m ago` — the exact local time, then how long ago. */
 const WHEN_WIDTH = 23;
 
-const when = (at?: number) => (at ? `${shortStamp(at)} ${`${age(at, true)} ago`.padStart(10)}` : '—');
+const when = (at?: number) =>
+  at ? `${shortStamp(at)} ${`${age(at, true)} ago`.padStart(10)}` : '—';
 
 /** The cell that says what the env runs: the step that records a branch, else the first. */
 const deployOf = (row: EnvRow) =>
@@ -82,7 +85,9 @@ export const envLine = (
 /** The column names over `envLine`'s rows, aligned with them (`row` gives the step columns). */
 export const envHeader = (row: EnvRow | undefined, width: number, tagsWidth: number) => {
   const deploy = row && deployOf(row);
-  const builds = versionSteps(deploy).map(([, stepId]) => stepId.padEnd(Math.max(stepId.length, 11)));
+  const builds = versionSteps(deploy).map(([, stepId]) =>
+    stepId.padEnd(Math.max(stepId.length, 11)),
+  );
   const others = (row?.cells ?? [])
     .filter((cell) => cell !== deploy)
     .map((cell) => cell.step.id.padEnd(Math.max(cell.step.id.length, WHEN_WIDTH)));
@@ -118,3 +123,76 @@ export const envTags = (
     flags.current && 'current',
     line.mine && (line.stale ? 'behind' : 'yours'),
   ].filter((tag): tag is string => Boolean(tag));
+
+const TRACKS_WIDTH = 18;
+
+export interface EnvTableOptions {
+  envIds: string[];
+  protectedEnvs: string[];
+  data: Pick<DepliData, 'branch' | 'chain' | 'envs' | 'targetEnv'>;
+  colors: Record<'error' | 'warn' | 'accent' | 'ok', string>;
+  /**
+   * The envs' config — given, the table is the Environments window's extended one: a TRACKS
+   * column (`envs[].branches`) and an `off-track` tag for an env running anything else.
+   */
+  configs?: readonly EnvConfig[];
+}
+
+/**
+ * The environments table as `PickList` rows, with its column names: the Chain tab's env picker,
+ * and — with `configs` — the Environments window's wider copy of it.
+ */
+export const envTable = ({ envIds, protectedEnvs, data, colors, configs }: EnvTableOptions) => {
+  const envRows = new Map((data.envs ?? []).map((row) => [row.env, row]));
+  const width = Math.max(4, ...envIds.map((env) => env.length));
+  //? Every env as a row of the table: its tags (current, behind… — all that apply, so the
+  //? current env still says it is behind) as a coloured first column, then what it runs
+  const rows = envIds.map((env) => {
+    const row = envRows.get(env);
+    const line = row
+      ? envLine(row, data, width)
+      : { text: `… ${env.padEnd(width)}`, summary: '', mine: false, stale: false };
+    const isProtected = protectedEnvs.includes(env);
+    const config = configs?.find((entry) => entry.id === env);
+    const offTrack = onTrack(config, runningBranch(row)) === false;
+    const tags = [
+      ...envTags(line, { protected: isProtected, current: env === data.targetEnv }),
+      ...(offTrack ? ['off-track'] : []),
+    ];
+    const tracks = configs
+      ? `  ${(config?.branches?.join(' ') ?? '—').slice(0, TRACKS_WIDTH).padEnd(TRACKS_WIDTH)}`
+      : '';
+    //? The extended table puts TRACKS right after the branch, where it is compared with it
+    const label = configs ? withTracks(line.text, width, tracks) : line.text;
+    return { env, line, label, isProtected, offTrack, tags: tags.join(' · ') };
+  });
+  const tagsWidth = Math.max(6, ...rows.map((entry) => entry.tags.length));
+  const items = rows.map(({ env, line, label, isProtected, offTrack, tags }) => ({
+    id: env,
+    label,
+    prefix: {
+      text: tags.padEnd(tagsWidth),
+      color: isProtected
+        ? colors.error
+        : line.stale || offTrack
+          ? colors.warn
+          : env === data.targetEnv
+            ? colors.accent
+            : colors.ok,
+    },
+    isCurrent: env === data.targetEnv,
+    value: env,
+  }));
+  const plainHeader = envHeader(data.envs?.[0], width, tagsWidth);
+  const header = configs
+    ? withTracks(plainHeader, width + tagsWidth + 3, `  ${'TRACKS'.padEnd(TRACKS_WIDTH)}`)
+    : plainHeader;
+  return { items, header, width, tagsWidth, rows: envRows };
+};
+
+/** `text` with `column` inserted after the env name (`skip` cells) and the branch column. */
+const withTracks = (text: string, skip: number, column: string) => {
+  //? The icon and a space, the env, two spaces, then the branch column
+  const at = Math.min(text.length, skip + 4 + BRANCH_WIDTH);
+  return `${text.slice(0, at).padEnd(at)}${column}${text.slice(at)}`.trimEnd();
+};

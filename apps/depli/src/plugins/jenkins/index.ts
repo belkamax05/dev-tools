@@ -1,4 +1,5 @@
 import { otherActiveRuns, readOtherActiveRuns } from './activeRuns';
+import { actorOf, readJobHistory, runOf } from './history';
 import { readJenkinsTimings } from './timings';
 import {
   definePlugin,
@@ -7,9 +8,7 @@ import {
   type LatestRun,
   type PlanFix,
   type ProbeFact,
-  type StepActor,
   type StepInput,
-  type StepRun,
   type StepStatus,
   type TriggerPlan,
 } from '../../core/plugin';
@@ -28,7 +27,6 @@ import {
   jenkinsLog,
   saveJenkinsConfigXml,
   jobPath,
-  buildCause,
 } from './api';
 import { stamp } from '../../core/time';
 import { logVersion } from './logVersion';
@@ -78,36 +76,6 @@ export interface JobStepOptions {
    */
   alsoDeployedBy?: string[];
 }
-
-/** Who started the build: a user by id and name, else what did (a timer, an upstream job). */
-const actorOf = (build: JenkinsBuild): StepActor | undefined => {
-  const cause = buildCause(build);
-  if (!cause) return undefined;
-  return {
-    //? A user by id and name; anything else (a timer, an upstream job) by what Jenkins calls it
-    login: cause.userId ?? cause.shortDescription?.replace(/^Started by /i, '') ?? 'jenkins',
-    name: cause.userId ? cause.userName : undefined,
-    action: 'started',
-    at: build.timestamp,
-  };
-};
-
-const runOf = (build: JenkinsBuild): StepRun => ({
-  id: String(build.number),
-  label: `#${build.number}`,
-  state: build.building
-    ? 'running'
-    : build.result === 'SUCCESS'
-      ? 'success'
-      : build.result === 'ABORTED'
-        ? 'aborted'
-        : build.result === 'FAILURE' || build.result === 'UNSTABLE'
-          ? 'failure'
-          : 'other',
-  at: build.timestamp,
-  durationMs: build.building ? Date.now() - build.timestamp : build.duration,
-  url: build.url,
-});
 
 /** The job, or undefined when it does not exist on this server. */
 const readJob = async (options: JenkinsOptions, env: Env, job: string) => {
@@ -340,9 +308,7 @@ const jobStatus = async (
           : failedSince
             ? 'failed'
             : 'done';
-  const when = ok
-    ? stamp(ok.timestamp + ok.duration)
-    : '';
+  const when = ok ? stamp(ok.timestamp + ok.duration) : '';
   return {
     ...base,
     state,
@@ -454,7 +420,9 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
           'They are stored, used by this run straight away, and probed — no restart.',
         ],
         links: ({ options }) =>
-          options.url ? [{ label: 'Your Jenkins API tokens', url: `${options.url}/me/security/` }] : [],
+          options.url
+            ? [{ label: 'Your Jenkins API tokens', url: `${options.url}/me/security/` }]
+            : [],
         inputs: [
           {
             id: 'user',
@@ -492,7 +460,7 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
       },
       guide: {
         summary:
-          'Jenkins\' JSON API with your user and an API token — reads builds and, when triggers are on, starts them. The only transport depli uses for Jenkins today.',
+          "Jenkins' JSON API with your user and an API token — reads builds and, when triggers are on, starts them. The only transport depli uses for Jenkins today.",
         steps: [
           'Be on the network Jenkins is on (VPN) — the probe checks that first.',
           'In Jenkins: your name (top right) → Security (or Configure) → API Token → Add new token; copy it, it is shown once.',
@@ -507,7 +475,9 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
           { label: 'server', value: options.url },
           {
             label: 'user',
-            value: user ? `$${options.userEnv} = ${user}` : `$${options.userEnv ?? 'userEnv'} not set`,
+            value: user
+              ? `$${options.userEnv} = ${user}`
+              : `$${options.userEnv ?? 'userEnv'} not set`,
             tone: user ? undefined : 'error',
           },
           {
@@ -519,7 +489,9 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
             tone: options.tokenEnv && env[options.tokenEnv] ? undefined : 'error',
           },
         ];
-        const tokenLinks = [{ label: 'Your Jenkins API tokens', url: `${options.url}/me/security/` }];
+        const tokenLinks = [
+          { label: 'Your Jenkins API tokens', url: `${options.url}/me/security/` },
+        ];
         //? Reachability first, without credentials: a VPN-only server times out or fails DNS
         try {
           const login = await fetch(`${options.url}/login`, { signal: AbortSignal.timeout(6_000) });
@@ -586,13 +558,18 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
       capabilities: ['jobs'],
       guide: {
         summary:
-          'Jenkins\' own SSH server — the Jenkins CLI over SSH, signed in with a key from your profile. A limited, read-only fallback: the last build of each job, no history, parameters, timings or triggers. Off on most servers until an admin turns it on.',
+          "Jenkins' own SSH server — the Jenkins CLI over SSH, signed in with a key from your profile. A limited, read-only fallback: the last build of each job, no history, parameters, timings or triggers. Off on most servers until an admin turns it on.",
         steps: [
           'An admin enables it: Manage Jenkins → Security → SSH Server → Fixed port (and exposes the port if a proxy is in front).',
           'Add your public key in your Jenkins profile: Security → SSH Public Keys; have it in your SSH agent.',
           'Test it: ssh -p <port> <you>@<host> who-am-i — then press P here.',
         ],
-        links: [{ label: 'Jenkins CLI over SSH', url: 'https://www.jenkins.io/doc/book/managing/cli/#ssh' }],
+        links: [
+          {
+            label: 'Jenkins CLI over SSH',
+            url: 'https://www.jenkins.io/doc/book/managing/cli/#ssh',
+          },
+        ],
       },
       probe: probeJenkinsSsh,
     },
@@ -605,13 +582,19 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
           : jobStatus(context.options, context.env, input),
       plan: async (context, input) => {
         if (overSsh(context))
-          throw new Error('Triggers need the API transport — SSH (the Jenkins CLI) is read-only here');
+          throw new Error(
+            'Triggers need the API transport — SSH (the Jenkins CLI) is read-only here',
+          );
         return jobPlan(context.options, context.env, input);
       },
       latest: (context, input) =>
         overSsh(context)
           ? sshJobLatest(context, input)
           : jobLatest(context.options, context.env, input),
+      history: (context, input) =>
+        overSsh(context)
+          ? Promise.reject(new Error('Job history needs the API transport'))
+          : readJobHistory(context.options, context.env, input),
       activeRuns: (context, input) => {
         if (overSsh(context)) return Promise.resolve([]);
         const { options, env } = context;
@@ -626,7 +609,12 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
       },
       timings: async (context, input, run) =>
         overSsh(context)
-          ? { stages: [], previousRuns: [], more: false, unavailable: 'stage timings need the API transport' }
+          ? {
+              stages: [],
+              previousRuns: [],
+              more: false,
+              unavailable: 'stage timings need the API transport',
+            }
           : readJenkinsTimings(
               context.options,
               context.env,
