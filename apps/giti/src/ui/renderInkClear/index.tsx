@@ -2,7 +2,8 @@ import { render, useApp } from 'ink';
 
 import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 import Box from '@/dev-tools/ui/components/Box';
-import { TuiThemeProvider } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import useTerminalSize from '@/dev-tools/ui/hooks/useTerminalSize';
+import { TuiThemeProvider, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
 
 import type { ClearIgnoredResult, IgnoredOptions } from '../../core/ignored';
@@ -20,8 +21,12 @@ const ClearApp = ({
   onCleared: (result: ClearIgnoredResult) => void;
 }) => {
   const { exit } = useApp();
+  //? No `AppShell` here to size the frame, so the tree claims the terminal itself, as `save` does:
+  //? without a height, `flexGrow` has nothing to grow into and the panes stop at their content
+  const { rows } = useTerminalSize();
+  const height = Math.max(1, rows - useTuiTheme().sizes.app.heldBackRows);
   return (
-    <Box flexDirection="column" flexGrow={1} paddingX={1}>
+    <Box flexDirection="column" height={height} paddingX={1}>
       <IgnoredView root={root} options={options} onClose={exit} onCleared={onCleared} />
     </Box>
   );

@@ -91,11 +91,16 @@ const TreeRow = ({
           {`${isCursor ? '❯' : ' '} ${'  '.repeat(depth)}${node.ignored ? ' ' : isOpen ? '▾' : '▸'} `}
         </Text>
       </Box>
-      <Box ref={ref} flexDirection="row" flexGrow={1} overflow="hidden">
+      {/*
+       * No `overflow="hidden"` in a row: Ink clips to the innermost hidden box only, never the
+       * intersection, so a row clipping itself escapes ScrollPanel's viewport and draws below the
+       * panel. `truncate-start` already keeps the name to its width.
+       */}
+      <Box ref={ref} flexDirection="row" flexGrow={1}>
         <Box flexShrink={0}>
           <Text color={tickColor}>{`${GLYPH[tick]} `}</Text>
         </Box>
-        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+        <Box flexGrow={1} flexShrink={1}>
           <Text color={nameColor} bold={isCursor} wrap="truncate-start">
             {`${node.name}${node.isDir ? '/' : ''}`}
             {node.sensitive && <Text color={colors.warn}>{'  ⚠ may hold secrets'}</Text>}
