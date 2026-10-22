@@ -23,6 +23,11 @@ export interface FlagsPanelProps {
   onFocus: () => void;
   /** What Enter does from here — the owner's, named in the title: "save", "switch". */
   enterLabel: string;
+  /**
+   * Only the toggles, in a frame: no title row of keys and no line explaining the flag. For a
+   * form on a short terminal that names the keys itself — every row it saves goes to the list.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -39,6 +44,7 @@ export const FlagsPanel = ({
   focused,
   onFocus,
   enterLabel,
+  compact = false,
 }: FlagsPanelProps) => {
   const colors = useColors();
   //? The flag the arrows are on, and the one the pointer is over — that one is explained first
@@ -70,7 +76,11 @@ export const FlagsPanel = ({
   const shown = options[hovered ?? cursor] ?? options[0];
   return (
     <Panel
-      title={`Flags · ←/→ choose · Space or 1–${options.length} toggle · Enter to ${enterLabel}`}
+      title={
+        compact
+          ? undefined
+          : `Flags · ←/→ choose · Space or 1–${options.length} toggle · Enter to ${enterLabel}`
+      }
       isFocused={focused}
     >
       <Box flexDirection="row" flexWrap="wrap">
@@ -91,7 +101,7 @@ export const FlagsPanel = ({
           />
         ))}
       </Box>
-      {shown && (
+      {shown && !compact && (
         <Text wrap="wrap">
           <Text color={focused ? colors.accent : colors.muted}>
             {`${shown.label} (${shown.flag}${on.has(shown.flag) ? ', on' : ''}): `}

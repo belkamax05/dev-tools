@@ -6,9 +6,10 @@ import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 import ActionButton from '@/dev-tools/ui/components/ActionButton';
 import Box from '@/dev-tools/ui/components/Box';
 import Panel from '@/dev-tools/ui/components/Panel';
+import TerminalTooSmall from '@/dev-tools/ui/components/TerminalTooSmall';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
-import useTerminalSize from '@/dev-tools/ui/hooks/useTerminalSize';
+import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import {
   TuiThemeProvider,
   useColors,
@@ -97,8 +98,13 @@ export const CommitForm = ({
   const colors = useColors();
   //? No `AppShell` here to size the frame, so the form claims the terminal itself: without a
   //? height, the panes stop at their content and the message and flags float up under them
-  const { rows } = useTerminalSize();
-  const height = Math.max(1, rows - useTuiTheme().sizes.app.heldBackRows);
+  const viewport = useViewport();
+  const { app } = useTuiTheme().sizes;
+  const height = Math.max(1, viewport.rows - app.heldBackRows);
+  //? Below the theme's `regular` height the panels pinned under the list give their spare rows
+  //? to it: the message's label moves onto its input line, the flags lose their title and
+  //? explanation, and the keys those named are said once, on the bottom line
+  const compact = viewport.byRows({ short: true, regular: false });
   const [section, setSection] = useState<Section>('files');
   const [message, setMessage] = useState(initialMessage ?? '');
   const [flags, setFlags] = useState(new Set(initialFlags));
@@ -270,6 +276,10 @@ export const CommitForm = ({
   );
   const messageColor = messageError ? colors.error : undefined;
 
+  //? Under giti's minimum even the compact layout cannot keep a row of the list on screen
+  if (viewport.rows < app.minHeight)
+    return <TerminalTooSmall columns={viewport.columns} rows={viewport.rows} />;
+
   if (quickMessage) {
     return (
       <Box height={height} justifyContent="center" alignItems="center" paddingX={1}>
@@ -312,7 +322,7 @@ export const CommitForm = ({
             ]}
           />
           {snapshot?.isRepo && <SyncBar snapshot={snapshot} sync={sync} />}
-          <Text color={colors.accent}>Enter → {nextStep}</Text>
+          {!compact && <Text color={colors.accent}>Enter → {nextStep}</Text>}
         </Box>
       )}
       <StatusView
@@ -328,16 +338,29 @@ export const CommitForm = ({
         onPreviewModeChange={setFilePreviewOpen}
         onBusyChange={setStaging}
         isInputActive={section === 'files' && !submitting}
+        showHints={!compact}
       />
       {!filePreviewOpen && (
         //? Pinned at their own height: on a short terminal the panes above give way, not these
         <Box flexDirection="column" flexShrink={0}>
           <Panel
-            title="Commit message"
+            title={compact ? undefined : 'Commit message'}
             isFocused={section === 'message'}
             color={messageColor}
           >
-            {messageInput}
+            {compact ? (
+              <Box>
+                <Text
+                  bold
+                  color={messageColor ?? (section === 'message' ? colors.accent : colors.muted)}
+                >
+                  {'Message › '}
+                </Text>
+                {messageInput}
+              </Box>
+            ) : (
+              messageInput
+            )}
           </Panel>
           <FlagsPanel
             options={FLAGS}
@@ -346,12 +369,13 @@ export const CommitForm = ({
             focused={section === 'flags' && !captured && !submitting && !staging}
             onFocus={() => setSection('flags')}
             enterLabel="save"
+            compact={compact}
           />
           <Text color={colors.muted} wrap="truncate">
             {notice ||
               (section === 'flags'
-                ? `←/→ choose · Space toggle · Tab change focus · Enter → ${nextStep}`
-                : `Space stage/unstage · Tab change focus · Enter → ${nextStep}`)}
+                ? `←/→ choose · Space${compact ? ` or 1–${FLAGS.length}` : ''} toggle · Tab change focus · Enter → ${nextStep}`
+                : `${compact ? '↑/↓ move · ' : ''}Space stage/unstage${compact ? ' · a stage all' : ''} · Tab change focus · Enter → ${nextStep}`)}
           </Text>
         </Box>
       )}

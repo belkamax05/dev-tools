@@ -1,6 +1,6 @@
-import { Text, useInput } from 'ink';
+import { type DOMElement, measureElement, Text, useInput } from 'ink';
 import type { ReactNode } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import useViewport from '../../hooks/useViewport';
 import { useColors, useTuiTheme } from '../../providers/TuiThemeProvider';
@@ -141,6 +141,11 @@ export interface ListDetailProps<T> {
    * ! under one pointer would both take the wheel.
    */
   detailScroll?: boolean;
+  /**
+   * Draw the hint strip under the panes. Off for a host short of rows that names the same keys
+   * on a line of its own — the strip's two rows go to the list instead.
+   */
+  showHints?: boolean;
   /** What Enter is called in the hints, when "open" is not what it does. */
   activateLabel?: string;
   /**
@@ -189,6 +194,7 @@ export const ListDetail = <T,>({
   selectRequest,
   listScrollbar = true,
   detailScroll = true,
+  showHints = true,
   activateLabel = 'open',
   activateOnClick = true,
   onWindowChange,
@@ -322,16 +328,43 @@ export const ListDetail = <T,>({
   const hintRows = layoutHints(navigationHints, appWidth, hintMaxRows).rows.length;
   const contentRows = Math.max(3, baseContentRows - Math.max(0, hintRows - 1));
   // Grid frame: two borders, one title and one scroll indicator.
-  const listRows =
+  const estimatedRows =
     layout === 'grid'
       ? Math.max(3, contentRows - 4)
       : sideBySide
         ? contentRows
         : stackedListRows(contentRows);
 
+  //? The estimate above prices only the chrome it was told about. A host that draws more around
+  //? this than its `reservedChrome` names (a form with panels pinned under it, and no `AppShell`)
+  //? got a list taller than the room left, and `PickList` does not shrink — its rows spilled
+  //? over its own bottom border. So once laid out, the panes' real height caps it.
+  //? ! A cap, never the size: under a host that sets no height the panes measure as tall as their
+  //? ! content, and sizing the list from that feeds its own height back into itself. Growing into
+  //? ! spare room is `PickList`'s, from its own (stretched) box.
+  const panes = useRef<DOMElement>(null);
+  const [paneHeight, setPaneHeight] = useState<number>();
+  useLayoutEffect(() => {
+    if (!panes.current) return;
+    const height = Math.floor(measureElement(panes.current).height);
+    setPaneHeight((was) => (was === height ? was : height));
+  });
+  //? The list's frame and title take 3 rows (a grid's scroll line one more). Stacked, the detail
+  //? pane under it keeps its frame, title and a line (4); the list gives way, down to one row
+  const fitRows =
+    paneHeight === undefined
+      ? estimatedRows
+      : Math.max(1, paneHeight - 3 - (layout === 'grid' ? 1 : 0) - (sideBySide ? 0 : 4));
+  const listRows = Math.min(estimatedRows, fitRows);
+
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
-      <Box flexDirection={sideBySide ? 'row' : 'column'} flexGrow={1} overflow="hidden">
+      <Box
+        ref={panes}
+        flexDirection={sideBySide ? 'row' : 'column'}
+        flexGrow={1}
+        overflow="hidden"
+      >
         <PickList
           title={title}
           items={items}
@@ -395,9 +428,11 @@ export const ListDetail = <T,>({
         </Panel>
       </Box>
 
-      <Box marginTop={1} flexShrink={0}>
-        <HintBar hints={navigationHints} width={appWidth} maxRows={hintMaxRows} />
-      </Box>
+      {showHints && (
+        <Box marginTop={1} flexShrink={0}>
+          <HintBar hints={navigationHints} width={appWidth} maxRows={hintMaxRows} />
+        </Box>
+      )}
     </Box>
   );
 };

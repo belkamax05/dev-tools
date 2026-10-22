@@ -82,6 +82,8 @@ export interface StatusViewProps extends GitViewProps {
   onBusyChange?: (busy: boolean) => void;
   isInputActive?: boolean;
   onPreviewModeChange?: (open: boolean) => void;
+  /** The hint strip under the panes; off when the host names the keys itself and is short of rows. */
+  showHints?: boolean;
 }
 
 export const StatusView = ({
@@ -98,6 +100,7 @@ export const StatusView = ({
   onBusyChange,
   isInputActive = true,
   onPreviewModeChange,
+  showHints = true,
 }: StatusViewProps) => {
   const colors = useColors();
   const prompt = usePrompt(onCaptureInput);
@@ -538,6 +541,7 @@ export const StatusView = ({
         }
         reservedChrome={['viewHeader', ...reservedChrome]}
         activateOnClick={false}
+        showHints={showHints}
         isInputActive={isInputActive && !prompt.isOpen}
         hints={
           stagingOnly
