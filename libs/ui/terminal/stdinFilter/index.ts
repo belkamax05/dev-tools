@@ -63,7 +63,10 @@ export const createFilteredStdin = (source: NodeJS.ReadStream = process.stdin): 
   //? that ran before this app in the same process (clack closes its readline interface, and
   //? closing one pauses stdin) — stays paused, and the app draws but never hears a key or a
   //? click. Resume it explicitly, and put it back the way it was on the way out.
-  const wasPaused = source.isPaused();
+  //? Not `isPaused()`: a stdin nobody has read yet is not flowing either (`readableFlowing` is
+  //? null), yet reports false — left resumed, it holds the event loop open and a
+  //? `keepProcessAlive` app (`giti hop`) never exits after its screen closes.
+  const wasPaused = source.readableFlowing !== true;
   source.on('data', onData);
   source.resume();
   return {
