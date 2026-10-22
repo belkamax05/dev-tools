@@ -339,6 +339,8 @@ export const CommitForm = ({
         onBusyChange={setStaging}
         isInputActive={section === 'files' && !submitting}
         showHints={!compact}
+        //? The form's height is fixed and its panels are its own, not chrome the theme can price
+        fitToHost
       />
       {!filePreviewOpen && (
         //? Pinned at their own height: on a short terminal the panes above give way, not these

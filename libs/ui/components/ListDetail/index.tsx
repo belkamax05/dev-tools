@@ -146,6 +146,15 @@ export interface ListDetailProps<T> {
    * on a line of its own — the strip's two rows go to the list instead.
    */
   showHints?: boolean;
+  /**
+   * Cap the list to the height the panes are actually laid out with, measured — for a host that
+   * gives this a fixed height but draws more around it than `reservedChrome` can name.
+   *
+   * ! Only under a host that sets a height: without one the panes measure as tall as their
+   * ! content, and a detail pane that sizes itself from its room (a `ScrollPanel`) shrinks with
+   * ! the list, frame after frame.
+   */
+  fitToHost?: boolean;
   /** What Enter is called in the hints, when "open" is not what it does. */
   activateLabel?: string;
   /**
@@ -195,6 +204,7 @@ export const ListDetail = <T,>({
   listScrollbar = true,
   detailScroll = true,
   showHints = true,
+  fitToHost = false,
   activateLabel = 'open',
   activateOnClick = true,
   onWindowChange,
@@ -336,23 +346,21 @@ export const ListDetail = <T,>({
         : stackedListRows(contentRows);
 
   //? The estimate above prices only the chrome it was told about. A host that draws more around
-  //? this than its `reservedChrome` names (a form with panels pinned under it, and no `AppShell`)
-  //? got a list taller than the room left, and `PickList` does not shrink — its rows spilled
-  //? over its own bottom border. So once laid out, the panes' real height caps it.
-  //? ! A cap, never the size: under a host that sets no height the panes measure as tall as their
-  //? ! content, and sizing the list from that feeds its own height back into itself. Growing into
-  //? ! spare room is `PickList`'s, from its own (stretched) box.
+  //? this (a form with panels pinned under it, and no `AppShell`) got a list taller than the room
+  //? left, and `PickList` does not shrink — its rows spilled over its own bottom border. With
+  //? `fitToHost`, the panes' real height, once laid out, caps it. A cap, never the size: growing
+  //? into spare room is `PickList`'s, from its own (stretched) box.
   const panes = useRef<DOMElement>(null);
   const [paneHeight, setPaneHeight] = useState<number>();
   useLayoutEffect(() => {
-    if (!panes.current) return;
+    if (!fitToHost || !panes.current) return;
     const height = Math.floor(measureElement(panes.current).height);
     setPaneHeight((was) => (was === height ? was : height));
   });
   //? The list's frame and title take 3 rows (a grid's scroll line one more). Stacked, the detail
   //? pane under it keeps its frame, title and a line (4); the list gives way, down to one row
   const fitRows =
-    paneHeight === undefined
+    !fitToHost || paneHeight === undefined
       ? estimatedRows
       : Math.max(1, paneHeight - 3 - (layout === 'grid' ? 1 : 0) - (sideBySide ? 0 : 4));
   const listRows = Math.min(estimatedRows, fitRows);

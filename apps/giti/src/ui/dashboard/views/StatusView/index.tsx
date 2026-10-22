@@ -84,6 +84,8 @@ export interface StatusViewProps extends GitViewProps {
   onPreviewModeChange?: (open: boolean) => void;
   /** The hint strip under the panes; off when the host names the keys itself and is short of rows. */
   showHints?: boolean;
+  /** See `ListDetail`'s own: a host with a fixed height and chrome of its own around this. */
+  fitToHost?: boolean;
 }
 
 export const StatusView = ({
@@ -101,6 +103,7 @@ export const StatusView = ({
   isInputActive = true,
   onPreviewModeChange,
   showHints = true,
+  fitToHost = false,
 }: StatusViewProps) => {
   const colors = useColors();
   const prompt = usePrompt(onCaptureInput);
@@ -542,6 +545,7 @@ export const StatusView = ({
         reservedChrome={['viewHeader', ...reservedChrome]}
         activateOnClick={false}
         showHints={showHints}
+        fitToHost={fitToHost}
         isInputActive={isInputActive && !prompt.isOpen}
         hints={
           stagingOnly
