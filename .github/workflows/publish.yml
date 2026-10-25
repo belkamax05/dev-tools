@@ -1,0 +1,27 @@
+# Publish to GitHub Packages (npm.pkg.github.com) when a version tag is pushed:
+#   bump "version" in package.json, commit, then `git tag v0.2.0 && git push --tags`.
+# Consumers that install from a git ref (github:belkamax05/dev-tools#v0.2.0) don't need this.
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Tag matches package.json version
+        run: |
+          version=$(bun -p 'require("./package.json").version')
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
+      - run: bun install --frozen-lockfile
+      - run: bun publish
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}

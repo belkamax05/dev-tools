@@ -20,10 +20,53 @@ built on them, whose executables live in `bin/` — one shim per app, calling it
 | `depli` | deployments — Jenkins, GitHub or your own, each target a replaceable plugin ([README](apps/depli/README.md)) |
 | `proji` | a project's commands — package.json scripts plus aliases, in a dashboard; also a library ([README](apps/proji/README.md)) |
 
-Two ways to get them on `PATH` (both need `bun` installed):
+Three ways to get them on `PATH` (all need `bun` installed):
 
 - `.envrc`: direnv, only while you're inside the repo (run `direnv allow` once).
 - `include`, sourced from your shell rc, puts them in every shell.
+- A global install — every app in `package.json`'s `bin` is linked into Bun's global bin dir
+  (`~/.bun/bin`, or `$BUN_INSTALL/bin`), which has to be on `PATH`:
+
+  ```sh
+  bun add -g github:belkamax05/dev-tools          # latest master
+  bun add -g github:belkamax05/dev-tools#v0.1.0   # a tag, branch or commit
+  bun update -g @belkamax05/dev-tools             # follow the ref again
+  bun remove -g @belkamax05/dev-tools             # and the bins go with it
+  ```
+
+## Installing as a package
+
+The repo root is the package `@belkamax05/dev-tools`, shipped as source — Bun runs the `.ts`/`.tsx`
+directly and still applies each app's own `tsconfig.json` `paths` inside `node_modules`, so nothing
+is built. Pin it from a git ref (Bun supports `github:` and `git+ssh://` specifiers):
+
+```jsonc
+"dependencies": {
+  "@belkamax05/dev-tools": "github:belkamax05/dev-tools#v0.1.0"
+}
+```
+
+and point your alias at it:
+
+```jsonc
+"paths": {
+  "@/dev-tools/*": ["../../node_modules/@belkamax05/dev-tools/libs/*"]
+}
+```
+
+It is also published to GitHub Packages on every `v*` tag (`.github/workflows/publish.yml` —
+bump `version` first; the job fails if tag and version disagree). Reading from there needs a
+token even for a public package, so the git ref is the easier way in:
+
+```toml
+# bunfig.toml
+[install.scopes]
+"@belkamax05" = { url = "https://npm.pkg.github.com", token = "$GITHUB_TOKEN" }
+```
+
+**Root `dependencies` are the union of every app's.** A package's `workspaces` are not installed
+when it is itself a dependency, so an app's own `package.json` only counts inside this repo — add
+a new runtime dependency to the root one too, or the app breaks for package consumers.
 
 ## Layout
 
@@ -73,7 +116,10 @@ using and its hooks find their dispatcher. There are two ways to be one:
   the workspace root —
   `bun install` here;
 - a repo that checks this one out as a git submodule at `libs/dev-tools` and lists it in its
-  own `workspaces`.
+  own `workspaces`;
+- a repo that installs it as a package (above) with the same `react`/`ink` ranges as this one,
+  so Bun resolves both to the one store entry. Pin a different `react` and you get two copies —
+  check with `bun why react` (one version, or hooks throw).
 
 **Anything outside the workspace** installs its own `react` and `ink` and therefore does **not**
 share a copy. A component authored here would be mounted by a reconciler holding a *different*
