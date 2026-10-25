@@ -54,8 +54,18 @@ and point your alias at it:
 }
 ```
 
-It is also published to GitHub Packages on every `v*` tag (`.github/workflows/publish.yml` —
-bump `version` first; the job fails if tag and version disagree). Reading from there needs a
+It is also published to GitHub Packages on every `v*` tag (`.github/workflows/publish.yml`;
+the job fails if tag and `version` disagree). `bun run release` does the whole round from a
+clean, up-to-date `master` — bump `version`, commit, tag, push commit and tag together:
+
+```sh
+bun run release            # patch; or minor, major, or an exact 1.2.3
+bun run release --dry-run  # print what it would do
+bun run release --no-push  # commit and tag locally only
+```
+
+To tag the version already in `package.json` without bumping it, pass it exactly
+(`bun run release 0.1.0`). Reading from there needs a
 token even for a public package, so the git ref is the easier way in:
 
 ```toml
