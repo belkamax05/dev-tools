@@ -1,6 +1,6 @@
 {
   "name": "@belkamax05/dev-tools",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Terminal-UI kit and the Bun/Ink dev apps built on it (giti, agenti, porti, processi, pkgi, bmi, envi, convi, depli, proji, devi)",
   "module": "index.ts",
   "type": "module",
