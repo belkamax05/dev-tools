@@ -17,11 +17,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      # npm, not `bun publish`: bun's NPM_CONFIG_TOKEN only authenticates the
+      # default registry, so publishConfig's npm.pkg.github.com got "missing
+      # authentication". setup-node writes an .npmrc carrying NODE_AUTH_TOKEN
+      # for exactly this registry - GitHub's documented route.
+      - uses: actions/setup-node@v4
+        with:
+          registry-url: https://npm.pkg.github.com
+          scope: '@belkamax05'
       - name: Tag matches package.json version
         run: |
           version=$(bun -p 'require("./package.json").version')
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
       - run: bun install --frozen-lockfile
-      - run: bun publish
+      - run: npm publish
         env:
-          NPM_CONFIG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
