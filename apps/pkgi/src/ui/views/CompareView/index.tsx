@@ -8,6 +8,7 @@ import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail, { listTextWidth } from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
+import useDebouncedCallback from '@/dev-tools/ui/hooks/useDebouncedCallback';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
@@ -320,8 +321,24 @@ export const CompareView = ({
     setFilter(value);
     session.compareFilter = value;
   };
+  const liveFilter = useDebouncedCallback((value: string) => changeFilter(value.trim()), 150);
+  //? Narrows as you type; Esc puts back the filter that was there before
   const askFilter = () =>
-    prompt.ask('Filter packages:', (value) => changeFilter(value.trim()), { initial: filter });
+    prompt.ask(
+      'Filter packages:',
+      (value) => {
+        liveFilter.cancel();
+        changeFilter(value.trim());
+      },
+      {
+        initial: filter,
+        onChange: liveFilter,
+        onCancel: () => {
+          liveFilter.cancel();
+          changeFilter(filter);
+        },
+      },
+    );
   const current = rows.find((row) => row.name === currentId);
 
   // — the folder picker —

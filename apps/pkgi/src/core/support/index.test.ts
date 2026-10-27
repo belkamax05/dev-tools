@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
 import { toReleaseLines } from '../registry';
-import { assessMaintenance, isUnsupported, needsReleaseLines, supportLabel } from './index';
+import {
+  assessMaintenance,
+  highestRelease,
+  isUnsupported,
+  needsReleaseLines,
+  supportLabel,
+} from './index';
 
 const NOW = Date.parse('2026-10-01T00:00:00Z');
 
@@ -161,4 +167,17 @@ test('716-day package activity cannot hide our 2171-day release at any major gap
       })?.status,
     ).toBe('stale');
   }
+});
+
+test('any release is the highest version, not a backport published after it', () => {
+  expect(
+    highestRelease({
+      '4.1.2': '2025-01-01',
+      '4.3.0': '2026-03-01',
+      '4.1.5': '2026-09-01',
+      '5.0.0-beta.1': '2026-02-01',
+    }),
+  ).toBe('5.0.0-beta.1');
+  expect(highestRelease({ '4.3.0': '2026-03-01', '4.1.5': '2026-09-01' })).toBe('4.3.0');
+  expect(highestRelease({})).toBeUndefined();
 });

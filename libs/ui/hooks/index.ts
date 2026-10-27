@@ -1,6 +1,8 @@
 export { default as useAnimationClock } from './useAnimationClock';
 export type { ClickableOptions, ClickableState } from './useClickable';
 export { default as useClickable } from './useClickable';
+export type { DebouncedCallback } from './useDebouncedCallback';
+export { default as useDebouncedCallback } from './useDebouncedCallback';
 export { default as useHeldFlag } from './useHeldFlag';
 export { default as useHoveredId } from './useHoveredId';
 export type { LoaderState } from './useLoader';

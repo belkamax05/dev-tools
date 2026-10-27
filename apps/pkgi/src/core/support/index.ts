@@ -1,6 +1,6 @@
 import { ENDOFLIFE_PRODUCTS, getSupport, type SupportInfo } from '../eol';
 import { getReleaseActivity, type PackageInfo } from '../registry';
-import { parseVersion } from '../semver';
+import { compareVersions, parseVersion } from '../semver';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** No release at all for this long: the package itself looks abandoned. */
@@ -11,6 +11,16 @@ export const STALE_VERSION_MS = 365 * DAY_MS;
 export const STALE_VERSION_MAJORS = 2;
 
 const month = (iso: string) => iso.slice(0, 7);
+
+/**
+ * The highest version ever published, prereleases included — not the most recently published
+ * one, which is often a backport to an older line.
+ */
+export const highestRelease = (published: Record<string, string>): string | undefined =>
+  Object.keys(published).reduce<string | undefined>(
+    (best, version) => (!best || compareVersions(version, best) > 0 ? version : best),
+    undefined,
+  );
 
 /**
  * A verdict from release dates, for a package no vendor publishes a support window for. Only
@@ -77,11 +87,11 @@ export const getPackageSupport = async (
   const activity = await getReleaseActivity(name, registry, force);
   const major = parseVersion(current)?.major;
   const newest = info.latest ? parseVersion(info.latest)?.major : undefined;
+  const highestVersion = highestRelease(activity?.published ?? {});
   const maintenance = {
     lastPublished: activity?.lastPublished,
-    lastVersion: Object.entries(activity?.published ?? {}).find(
-      ([, time]) => time === activity?.lastPublished,
-    )?.[0],
+    highestVersion,
+    highestPublished: highestVersion ? activity?.published[highestVersion] : undefined,
     lineVersion: Object.entries(activity?.published ?? {}).find(
       ([version, time]) =>
         major !== undefined &&

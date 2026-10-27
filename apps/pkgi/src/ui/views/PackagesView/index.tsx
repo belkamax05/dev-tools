@@ -7,6 +7,7 @@ import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
+import useDebouncedCallback from '@/dev-tools/ui/hooks/useDebouncedCallback';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
@@ -184,7 +185,7 @@ const PackageDetail = ({
     Math.max(
       7,
       row.current.length,
-      metrics?.lastVersion?.length ?? 0,
+      metrics?.highestVersion?.length ?? 0,
       metrics?.lineVersion?.length ?? 0,
     ),
   );
@@ -283,7 +284,7 @@ const PackageDetail = ({
             }
             wrap="truncate"
           >
-            {releaseMetrics(metrics?.lastVersion, metrics?.lastPublished, '>730d', versionWidth)}
+            {releaseMetrics(metrics?.highestVersion, metrics?.highestPublished, '>730d', versionWidth)}
           </Text>
         </Field>
         <Field label="Your release">
@@ -324,8 +325,8 @@ const PackageDetail = ({
         </Field>
         <Field label="Rules">
           <Text color={colors.muted} wrap="wrap">
-            Stale = any release &gt;730d OR your exact release &gt;365d. Any release includes
-            prereleases. Major latest is context only. Green = below threshold; amber = threshold
+            Stale = no release of any version &gt;730d OR your exact release &gt;365d. Any release
+            shows the highest version, prereleases included. Major latest is context only. Green = below threshold; amber = threshold
             exceeded; gray = unknown. Activity ≠ support. EOL uses published policy; ending = within
             90d.
           </Text>
@@ -592,14 +593,27 @@ export const PackagesView = ({
     });
   };
 
+  const changeFilter = (value: string) => {
+    setFilter(value);
+    session.filter = value;
+  };
+  const liveFilter = useDebouncedCallback((value: string) => changeFilter(value.trim()), 150);
+  //? Narrows as you type; Esc puts back the filter that was there before
   const askFilter = () =>
     prompt.ask(
       'Filter (name or note):',
       (value) => {
-        setFilter(value.trim());
-        session.filter = value.trim();
+        liveFilter.cancel();
+        changeFilter(value.trim());
       },
-      { initial: filter },
+      {
+        initial: filter,
+        onChange: liveFilter,
+        onCancel: () => {
+          liveFilter.cancel();
+          changeFilter(filter);
+        },
+      },
     );
 
   useInput(
@@ -615,10 +629,7 @@ export const PackagesView = ({
       else if (input === 'e') toggleSupportMode();
       else if (input === 'c') checkNow();
       else if (input === '/') askFilter();
-      else if (key.escape && filter) {
-        setFilter('');
-        session.filter = '';
-      }
+      else if (key.escape && filter) changeFilter('');
     },
     { isActive: !prompt.isOpen && !picker },
   );

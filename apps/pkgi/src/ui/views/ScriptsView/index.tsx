@@ -6,6 +6,7 @@ import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
+import useDebouncedCallback from '@/dev-tools/ui/hooks/useDebouncedCallback';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
@@ -103,24 +104,34 @@ export const ScriptsView = ({
     });
   };
 
+  const changeFilter = (value: string) => {
+    setFilter(value);
+    session.scriptFilter = value;
+  };
+  const liveFilter = useDebouncedCallback((value: string) => changeFilter(value.trim()), 150);
+  //? Narrows as you type; Esc puts back the filter that was there before
   const askFilter = () =>
     prompt.ask(
       'Filter (name or command):',
       (value) => {
-        setFilter(value.trim());
-        session.scriptFilter = value.trim();
+        liveFilter.cancel();
+        changeFilter(value.trim());
       },
-      { initial: filter },
+      {
+        initial: filter,
+        onChange: liveFilter,
+        onCancel: () => {
+          liveFilter.cancel();
+          changeFilter(filter);
+        },
+      },
     );
 
   useInput(
     (input, key) => {
       if (input === 'a') runWithArgs(current);
       else if (input === '/') askFilter();
-      else if (key.escape && filter) {
-        setFilter('');
-        session.scriptFilter = '';
-      }
+      else if (key.escape && filter) changeFilter('');
     },
     { isActive: !prompt.isOpen },
   );

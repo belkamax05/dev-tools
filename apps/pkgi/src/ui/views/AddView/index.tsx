@@ -6,6 +6,7 @@ import ChipRow from '@/dev-tools/ui/components/ChipRow';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
+import useDebouncedCallback from '@/dev-tools/ui/hooks/useDebouncedCallback';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
@@ -55,14 +56,28 @@ export const AddView = ({
   const current = visible.find((result) => result.name === currentId);
   const declared = (name: string) => manifest?.dependencies.find((dep) => dep.name === name);
 
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    session.search = value;
+  };
+  //? Longer than the local filters: every settled query is a registry request
+  const liveSearch = useDebouncedCallback((value: string) => changeQuery(value.trim()), 350);
+  //? Searches as you type; Esc puts back the search that was there before
   const search = () =>
     prompt.ask(
       'Search the registry:',
       (value) => {
-        setQuery(value.trim());
-        session.search = value.trim();
+        liveSearch.cancel();
+        changeQuery(value.trim());
       },
-      { initial: query },
+      {
+        initial: query,
+        onChange: liveSearch,
+        onCancel: () => {
+          liveSearch.cancel();
+          changeQuery(query);
+        },
+      },
     );
 
   const toggleDev = () =>
