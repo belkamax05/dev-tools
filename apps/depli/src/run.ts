@@ -15,9 +15,9 @@ const HELP = `depli — a deploy chain (push → build → deploy → …), each
 usage:
   depli                           open the dashboard
   depli <tab>                     open it on a tab: ${TAB_IDS.join(', ')}
-  depli environments              open it on the Environments window (footer [E] anywhere):
-                                  every env, what it runs and should run, its jobs and runs;
-                                  [E] again for the detailed view of all of them
+  depli environments              open it on the Environments view (footer [E] anywhere):
+                                  every env, what is on it; each step and run of it opened
+                                  in place, only as it concerns that env, with stages and log
   depli status [--branch=B] [--env=E] [--json]
                                   every step of the chain for a branch and env, and which
                                   one is recommended next

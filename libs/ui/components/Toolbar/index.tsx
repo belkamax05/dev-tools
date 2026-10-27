@@ -1,4 +1,6 @@
-import { Text } from 'ink';
+import { Text, useInput } from 'ink';
+import { useEffect, useState } from 'react';
+
 import { useColors } from '../../providers/TuiThemeProvider';
 import ActionButton from '../ActionButton';
 import Box from '../Box';
@@ -35,6 +37,12 @@ export interface ToolbarProps {
    * Left off, there is no cap. It is not how the layout is chosen: see `isToolbarStacked`.
    */
   maxRows?: number;
+  /**
+   * The arrow keys are in the buttons rather than the list beside them: ←/↑ and →/↓ move between
+   * buttons, Enter presses one, and ← (or ↑) on the first gives the keys back through `onExit`.
+   */
+  isFocused?: boolean;
+  onExit?: () => void;
 }
 
 /** Up to this many buttons sit in a row; more are stacked. */
@@ -58,15 +66,36 @@ export const isToolbarStacked = (count: number, maxRows?: number): boolean =>
 export const toolbarExtraRows = (count: number, maxRows?: number): number =>
   isToolbarStacked(count, maxRows) ? count - 1 : 0;
 
-export const Toolbar = ({ actions, maxRows }: ToolbarProps) => {
+export const Toolbar = ({ actions, maxRows, isFocused = false, onExit }: ToolbarProps) => {
   const colors = useColors();
-  if (actions.length === 0) return null;
   const stacked = isToolbarStacked(actions.length, maxRows);
   const hotkeyWidth = stacked ? Math.max(...actions.map((action) => action.hotkey.length)) + 3 : 0;
   const ordered = [
     ...actions.filter((action) => action.tone === 'primary'),
     ...actions.filter((action) => action.tone !== 'primary'),
   ];
+  const [focused, setFocused] = useState(0);
+  //? Every visit starts on the first button — the primary one, the likeliest reason to come here
+  useEffect(() => {
+    if (isFocused) setFocused(0);
+  }, [isFocused]);
+  const at = Math.min(focused, ordered.length - 1);
+
+  useInput(
+    (_input, key) => {
+      if (key.leftArrow || key.upArrow) {
+        if (at === 0) onExit?.();
+        else setFocused(at - 1);
+      } else if (key.rightArrow || key.downArrow) setFocused(Math.min(at + 1, ordered.length - 1));
+      else if (key.return) {
+        const action = ordered[at];
+        if (action && !action.disabled) action.onPress();
+      }
+    },
+    { isActive: isFocused && ordered.length > 0 },
+  );
+
+  if (actions.length === 0) return null;
   return (
     <Box flexDirection="column" flexShrink={0}>
       <Box
@@ -74,7 +103,7 @@ export const Toolbar = ({ actions, maxRows }: ToolbarProps) => {
         flexWrap={stacked ? 'nowrap' : 'wrap'}
         alignItems="flex-start"
       >
-        {ordered.map((action) => (
+        {ordered.map((action, index) => (
           <ActionButton
             key={action.hotkey}
             hotkey={action.hotkey}
@@ -82,6 +111,7 @@ export const Toolbar = ({ actions, maxRows }: ToolbarProps) => {
             label={action.tone === 'primary' ? `${action.label} ◂` : action.label}
             isOn={action.isOn}
             disabled={action.disabled}
+            isFocused={isFocused && index === at}
             color={
               action.tone === 'primary'
                 ? colors.accent

@@ -93,6 +93,8 @@ export interface SupportInfo {
     lastPublished?: string;
     highestVersion?: string;
     highestPublished?: string;
+    latestPublished?: string;
+    nextPublished?: string;
     lineVersion?: string;
     installedPublished?: string;
     linePublished?: string;

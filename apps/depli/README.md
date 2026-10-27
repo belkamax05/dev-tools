@@ -12,7 +12,7 @@ the trigger is confirmed, and a protected env is confirmed by its own name.
 ```sh
 depli                            # dashboard
 depli chain|connections|settings
-depli environments                             # dashboard on the Environments window (dfs environments)
+depli environments                             # dashboard on the Environments view (dfs environments)
 depli status [--branch=B] [--env=E] [--json]   # the chain, and what is recommended next
 depli probe [--json]                           # each provider's transports, probed
 depli list-branches [glob…] [--json]           # branches.recent (else the watch list) by default
@@ -31,7 +31,7 @@ depli be [command…]  |  depli … --flow=be      # a flow of a multi-flow conf
 | 🔌 Connections | per provider: **Auto** (the first transport that works — only one is needed), each transport, and for SSH each key. The detail says how it connects (remote, host alias, agent, key offered/accepted; token source and scopes), why it fails and how to fix it, and a setup guide (`g`). `Enter` picks: Auto, a pinned transport, or one SSH key — remembered per project. The cursor on a key tests it (`T` again); `o` opens the fix link; `P` probes now. A recommended way in that is not working offers a guided setup in its own panel (`L`): GitHub runs `gh auth login` for you (a code to type on github.com); Jenkins asks for your user id and an API token and stores them with the project's `envSet` command — `dfs env set` here, `envi set` otherwise — then uses them at once |
 | 🔧 Settings | theme, the two files, reset |
 
-Everywhere: `1-3`/`Tab` switch tab, `E` (or the footer's **Environments** button) the Environments window, `f` (or the footer's **Flow** button) the next flow of a multi-flow config, `F` (a flow with `linkedBranches`, e.g. **FE branch**) change the linked branch, `r` refresh, `B` back to the checkout's branch, `t` theme, `q` quit. The row under the tabs is clickable: the flow (`⇄ fe [f] → be`) switches flow, a provider opens Connections, the branch the branch picker, the env the environments panel.
+Everywhere: `1-3`/`Tab` switch tab, `E` (or the footer's **Environments** button) the Environments view, `f` (or the footer's **Flow** button) the next flow of a multi-flow config, `F` (a flow with `linkedBranches`, e.g. **FE branch**) change the linked branch, `r` refresh, `B` back to the checkout's branch, `t` theme, `q` quit. The row under the tabs is clickable: the flow (`⇄ fe [f] → be`) switches flow, a provider opens Connections, the branch the branch picker, the env the environments panel.
 
 ## Flows
 
@@ -79,56 +79,50 @@ A green `●` on the connector marks the completed boundary immediately before t
 
 **Graphics**: the graph and history strips are box-drawing characters in theme colours, so they sit on the app's own background everywhere; avatars (PNG, or JPEG through `jpeg-js` — what GitHub serves for uploaded photos) draw with kitty / sixel / iTerm2 where the terminal supports it (probed at start), half-block characters elsewhere.
 
-## Environments window
+## Environments
 
-`E` — the footer's **Environments** button, on every tab — opens it over the tab you are on; Esc
-goes back there. `depli environments` (`dfs environments`, aliases `environment`, `envs`) starts the
-dashboard on it.
+`E` — the footer's **Environments** button, on every tab — opens it over the whole terminal; Esc
+goes back to the tab you were on. `depli environments` (`dfs environments`, aliases `environment`,
+`envs`) starts the dashboard on it.
 
-- **The table**: the Chain tab's env picker, extended — every env with its tags, the branch on it,
-  **TRACKS** (what it is meant to run, `envs[].branches`) right beside it, the build numbers, when it
-  was deployed and when the other env steps last ran. An env running a branch outside its
-  `branches` is tagged orange `off-track`. `↑`/`↓` moves; Enter (or a click on a row) makes it the env
-  the chain shows.
-- **Under it, the env at the cursor — pipeline and runs**: its site (`envs[].url`), what it tracks
-  and runs, then the **pipeline as a graph** (the `after` relations) whose boxes say what each
-  step means for *this* env, `◀ on ci` marking the run that is on it:
-  - **push** (GitHub): the branch the env runs, its head commit, the commit(s) the env's builds
-    were made from (`deployed 1a2b3c4d  2 commits behind head ← build-nginx #1008, build-nodejs
-    #3257`, or `= head`), and the branch's newest commits;
-  - **a build**: the build the env runs in full — branch, when, who, the commit — then how it stands
-    among the builds of *that* branch (`2 newer good builds of release-26.14 — newest #3290`, or
-    the newest good one), and that branch's newest builds only (other branches' numbers are not
-    comparable), the deployed one always listed. A build older than the ones read says so;
-  - **a deploy**: what it put on the env (branch), by which run and job (an `alsoDeployedBy` job is
-    named), when and who, and the build numbers it runs; then each job with its tally and newest
-    runs (`+` for an `alsoDeployedBy` job).
+Everything in it is about one env at a time, one level inside the other — env → step → run — with
+a path above the page (`◂ ci3 › Deploy to ci3 › #812`, every part clickable) and Esc going back up
+it, each page where it was left:
 
-  Under the graph, **Runs**: one closed line per job (its tally and newest run) — the branch's
-  commits too; opening it lists its runs by day — each day a fold of its own, the newest open —
-  with number, result, time, duration, branch, the builds it deployed, who started it and, for a
-  commit, its message. A click on a job or a day opens or closes it; `x` opens (or closes) every
-  job. Job names, run numbers and commits are links: a click opens the page. `n`/`p` step through
-  links and folds, `o` opens the link or toggles the fold focused (the env's latest deploy when
-  nothing is), `w` the site. The wheel, `j`/`k`, PgUp/PgDn and `g`/`G` scroll it.
-- **Open detailed**: while the window is open the same footer button reads **Open detailed**
-  (`E`). It fills the whole terminal with two panels. On top: an overview table (each env's
-  site, deploy run, deployer and deployed build numbers as links) and **Branches → envs** — a
-  graph of every `envs[].branches` pattern fanning out to the envs that track it and the ones that
-  run it now (an env tracking one branch and running another sits under both), every running
-  branch no pattern covers. Under it, **tabs** —
-  one page at a time, the chain's env open first:
-  - **an env tab** (`envs` row): the same pipeline graph and job folds as the window, the builds'
-    runs included;
-  - **a job tab** (`jobs` row, one per step with jobs read — `deploy_frontend_only_{env}` is one
-    tab): its runs alone, open by day. A build says which envs run which of its builds now
-    (`#1008 → ci, uat3`), each run too (`→ on ci, uat3`); an env-scoped step lists its latest run
-    on every env, then per env its jobs (`alsoDeployedBy` ones too) and their runs.
+- **The env table** stays on top: every env with its tags, the branch on it, what it is **meant
+  for** (`envs[].branches`), the build numbers, when it was deployed and when the other env steps
+  last ran. An env on a branch it is not meant for is tagged orange `off-track`. Its cursor picks
+  the env the page is about — a click on a row; `[`/`]` from anywhere; `↑`/`↓` once `Tab` has
+  moved the keys to it, where Enter makes it the env the chain shows.
+- **The env's page**: the branch on it, what it is meant for and its site, then its pipeline as a
+  graph whose boxes say only what each step left on *this* env, with a status at a glance (`✓` /
+  `⚠`) and the evidence beside it:
+  - **push**: the branch; `latest` — its newest commit, message and age; `on ci3` — the commit the
+    env's builds were made from, `✓ latest` or `⚠ 2 commits behind`. When the env's builds come
+    from different commits (one build not redone since a change), a line per build says which
+    (`build-nginx #1008  1a2b3c4d  ⚠ 2 commits behind`);
+  - **a build**: the build the env runs (branch, when, who, commit), then `✓ latest` or
+    `⚠ 2 newer · #3290 3h ago`;
+  - **a deploy**: what it put on the env, by which run (an `alsoDeployedBy` job is named) and with
+    which builds.
 
-  `←`/`→` (`h`/`l`, or a click) switch tab; `Tab` moves the keys between the two panels (the
-  focused one framed in the accent). `n`/`p` step through links and folds, Enter/`o` opens a link
-  or toggles a fold, `x` opens or closes every job, `r` reads it all again, Esc closes it back to
-  the window. Nothing under it can be clicked while it is open.
+  No job tallies, no other branches' runs. A box's title opens the step; a run number, the run; a
+  commit hash, the commit in the repository (a provider's `commitUrl` — GitHub's, from `repo`).
+- **A step's page** on the env: its box, then each of its jobs (`alsoDeployedBy` ones too) with
+  the runs that concern the env, by day — the newest day open: a deploy's runs on it; a build's
+  of the branch the env is on, and the one it runs; the push's commits. The env's run is marked
+  `◀ on ci3`; a build says which envs run each of its builds (`→ on ci, uat3`).
+- **A run's page**: its result, when, how long, who, branch and commit; whether it is what the env
+  runs now (or what is instead); for a build, newer good builds of its branch; the builds a deploy
+  put on the env (each a page); every parameter. Under it its **stages** (`s` folds them) and, `l`,
+  its **log**, followed while it runs. `,`/`.` older / newer run — of those that concern the env.
+
+Switching env keeps the pages the next env has too (a build's step, the same build), the rest
+close. With the page focused, `n`/`p` step through links, pages and day folds; Enter opens the
+page or toggles the fold focused (a link: opens it); `o` opens the focused item — or the page's
+run or job, or the env's latest deploy — on the server; `x` opens or closes every day; `w` the
+site, `r` reads it all again. The wheel, `j`/`k`, PgUp/PgDn and `g`/`G` scroll. Nothing under it
+can be clicked while it is open.
 
 Runs come from the step plugin's `history`: Jenkins reads the last 100 builds of the step's job and
 of every `alsoDeployedBy` job (one request each, with the commit each build checked out); GitHub
@@ -159,9 +153,10 @@ globs. The branch shown always stays listed. In the picker the cursor starts on 
 
 `github` — transports `api` (a token variable, else the `gh` CLI's login: heads, commit times,
 check runs, PRs, Actions runs) then `ssh` (`git ls-remote` from `checkout`: heads only). Step kind
-`branch`, observe-only.
+`branch`, observe-only. Commit hashes anywhere link to their page on github.com (from `repo`;
+not for an Enterprise `apiUrl`, whose web address it does not know).
 
-`jenkins` — lists branches from a job's choice list (`branches.source`, see Flows). Step kind `job` also has `history` (the Environments window's runs). Transport `api` (`userEnv` + `tokenEnv`, basic auth; reachability is checked first,
+`jenkins` — lists branches from a job's choice list (`branches.source`, see Flows). Step kind `job` also has `history` (the Environments view's runs). Transport `api` (`userEnv` + `tokenEnv`, basic auth; reachability is checked first,
 so a VPN-only server reads as offline, not as an error). `ssh` is a reported slot, not used yet.
 Step kind `job`: `job` (with `{env}`/`{branch}`), `branchParam`, `revisionRepo`, `versions`,
 `versionFromLog` (a RegExp whose first group is what the build produced, read from its console —
@@ -171,8 +166,9 @@ parameter explicitly, job defaults are not trusted). Plans are checked against t
 
 A plugin of your own is an object with `id`, `transports` (each with a `probe`) and `steps` (each
 with `status`, optionally `plan`, `send`, `latest` — the env matrix — and `history` — every job the
-step reads and its recent runs, for the Environments window; `historyByBranch` when that depends on
-the branch) — see `src/core/plugin`. Add it to the config's
+step reads and its recent runs, for the Environments view; `historyByBranch` when that depends on
+the branch) and, for a provider hosting the repository, `commitUrl(options, sha)` — where commit
+hashes link — see `src/core/plugin`. Add it to the config's
 `plugins`; reusing a built-in's id replaces it.
 
 ## depli.config.ts
@@ -188,7 +184,7 @@ export default {
     github: { plugin: 'github', repo: 'owner/app', checkout: '~/code/app' },
     jenkins: { plugin: 'jenkins', url: 'https://ci.example.com', userEnv: 'CI_USER', tokenEnv: 'CI_TOKEN' },
   },
-  //? url: the env's site; branches: what it is meant to run (globs) — the Environments window
+  //? url: the env's site; branches: what it is meant to run (globs) — the Environments view
   //? relates branches to envs with them and tags an env running anything else off-track
   envs: [
     { id: 'qa', url: 'https://qa.example.com', branches: ['develop'] },

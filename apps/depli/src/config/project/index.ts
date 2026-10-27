@@ -33,12 +33,12 @@ export interface EnvConfig {
    * when auto-proceed or one-click chains are on.
    */
   protected?: boolean;
-  /** The env's own site — opened from the Environments window (`w`, or a click on its name). */
+  /** The env's own site — opened from the Environments view (`w`, or a click on its name). */
   url?: string;
   /**
    * Branches (globs, `!` excludes) the env is meant to run — the project's branch relations. The
-   * Environments window draws them as a graph beside what each env actually runs, and marks an
-   * env running anything else `off-track`.
+   * Environments view shows them as what each env is meant for, and tags an env on anything
+   * else `off-track`.
    */
   branches?: string[];
 }

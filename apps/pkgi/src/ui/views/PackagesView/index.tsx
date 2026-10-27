@@ -1,9 +1,8 @@
 import { Text, useInput } from 'ink';
-import { type ReactNode, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
-import LinkRow from '@/dev-tools/ui/components/LinkRow';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
@@ -15,19 +14,33 @@ import openUrl from '@/dev-tools/utils/system/openUrl';
 
 import type { DependencyType } from '../../../config/settings';
 import type { SupportInfo } from '../../../core/eol';
-import { readManifest, removeCommand, setVersionCommand, shellQuote } from '../../../core/manifest';
-import { buildRows, fetchInfos, isOutdated, type PackageRow } from '../../../core/packages';
-import { getVersionDetails, type VersionDetails } from '../../../core/registry';
-import { majorDistance } from '../../../core/semver';
 import {
-  getManyPackageSupport,
-  isUnsupported,
-  STALE_PACKAGE_MS,
-  STALE_VERSION_MS,
-  supportLabel,
-} from '../../../core/support';
+  addCommand,
+  readManifest,
+  removeCommand,
+  setVersionCommand,
+  shellQuote,
+} from '../../../core/manifest';
+import { buildRows, fetchInfos, isOutdated, type PackageRow } from '../../../core/packages';
+import { type SearchResult, searchPackages } from '../../../core/registry';
+import { isPrerelease, majorDistance } from '../../../core/semver';
+import { getManyPackageSupport, isUnsupported, supportLabel } from '../../../core/support';
+import {
+  addActions,
+  PackageDetail,
+  RegistryPackageDetail,
+  type SupportColors,
+  supportColor,
+} from '../../PackageDetail';
 import type { ViewProps } from '../../types';
 import VersionPicker from '../../VersionPicker';
+
+export { supportColor };
+
+type Colors = ReturnType<typeof useColors>;
+
+/** A list entry: a package the folder has, or a registry match it could add. */
+type Entry = { kind: 'installed'; row: PackageRow } | { kind: 'registry'; result: SearchResult };
 
 export const TYPE_LABELS: Record<DependencyType, string> = {
   dependencies: 'Dependencies',
@@ -35,27 +48,6 @@ export const TYPE_LABELS: Record<DependencyType, string> = {
   peerDependencies: 'Peer dependencies',
   optionalDependencies: 'Optional dependencies',
 };
-
-type Colors = ReturnType<typeof useColors>;
-type SupportColors = Pick<Colors, 'error' | 'warn' | 'ok' | 'muted'>;
-
-/** The colour an update is drawn in: the web page's chips — major red, minor amber, patch green. */
-export const updateColor = (row: PackageRow, colors: Colors) => {
-  if (row.update === 'major') return colors.error;
-  if (row.update === 'minor') return colors.warn;
-  if (row.update === 'patch') return colors.ok;
-  if (row.prerelease) return colors.highlight;
-  return colors.muted;
-};
-
-export const supportColor = (support: SupportInfo | undefined, colors: SupportColors) =>
-  support?.status === 'eol'
-    ? colors.error
-    : support?.status === 'ending' || support?.status === 'stale'
-      ? colors.warn
-      : support?.status === 'supported'
-        ? colors.ok
-        : colors.muted;
 
 export const packageColor = (
   row: Pick<PackageRow, 'deprecated'>,
@@ -76,29 +68,6 @@ export const registryUpdateAge = (modified?: string, now = Date.now()): string =
   const days = Math.max(0, Math.floor((now - date) / 86400000));
   return (
     modified?.slice(0, 10) + ' · ' + (days === 0 ? 'today' : days + ' days ago') + ' (npm publish)'
-  );
-};
-
-export const releaseMetrics = (
-  version: string | undefined,
-  published: string | undefined,
-  threshold: string,
-  versionWidth: number,
-  now = Date.now(),
-) => {
-  const value = version ?? '?';
-  const versionCell = value.length > versionWidth ? value.slice(0, versionWidth - 1) + '…' : value;
-  const date = published ? Date.parse(published) : Number.NaN;
-  const known = Number.isFinite(date);
-  const age = known ? Math.max(0, Math.floor((now - date) / 86400000)) + 'd' : '?';
-  return (
-    versionCell.padEnd(versionWidth) +
-    '  ' +
-    (known ? new Date(date).toISOString().slice(0, 10) : '?').padEnd(10) +
-    '  ' +
-    age.padStart(6) +
-    '  ' +
-    threshold
   );
 };
 
@@ -152,218 +121,6 @@ const rowHint = (row: PackageRow, support: SupportInfo | undefined, checking: bo
   return parts.join(' ');
 };
 
-const Field = ({ label, children }: { label: string; children: ReactNode }) => {
-  const colors = useColors();
-  return (
-    <Box flexDirection="row">
-      <Box width={12} flexShrink={0}>
-        <Text color={colors.muted}>{label}</Text>
-      </Box>
-      <Box flexGrow={1}>{children}</Box>
-    </Box>
-  );
-};
-
-const PackageDetail = ({
-  row,
-  support,
-  registry,
-}: {
-  row: PackageRow;
-  support?: SupportInfo;
-  registry: string;
-}) => {
-  const colors = useColors();
-  const { data: details } = useLoader(
-    (): VersionDetails | Promise<VersionDetails> =>
-      row.local ? {} : getVersionDetails(row.name, row.latest ?? row.current, registry),
-    [row.name, row.latest, row.current, registry],
-  );
-  const metrics = support?.maintenance;
-  const versionWidth = Math.min(
-    18,
-    Math.max(
-      7,
-      row.current.length,
-      metrics?.highestVersion?.length ?? 0,
-      metrics?.lineVersion?.length ?? 0,
-    ),
-  );
-  //? Home and Repo are often the same page (a GitHub README) — one link then, not two
-  const homepage = details?.homepage;
-  const repo =
-    details?.repository && details.repository !== homepage?.replace(/#.*$/, '')
-      ? details.repository
-      : undefined;
-  const links = [
-    ...(homepage ? [{ label: 'Home', url: homepage }] : []),
-    ...(repo ? [{ label: 'Repo', url: repo }] : []),
-    ...(row.local ? [] : [{ label: 'npm', url: `https://www.npmjs.com/package/${row.name}` }]),
-  ];
-  return (
-    <Box flexDirection="column">
-      <Text bold color={colors.heading} wrap="truncate">
-        {row.name}
-      </Text>
-      {details?.description && (
-        <Text color={colors.muted} wrap="wrap">
-          {details.description}
-        </Text>
-      )}
-      <Box marginTop={1} flexDirection="column">
-        <Field label="Declared">
-          <Text color={colors.text} wrap="truncate">{`${row.range}  in ${row.type}`}</Text>
-        </Field>
-        <Field label="Installed">
-          <Text
-            color={row.installed ? (row.mismatch ? colors.warn : colors.text) : colors.warn}
-            wrap="truncate"
-          >
-            {row.installed
-              ? `${row.installed}${row.mismatch ? ' — not what package.json declares; reinstall' : ''}`
-              : 'not in node_modules — run an install'}
-          </Text>
-        </Field>
-        {!row.local && (
-          <Field label="Latest">
-            <Text color={updateColor(row, colors)} wrap="truncate">
-              {row.info?.error === 'not-found'
-                ? 'not on the registry (private, or a local package)'
-                : row.latest
-                  ? `${row.latest}${row.update !== 'none' ? `  · ${row.update} update` : '  · up to date'}`
-                  : (row.info?.error ?? '…')}
-            </Text>
-          </Field>
-        )}
-        {row.prerelease && (
-          <Field label="Prerelease">
-            <Text
-              color={colors.highlight}
-              wrap="truncate"
-            >{`${row.prerelease}  (${row.prereleaseTag})`}</Text>
-          </Field>
-        )}
-        {support && (
-          <Field label="Support">
-            <Text color={supportColor(support, colors)} wrap="wrap">
-              {`${support.status.toUpperCase()}: ${support.summary}${support.lts ? ' (LTS)' : ''} · ${
-                support.basis === 'endoflife'
-                  ? `endoflife.date/${support.product}`
-                  : 'npm release dates'
-              }`}
-            </Text>
-          </Field>
-        )}
-        {!support && (
-          <Field label="Support">
-            <Text color={colors.muted} wrap="wrap">
-              {row.local
-                ? 'Local dependency — EOL information unavailable.'
-                : 'No confirmed EOL information for this release line.'}
-            </Text>
-          </Field>
-        )}
-        <Field label="npm publish">
-          <Text color={colors.muted} wrap="truncate">
-            {'Version'.padEnd(versionWidth) +
-              '  ' +
-              'Date'.padEnd(10) +
-              '  ' +
-              'Age'.padStart(6) +
-              '  Stale if'}
-          </Text>
-        </Field>
-        <Field label="Any release">
-          <Text
-            color={
-              !support?.maintenance?.lastPublished
-                ? colors.muted
-                : Date.now() - Date.parse(support.maintenance.lastPublished) > STALE_PACKAGE_MS
-                  ? colors.warn
-                  : colors.ok
-            }
-            wrap="truncate"
-          >
-            {releaseMetrics(metrics?.highestVersion, metrics?.highestPublished, '>730d', versionWidth)}
-          </Text>
-        </Field>
-        <Field label="Your release">
-          <Text
-            color={
-              !support?.maintenance?.installedPublished
-                ? colors.muted
-                : Date.now() - Date.parse(support.maintenance.installedPublished) > STALE_VERSION_MS
-                  ? colors.warn
-                  : colors.ok
-            }
-            wrap="truncate"
-          >
-            {releaseMetrics(row.current, metrics?.installedPublished, '>365d', versionWidth)}
-          </Text>
-        </Field>
-        <Field label="Major latest">
-          <Text color={colors.muted} wrap="truncate">
-            {releaseMetrics(metrics?.lineVersion, metrics?.linePublished, 'context', versionWidth)}
-          </Text>
-        </Field>
-        <Field label="Major gap">
-          <Text
-            color={
-              support?.maintenance?.majorGap === undefined
-                ? colors.muted
-                : support.maintenance.majorGap > 0
-                  ? colors.warn
-                  : colors.ok
-            }
-            wrap="wrap"
-          >
-            {support?.maintenance?.majorGap === undefined
-              ? 'Unknown'
-              : support.maintenance.majorGap + ' behind latest'}{' '}
-            · context only
-          </Text>
-        </Field>
-        <Field label="Rules">
-          <Text color={colors.muted} wrap="wrap">
-            Stale = no release of any version &gt;730d OR your exact release &gt;365d. Any release
-            shows the highest version, prereleases included. Major latest is context only. Green = below threshold; amber = threshold
-            exceeded; gray = unknown. Activity ≠ support. EOL uses published policy; ending = within
-            90d.
-          </Text>
-        </Field>
-        {details?.license && (
-          <Field label="License">
-            <Text color={colors.muted}>{details.license}</Text>
-          </Field>
-        )}
-        {links.map((link) => (
-          <LinkRow
-            key={link.label}
-            label={link.label}
-            labelWidth={12}
-            value={link.url}
-            color={colors.muted}
-            onOpen={() => openUrl(link.url)}
-          />
-        ))}
-      </Box>
-      {row.deprecated && (
-        <Box marginTop={1}>
-          <Text color={colors.error} wrap="wrap">{`Deprecated: ${row.deprecated}`}</Text>
-        </Box>
-      )}
-      {row.note && (
-        <Box marginTop={1} flexDirection="column">
-          <Text color={colors.accent}>Note</Text>
-          <Text color={colors.text} wrap="wrap">
-            {row.note}
-          </Text>
-        </Box>
-      )}
-    </Box>
-  );
-};
-
 /**
  * The folder's dependencies — declared range, installed version, latest on the registry — with
  * update, version pick, removal and a note per package. The Dependencies page of the old web app,
@@ -391,6 +148,15 @@ export const PackagesView = ({
   const [supportMode, setSupportMode] = useState(session.supportMode ?? false);
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.packages);
   const [picker, setPicker] = useState(session.picker?.mode === 'set' ? session.picker : undefined);
+  //? The registry is asked once typing settles, later than the local filter narrows
+  const [searchTerm, setSearchTerm] = useState(session.filter);
+  const settleSearch = useDebouncedCallback(setSearchTerm, 350);
+  /** A version picker for a registry suggestion — kept out of `session.picker`, which the Add tab restores. */
+  const [addPicker, setAddPicker] = useState<string | undefined>();
+  /** Versions picked for registry suggestions — "Other version…" is a dropdown, not an install. */
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  const choose = (name: string, version: string | undefined) =>
+    setChosen(({ [name]: _was, ...rest }) => (version ? { ...rest, [name]: version } : rest));
   const [check, setCheck] = useState(0);
   const [progress, setProgress] = useState<{ done: number; total: number } | undefined>();
   const force = useRef(false);
@@ -456,6 +222,25 @@ export const PackagesView = ({
   );
   const current = visible.find((row) => row.name === currentId);
 
+  //? A filter is also a search: packages the folder does not have yet, to add from here
+  const searching = !onlyOutdated && searchTerm.length >= 2 && filter.length >= 2;
+  const { data: found = [], isLoading: isSearching } = useLoader(
+    () =>
+      searching ? searchPackages(searchTerm, settings.registry) : Promise.resolve([] as SearchResult[]),
+    [searching ? searchTerm : '', settings.registry],
+  );
+  const declaredNames = new Set(rows.map((row) => row.name));
+  const suggestions = searching
+    ? found.filter(
+        (result) =>
+          !declaredNames.has(result.name) &&
+          (settings.showUnstable || !isPrerelease(result.version)),
+      )
+    : [];
+  const currentResult = current
+    ? undefined
+    : suggestions.find((result) => result.name === currentId);
+
   const unicodeIcons = packageIconsSupported();
   const groups = supportMode
     ? [
@@ -464,7 +249,7 @@ export const PackagesView = ({
         { id: 'unknown', label: 'No confirmed EOL information' },
       ]
     : settings.dependencyTypes.map((type) => ({ id: type, label: TYPE_LABELS[type] }));
-  const items: PickItem<PackageRow>[] = groups.flatMap(({ id, label }) => {
+  const items: PickItem<Entry>[] = groups.flatMap(({ id, label }) => {
     const group = visible.filter((row) =>
       supportMode ? supportGroup(row, support[row.name]) === id : row.type === id,
     );
@@ -480,10 +265,26 @@ export const PackagesView = ({
         },
         hint: rowHint(row, support[row.name], isChecking),
         hintColor: packageColor(row, support[row.name], colors),
-        value: row,
+        value: { kind: 'installed' as const, row },
       })),
     ];
   });
+  if (suggestions.length)
+    items.push(
+      {
+        id: 'header-registry',
+        label: `On the registry (${suggestions.length})${isSearching ? ' · searching…' : ''}`,
+        isHeader: true,
+      },
+      ...suggestions.map((result) => ({
+        id: result.name,
+        label: result.name,
+        prefix: { text: '+', color: colors.accent },
+        hint: result.version,
+        hintColor: colors.muted,
+        value: { kind: 'registry' as const, result },
+      })),
+    );
 
   const setVersion = (row: PackageRow, version: string) => {
     const command = setVersionCommand(manager.name, row.name, version, row.type, row.range);
@@ -572,6 +373,19 @@ export const PackagesView = ({
     session.picker = undefined;
   };
 
+  const add = (
+    name: string | undefined,
+    version?: string,
+    dev = settings.installAs === 'dev',
+  ) => {
+    if (!name) return;
+    const type = dev ? 'devDependencies' : 'dependencies';
+    const command = addCommand(manager.name, name, version, type);
+    prompt.confirm(`${shellQuote(command)}?`, () =>
+      runCommands([command], `added ${name}${version ? `@${version}` : ''}`),
+    );
+  };
+
   const checkNow = () => {
     force.current = true;
     announce.current = true;
@@ -596,6 +410,7 @@ export const PackagesView = ({
   const changeFilter = (value: string) => {
     setFilter(value);
     session.filter = value;
+    settleSearch(value);
   };
   const liveFilter = useDebouncedCallback((value: string) => changeFilter(value.trim()), 150);
   //? Narrows as you type; Esc puts back the filter that was there before
@@ -618,21 +433,50 @@ export const PackagesView = ({
 
   useInput(
     (input, key) => {
+      const name = current?.name ?? currentResult?.name;
       if (input === 'u') update(current);
       else if (input === 'U') updatePrerelease(current);
       else if (input === 'A') updateSafe();
-      else if (input === 'v') openPicker(current);
-      else if (input === 'x') remove(current);
+      else if (input === 'v') {
+        if (currentResult) setAddPicker(currentResult.name);
+        else openPicker(current);
+      } else if (input === 'x') remove(current);
       else if (input === 'n') editNote(current);
-      else if (input === 'w' && current) openUrl(`https://www.npmjs.com/package/${current.name}`);
+      else if (input === 'i' && currentResult)
+        add(currentResult.name, chosen[currentResult.name], false);
+      else if (input === 'd' && currentResult)
+        add(currentResult.name, chosen[currentResult.name], true);
+      else if (input === 'l' && currentResult) choose(currentResult.name, undefined);
+      else if (input === 's' && current && chosen[current.name])
+        setVersion(current, chosen[current.name] as string);
+      else if (input === 'r' && current) choose(current.name, undefined);
+      else if (input === 'w' && name) openUrl(`https://www.npmjs.com/package/${name}`);
       else if (input === 'o') toggleOutdated();
       else if (input === 'e') toggleSupportMode();
       else if (input === 'c') checkNow();
       else if (input === '/') askFilter();
       else if (key.escape && filter) changeFilter('');
     },
-    { isActive: !prompt.isOpen && !picker },
+    { isActive: !prompt.isOpen && !picker && !addPicker },
   );
+
+  if (addPicker) {
+    return (
+      <VersionPicker
+        name={addPicker}
+        registry={settings.registry}
+        cacheHours={settings.cacheHours}
+        showUnstable={settings.showUnstable}
+        initialVersion={chosen[addPicker]}
+        verb="choose"
+        onPick={(version) => {
+          setAddPicker(undefined);
+          choose(addPicker, version);
+        }}
+        onClose={() => setAddPicker(undefined)}
+      />
+    );
+  }
 
   const pickedRow = picker && rows.find((row) => row.name === picker.name);
   if (picker && pickedRow) {
@@ -640,46 +484,73 @@ export const PackagesView = ({
       <VersionPicker
         name={pickedRow.name}
         current={pickedRow.current}
+        initialVersion={chosen[pickedRow.name]}
         registry={settings.registry}
         cacheHours={settings.cacheHours}
         showUnstable={settings.showUnstable}
-        verb="switch to"
+        verb="choose"
         onPick={(version) => {
           closePicker();
-          setVersion(pickedRow, version);
+          //? The version in use is no choice at all: nothing to switch to
+          choose(pickedRow.name, version === pickedRow.current ? undefined : version);
         }}
         onClose={closePicker}
       />
     );
   }
 
-  const actionsFor = (row: PackageRow): ToolbarAction[] => [
-    ...(row.update !== 'none' && row.latest
-      ? [
-          {
-            hotkey: 'u',
-            label: `Update → ${row.latest}`,
-            onPress: () => update(row),
-            tone: 'primary' as const,
-          },
-        ]
-      : []),
-    ...(row.prerelease
-      ? [{ hotkey: 'U', label: `→ ${row.prerelease}`, onPress: () => updatePrerelease(row) }]
-      : []),
-    ...(row.local ? [] : [{ hotkey: 'v', label: 'Versions…', onPress: () => openPicker(row) }]),
-    { hotkey: 'n', label: row.note ? 'Edit note' : 'Note', onPress: () => editNote(row) },
-    ...(row.local
-      ? []
-      : [
-          {
-            hotkey: 'w',
-            label: 'npm page',
-            onPress: () => openUrl(`https://www.npmjs.com/package/${row.name}`),
-          },
-        ]),
-    { hotkey: 'x', label: 'Remove', onPress: () => remove(row), tone: 'danger' as const },
-  ];
+  const actionsFor = (row: PackageRow): ToolbarAction[] => {
+    const picked = chosen[row.name];
+    return [
+      //? A version chosen in the picker is what the row is now for: its switch leads
+      ...(picked
+        ? [
+            {
+              hotkey: 's',
+              label: `Switch ${row.current} → ${picked}`,
+              onPress: () => setVersion(row, picked),
+              tone: 'primary' as const,
+            },
+          ]
+        : []),
+      ...(row.update !== 'none' && row.latest
+        ? [
+            {
+              hotkey: 'u',
+              label: `Update → ${row.latest}`,
+              onPress: () => update(row),
+              tone: picked ? ('normal' as const) : ('primary' as const),
+            },
+          ]
+        : []),
+      ...(row.prerelease
+        ? [{ hotkey: 'U', label: `→ ${row.prerelease}`, onPress: () => updatePrerelease(row) }]
+        : []),
+      ...(row.local
+        ? []
+        : [
+            {
+              hotkey: 'v',
+              label: picked ? `Version: ${picked}…` : 'Versions…',
+              onPress: () => openPicker(row),
+            },
+          ]),
+      ...(picked
+        ? [{ hotkey: 'r', label: `Reset (${row.current})`, onPress: () => choose(row.name, undefined) }]
+        : []),
+      { hotkey: 'n', label: row.note ? 'Edit note' : 'Note', onPress: () => editNote(row) },
+      ...(row.local
+        ? []
+        : [
+            {
+              hotkey: 'w',
+              label: 'npm page',
+              onPress: () => openUrl(`https://www.npmjs.com/package/${row.name}`),
+            },
+          ]),
+      { hotkey: 'x', label: 'Remove', onPress: () => remove(row), tone: 'danger' as const },
+    ];
+  };
 
   const outdatedCount = rows.filter(isOutdated).length;
   const unsupportedCount = rows.filter(
@@ -740,8 +611,8 @@ export const PackagesView = ({
       <ListDetail
         //? Remounted when the rows change (a filter, the outdated toggle), restoring the cursor by
         //? package name instead of leaving it on whatever slid into its old position
-        key={`${filter}|${onlyOutdated}|${supportMode}|${visible.length}`}
-        title={`Packages (${visible.length}) · ${unicodeIcons ? '↑' : 'U'} update · ${unicodeIcons ? '⇡' : 'P'} pre · = latest · ? unknown`}
+        key={`${filter}|${onlyOutdated}|${supportMode}|${visible.length}|${suggestions.length}`}
+        title={`Packages (${visible.length}) · ${unicodeIcons ? '↑' : 'U'} update · ${unicodeIcons ? '⇡' : 'P'} pre · = latest · ? unknown${suggestions.length ? ' · + add' : ''}`}
         items={items}
         emptyText={
           isReading
@@ -750,27 +621,70 @@ export const PackagesView = ({
               (onlyOutdated
                 ? 'Everything is up to date.'
                 : filter
-                  ? 'Nothing matches.'
+                  ? searching && isSearching
+                    ? 'Nothing installed matches — searching the registry…'
+                    : 'Nothing matches, here or on the registry.'
                   : 'No dependencies.'))
         }
-        detailTitle={current ? `${current.name} · ${current.type}` : 'Package'}
+        detailTitle={
+          current
+            ? `${current.name} · ${current.type}`
+            : currentResult
+              ? `${currentResult.name} · on the registry`
+              : 'Package'
+        }
         reservedChrome={['viewHeader']}
-        activateLabel="update"
+        activateLabel={
+          currentResult
+            ? `add as ${settings.installAs}`
+            : current && chosen[current.name]
+              ? `switch to ${chosen[current.name]}`
+              : 'update'
+        }
         activateOnClick={false}
         initialSelectedId={currentId}
         isInputActive={!prompt.isOpen}
         hints={hints}
-        onActivate={(item) => update(item.value)}
+        onActivate={(item) =>
+          item.value?.kind === 'registry' ? add(item.value.result.name, chosen[item.value.result.name]) : item.value?.row && chosen[item.value.row.name]
+            ? setVersion(item.value.row, chosen[item.value.row.name] as string)
+            : update(item.value?.row)
+        }
         onSelectionChange={(item) => {
           setCurrentId(item?.id);
           session.selected.packages = item?.id;
         }}
-        renderDetail={(item) => {
-          const row = item?.value;
-          if (!row) return null;
+        detailFocusable
+        renderDetail={(item, _index, focus) => {
+          const entry = item?.value;
+          if (!entry) return null;
+          if (entry.kind === 'registry') {
+            const { result } = entry;
+            return (
+              <Box flexDirection="column">
+                <Toolbar
+                  actions={addActions(result, chosen[result.name], {
+                    add,
+                    choose: () => setAddPicker(result.name),
+                    reset: () => choose(result.name, undefined),
+                  })}
+                  isFocused={focus.isFocused}
+                  onExit={focus.blur}
+                />
+                <RegistryPackageDetail
+                  name={result.name}
+                  dir={dir}
+                  registry={settings.registry}
+                  cacheHours={settings.cacheHours}
+                  showUnstable={settings.showUnstable}
+                />
+              </Box>
+            );
+          }
+          const { row } = entry;
           return (
             <Box flexDirection="column">
-              <Toolbar actions={actionsFor(row)} />
+              <Toolbar actions={actionsFor(row)} isFocused={focus.isFocused} onExit={focus.blur} />
               <PackageDetail row={row} support={support[row.name]} registry={settings.registry} />
             </Box>
           );

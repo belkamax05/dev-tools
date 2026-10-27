@@ -446,12 +446,14 @@ let linesCache:
 
 /**
  * Exact publish activity from the full registry document. Only the compact result is cached
- * on disk for a week. Older line-only cache entries are refreshed to obtain package activity.
+ * on disk for a week. Older line-only cache entries are refreshed to obtain package activity, and
+ * so is an entry missing any of the `expected` versions — a `latest` published since it was saved.
  */
 export const getReleaseActivity = async (
   name: string,
   registry: string,
   force = false,
+  expected: (string | undefined)[] = [],
 ): Promise<ReleaseActivity | undefined> => {
   if (!linesCache) {
     try {
@@ -463,7 +465,13 @@ export const getReleaseActivity = async (
   const store = linesCache ?? {};
   const key = cacheKey(registry, name);
   const cached = store[key];
-  if (cached?.activity?.published && !force && Date.now() - cached.fetchedAt < LINES_MAX_AGE_MS)
+  const published = cached?.activity?.published;
+  if (
+    published &&
+    !force &&
+    Date.now() - cached.fetchedAt < LINES_MAX_AGE_MS &&
+    expected.every((version) => !version || version in published)
+  )
     return cached.activity;
   const times = await getPublishTimes(name, registry, force);
   if (!Object.keys(times).length) return cached?.activity;

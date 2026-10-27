@@ -132,7 +132,7 @@ export interface EnvTableOptions {
   data: Pick<DepliData, 'branch' | 'chain' | 'envs' | 'targetEnv'>;
   colors: Record<'error' | 'warn' | 'accent' | 'ok', string>;
   /**
-   * The envs' config — given, the table is the Environments window's extended one: a TRACKS
+   * The envs' config — given, the table is the Environments view's extended one: a MEANT FOR
    * column (`envs[].branches`) and an `off-track` tag for an env running anything else.
    */
   configs?: readonly EnvConfig[];
@@ -140,7 +140,7 @@ export interface EnvTableOptions {
 
 /**
  * The environments table as `PickList` rows, with its column names: the Chain tab's env picker,
- * and — with `configs` — the Environments window's wider copy of it.
+ * and — with `configs` — the Environments view's wider copy of it.
  */
 export const envTable = ({ envIds, protectedEnvs, data, colors, configs }: EnvTableOptions) => {
   const envRows = new Map((data.envs ?? []).map((row) => [row.env, row]));
@@ -162,7 +162,7 @@ export const envTable = ({ envIds, protectedEnvs, data, colors, configs }: EnvTa
     const tracks = configs
       ? `  ${(config?.branches?.join(' ') ?? '—').slice(0, TRACKS_WIDTH).padEnd(TRACKS_WIDTH)}`
       : '';
-    //? The extended table puts TRACKS right after the branch, where it is compared with it
+    //? The extended table puts MEANT FOR right after the branch, where it is compared with it
     const label = configs ? withTracks(line.text, width, tracks) : line.text;
     return { env, line, label, isProtected, offTrack, tags: tags.join(' · ') };
   });
@@ -185,7 +185,7 @@ export const envTable = ({ envIds, protectedEnvs, data, colors, configs }: EnvTa
   }));
   const plainHeader = envHeader(data.envs?.[0], width, tagsWidth);
   const header = configs
-    ? withTracks(plainHeader, width + tagsWidth + 3, `  ${'TRACKS'.padEnd(TRACKS_WIDTH)}`)
+    ? withTracks(plainHeader, width + tagsWidth + 3, `  ${'MEANT FOR'.padEnd(TRACKS_WIDTH)}`)
     : plainHeader;
   return { items, header, width, tagsWidth, rows: envRows };
 };

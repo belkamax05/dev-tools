@@ -24,7 +24,7 @@ export interface EnvHistory {
   steps: StepHistory[];
 }
 
-/** Everything the Environments window's detailed view shows, read in one go. */
+/** Everything the Environments view shows, read in one go. */
 export interface History {
   /** Steps that are not env-scoped (the builds) — the same jobs for every env, read once. */
   shared: StepHistory[];

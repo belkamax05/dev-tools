@@ -413,8 +413,8 @@ export interface StepKind<Options = Record<string, unknown>> {
    */
   latest?: (context: PluginContext<Options>, input: StepInput) => Promise<LatestRun>;
   /**
-   * Every job the step reads and their recent runs, whatever the branch — the Environments
-   * window's detailed view. Read-only; absent: the step has no history to show.
+   * Every job the step reads and their recent runs, whatever the branch — the
+   * Environments view. Read-only; absent: the step has no history to show.
    */
   history?: (context: PluginContext<Options>, input: StepInput) => Promise<JobHistory[]>;
   /**
@@ -465,6 +465,11 @@ export interface ProviderPlugin<Options = Record<string, unknown>> {
     patterns: readonly string[],
     source?: Record<string, unknown>,
   ) => Promise<BranchHead[]>;
+  /**
+   * A commit's page, for providers that host the repository — built from the options alone, no
+   * request. Undefined when the provider cannot say where its pages are.
+   */
+  commitUrl?: (options: Options, sha: string) => string | undefined;
 }
 
 /** Typing help for a plugin; returns its argument. */

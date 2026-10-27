@@ -17,6 +17,7 @@ import {
   type PluginContext,
   type SetupProgress,
   matchesPatterns,
+  type StepConfig,
   type StepRun,
 } from '../../core/plugin';
 import { type Session, saveSession } from '../../core/session';
@@ -86,7 +87,7 @@ export interface DepliData {
   ) => Promise<Connection['probes'][number]>;
   loadBranches: (all: boolean) => void;
   loadEnvs: () => void;
-  /** Read `history` (again) — the Environments window asks for it. */
+  /** Read `history` (again) — the Environments view asks for it. */
   loadHistory: () => void;
   plan: (stepId: string) => Promise<PlannedTrigger>;
   /** Whether a step can be triggered at all — its plugin plans it; observe-only steps do not. */
@@ -102,6 +103,16 @@ export interface DepliData {
   setTimingsExpanded: (expanded: boolean) => void;
   hasTimings: (entry: ChainStep) => boolean;
   readTimings: (entry: ChainStep, run: StepRun) => Promise<RunTimings>;
+  /**
+   * What a run of one of the step's history jobs (`alsoDeployedBy` ones too) can show: its log,
+   * its stage timings — the Environments view's run page.
+   */
+  jobRunReads: (step: StepConfig) => { logs: boolean; timings: boolean };
+  /** A commit's page, from the first provider that hosts the repository — undefined when none can say. */
+  commitUrl: (sha: string) => string | undefined;
+  /** A history job's run's log from a byte offset — the step, read as `job`. */
+  readJobLog: (step: StepConfig, job: string, run: StepRun, start: number) => Promise<LogChunk>;
+  readJobTimings: (step: StepConfig, job: string, run: StepRun) => Promise<RunTimings>;
   /** A plan's fix (an edit on the target), through the core's gate — call it once the user confirmed. */
   applyFix: (planned: PlannedTrigger, fixId: string) => Promise<string>;
   /** Through the core's gate — refused unless triggers are on and the confirmation holds. */
@@ -287,6 +298,17 @@ export const useDepli = (
       .catch((error: Error) => notify(error.message, 'error'));
   }, [project, env, branch, key, notify]);
 
+  //? Stable, so the pages built from it are not rebuilt on every render
+  const commitUrl = useCallback(
+    (sha: string) => {
+      for (const provider of project.providers) {
+        const url = provider.plugin.commitUrl?.(provider.options, sha);
+        if (url) return url;
+      }
+      return undefined;
+    },
+    [project],
+  );
   const loadHistory = useCallback(() => {
     if (!key) return;
     setHistoryLoading(true);
@@ -531,6 +553,41 @@ export const useDepli = (
       return kind.timings(
         contextFor(project, provider, env, connectionsRef.current[provider.name]),
         inputFor(project, entry.step, branch ?? '', targetEnv),
+        run,
+      );
+    },
+    commitUrl,
+    jobRunReads: (step) => {
+      const kind = project.providers.find((item) => item.name === step.provider)?.plugin.steps[
+        step.kind
+      ];
+      return { logs: Boolean(kind?.logs), timings: Boolean(kind?.timings) };
+    },
+    //? The step read as the job named — its own, or one that deploys alongside it
+    readJobLog: (step, job, run, start) =>
+      readLog(
+        project,
+        connectionsRef.current,
+        env,
+        {
+          step: { ...step, job },
+          status: { state: 'none', summary: '' },
+          recommended: false,
+          protected: false,
+        },
+        run,
+        branch ?? '',
+        targetEnv,
+        start,
+      ),
+    readJobTimings: (step, job, run) => {
+      const provider = project.providers.find((item) => item.name === step.provider);
+      const kind = provider?.plugin.steps[step.kind];
+      if (!provider || !kind?.timings)
+        return Promise.resolve({ stages: [], previousRuns: [], more: false });
+      return kind.timings(
+        contextFor(project, provider, env, connectionsRef.current[provider.name]),
+        inputFor(project, { ...step, job }, branch ?? '', targetEnv),
         run,
       );
     },

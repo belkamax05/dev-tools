@@ -24,6 +24,8 @@ export interface ActionButtonProps {
    */
   isOn?: boolean;
   disabled?: boolean;
+  /** Reached with the arrow keys — drawn like the pointer is on it, since Enter will press it. */
+  isFocused?: boolean;
   /** Accent when idle and not selected. Defaults to the theme's muted colour. */
   color?: string;
   onPress: () => void;
@@ -45,6 +47,7 @@ export const ActionButton = ({
   label,
   isOn,
   disabled = false,
+  isFocused = false,
   //? No default in the signature: the fallback is a theme colour, and a default
   //? parameter is evaluated before the hook that knows what the theme is.
   color,
@@ -74,9 +77,10 @@ export const ActionButton = ({
     onHoverRef.current?.(isHovered);
   }, [isHovered]);
 
+  const lit = (isHovered || isFocused) && !disabled;
   const textColor = disabled
     ? colors.muted
-    : isHovered
+    : lit
       ? colors.accentText
       : isOn
         ? colors.accent
@@ -94,7 +98,7 @@ export const ActionButton = ({
     <Box
       ref={ref}
       marginRight={1}
-      backgroundColor={isHovered && !disabled ? colors.accent : undefined}
+      backgroundColor={lit ? colors.accent : undefined}
     >
       <Text color={textColor} bold={isOn} dimColor={disabled}>
         {hotkey === undefined ? '' : `[${hotkey}] `.padEnd(hotkeyWidth)}

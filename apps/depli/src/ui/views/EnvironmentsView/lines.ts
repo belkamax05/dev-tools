@@ -1,20 +1,17 @@
 /**
- * The Environments window's detail as lines of segments — pure, so it is tested without a
- * terminal. A segment with a `url` is a link (underlined, opens a page); one with an `action` is
- * a toggle (folds a job or a day of runs). Both are clickable and reachable from the keyboard.
- * Colours are theme roles, resolved when drawn.
+ * The Environments view's pages as lines of segments — pure, so they are tested without a
+ * terminal. Everything is about one env: what each step of its pipeline left on it. A segment with
+ * a `url` is a link (underlined, opens the server's page); one with a `to` opens a page of the
+ * view (a step, a run); one with an `action` is a fold (a day of runs). All are clickable and
+ * reachable from the keyboard. Colours are theme roles, resolved when drawn.
  */
 import type { EnvConfig } from '../../../config/project';
 import { STATE_ICON } from '../../../core/chain';
 import { borderRow, busRow, layoutGraph } from '../../../core/graph';
 import {
-  branchRelations,
-  deployedBuilds,
   findRun,
   type History,
-  onTrack,
   runningBranch,
-  runsByDay,
   type StepHistory,
   versionNumber,
   versionsOf,
@@ -38,7 +35,22 @@ export interface Segment {
   /** A fold to toggle — `job:…` or `day:…` — and whether it is open now. */
   action?: string;
   open?: boolean;
+  /** A page of the view to go to — a step's or a run's (`toStep`, `toRun`); before `url`. */
+  to?: string;
 }
+
+/** A page under the env open: a step of its pipeline, or one run of a job of it. */
+export interface Target {
+  step: string;
+  /** For a run: the job it is a run of — the step's own, or one deploying alongside it. */
+  job?: string;
+  run?: string;
+}
+
+export const toStep = (step: string) => JSON.stringify({ step } satisfies Target);
+export const toRun = (step: string, job: string, run: string) =>
+  JSON.stringify({ step, job, run } satisfies Target);
+export const targetOf = (to: string) => JSON.parse(to) as Target;
 
 export type Line = Segment[];
 
@@ -46,7 +58,7 @@ export type Line = Segment[];
 export const linksOf = (lines: readonly Line[]) =>
   lines.flatMap((line, at) =>
     line.flatMap((segment, index) =>
-      segment.url || segment.action
+      segment.url || segment.action || segment.to
         ? [
             {
               line: at,
@@ -54,6 +66,7 @@ export const linksOf = (lines: readonly Line[]) =>
               url: segment.url,
               action: segment.action,
               open: segment.open,
+              to: segment.to,
             },
           ]
         : [],
@@ -65,7 +78,7 @@ export const lineText = (line: Line) => line.map((segment) => segment.text).join
 /** Whether a fold is open: what the person chose, else `byDefault`. */
 export type IsOpen = (key: string, byDefault: boolean) => boolean;
 
-const RUN_ICON: Record<HistoryRun['state'], string> = {
+export const RUN_ICON: Record<HistoryRun['state'], string> = {
   success: '✓',
   failure: '✗',
   running: '◐',
@@ -74,7 +87,7 @@ const RUN_ICON: Record<HistoryRun['state'], string> = {
   other: '·',
 };
 
-const RUN_ROLE: Record<HistoryRun['state'], Role> = {
+export const RUN_ROLE: Record<HistoryRun['state'], Role> = {
   success: 'ok',
   failure: 'error',
   running: 'accent',
@@ -83,21 +96,18 @@ const RUN_ROLE: Record<HistoryRun['state'], Role> = {
   other: 'muted',
 };
 
-/** Runs shown inside a job's box in the graph; the rest are in the runs below it. */
-export const RUNS_IN_BOX = 3;
-
 const pad = (value: number) => String(value).padStart(2, '0');
 const clock = (at?: number) => {
   if (!at) return '--:--';
   const date = new Date(at);
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
-const duration = (ms?: number) => {
+export const duration = (ms?: number) => {
   if (ms === undefined) return '';
   const seconds = Math.round(ms / 1000);
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${pad(seconds % 60)}s`;
 };
-const when = (at?: number) => (at ? `${shortStamp(at)} (${age(at)} ago)` : '—');
+export const when = (at?: number) => (at ? `${shortStamp(at)} (${age(at)} ago)` : '—');
 
 /** A line cut (with `…`) or padded to exactly `width` cells. */
 export const fitLine = (line: Line, width: number): Line => {
@@ -118,19 +128,19 @@ export const fitLine = (line: Line, width: number): Line => {
   return out;
 };
 
-const heading = (text: string, width: number, url?: string): Line => [
+export const heading = (text: string, width: number, url?: string): Line => [
   { text: '━━ ', role: 'accent' },
   { text, role: 'heading', bold: true, url },
   { text: ` ${'━'.repeat(Math.max(0, width - text.length - 4))}`, role: 'accent' },
 ];
 
-const subheading = (text: string, note?: string): Line => [
+export const subheading = (text: string, note?: string): Line => [
   { text: `  ${text}`, role: 'heading', bold: true },
   ...(note ? [{ text: `  ${note}`, role: 'muted' } as Segment] : []),
 ];
 
 /** `12 runs · 10 ✓ 2 ✗` — what a job's history adds up to. */
-const tally = (runs: readonly HistoryRun[]) => {
+export const tally = (runs: readonly HistoryRun[]) => {
   const ok = runs.filter((run) => run.state === 'success').length;
   const failed = runs.filter((run) => run.state === 'failure').length;
   const running = runs.filter((run) => run.state === 'running').length;
@@ -146,6 +156,8 @@ const tally = (runs: readonly HistoryRun[]) => {
 
 export interface GraphNodeContent {
   title: string;
+  /** The title's page — a click on it opens the step. */
+  to?: string;
   /** What the box holds, one line each — cut to the box's width. */
   rows: Line[];
 }
@@ -198,7 +210,10 @@ export const graphLines = (
     lines.push(
       row((entry) => [
         { text: '│ ', role: 'muted' },
-        ...fitLine([{ text: entry.content.title, role: 'heading', bold: true }], inner(entry)),
+        ...fitLine(
+          [{ text: entry.content.title, role: 'heading', bold: true, to: entry.content.to }],
+          inner(entry),
+        ),
         { text: ' │', role: 'muted' },
       ]),
     );
@@ -230,12 +245,14 @@ export interface CompactOptions {
   hideBranch?: boolean;
   /** Said after the run, e.g. `◀ on uat3`. */
   marker?: string;
+  /** The run's page in the view. */
+  to?: string;
 }
 
-/** A run in a box: result, number (a link), when, the branch, who, what it says, a marker. */
+/** A run on one line: result, number (its page), when, the branch, who, what it says, a marker. */
 export const compactRun = (run: HistoryRun, options: CompactOptions = {}): Line => [
   { text: `${RUN_ICON[run.state]} `, role: RUN_ROLE[run.state] },
-  { text: run.label, role: 'accent', url: run.url },
+  { text: run.label, role: 'accent', url: run.url, to: options.to },
   ...(options.marker ? [{ text: ` ${options.marker}`, role: 'ok', bold: true } as Segment] : []),
   { text: `  ${run.at ? shortStamp(run.at) : '—'}`, role: 'text' },
   { text: ` ${run.at ? `${age(run.at)} ago` : ''}`, role: 'muted' },
@@ -256,18 +273,60 @@ export const compactRun = (run: HistoryRun, options: CompactOptions = {}): Line 
 
 export interface BoxContext {
   env: string;
+  /** The branch the dashboard shows. */
   branch: string;
   history?: History;
   /** The env's row: what each env step last put on it. */
   row?: EnvRow;
+  /** A commit's page in the repository, when its provider can say. */
+  commitUrl?: (sha: string) => string | undefined;
 }
 
+/** A commit's short hash — a link to its page in the repository (or `url`, when known). */
+export const commitLink = (
+  sha: string,
+  context: Pick<BoxContext, 'commitUrl'>,
+  url?: string,
+  bold = false,
+): Segment => ({
+  text: sha.slice(0, 8),
+  role: 'accent',
+  bold,
+  url: url ?? context.commitUrl?.(sha),
+});
+
+/** `✓ label` when good, `⚠ label` when not — a status at a glance. */
+const status = (good: boolean, label: string): Segment => ({
+  text: `${good ? '✓' : '⚠'} ${label}`,
+  role: good ? 'ok' : 'warn',
+});
+
+/** The branch the env is on — else the one the dashboard shows. */
+export const envBranch = (context: Pick<BoxContext, 'row' | 'branch'>) =>
+  runningBranch(context.row) ?? context.branch;
+
+/** A shared build's run by its number, with its job — what a build number on a deploy names. */
+export const findBuild = (history: History | undefined, stepId: string, number: number) => {
+  const step = history?.shared.find((entry) => entry.step.id === stepId);
+  for (const job of step?.jobs ?? []) {
+    const run = job.runs.find((candidate) => candidate.id === String(number));
+    if (run) return { job, run };
+  }
+  return undefined;
+};
+
+/** The page of a build by its number, when the history still has it. */
+export const buildTo = (history: History | undefined, stepId: string, number: number) => {
+  const found = findBuild(history, stepId, number);
+  return found && toRun(stepId, found.job.job, found.run.id);
+};
+
 /** The cell of the env's row for this step, when the step acts on the env. */
-const cellOf = (row: EnvRow | undefined, step: StepConfig): EnvCell | undefined =>
+export const cellOf = (row: EnvRow | undefined, step: StepConfig): EnvCell | undefined =>
   row?.cells.find((cell) => cell.step.id === step.id);
 
 /** For a build step: the build number the env's deploy runs, read from its version params. */
-const deployedHere = (row: EnvRow | undefined, stepId: string) => {
+export const deployedHere = (row: EnvRow | undefined, stepId: string) => {
   for (const cell of row?.cells ?? [])
     for (const [param, id] of Object.entries((cell.step.versions ?? {}) as Record<string, string>))
       if (id === stepId) return versionNumber(cell.latest.versions?.[param]);
@@ -275,7 +334,7 @@ const deployedHere = (row: EnvRow | undefined, stepId: string) => {
 };
 
 /** The run with this page among the jobs' runs, with its job. */
-const runByUrl = (jobs: readonly JobHistory[], url?: string) => {
+export const runByUrl = (jobs: readonly JobHistory[], url?: string) => {
   if (!url) return undefined;
   for (const job of jobs) {
     const run = job.runs.find((candidate) => candidate.url === url);
@@ -304,41 +363,48 @@ export const deployedCommits = (row: EnvRow | undefined, history: History | unde
 
 /** The step's history for this env: its own, the shared one, or its branch's (commits). */
 export const historyFor = (step: StepConfig, context: BoxContext): StepHistory | undefined => {
-  const { history, env, row, branch } = context;
+  const { history, env } = context;
   return (
     history?.envs
       .find((entry) => entry.env === env)
       ?.steps.find((item) => item.step.id === step.id) ??
     history?.shared.find((item) => item.step.id === step.id) ??
-    history?.branches[runningBranch(row) ?? branch]?.find((item) => item.step.id === step.id)
+    history?.branches[envBranch(context)]?.find((item) => item.step.id === step.id)
   );
 };
 
-/** A job's heading in a box: its name (a link) and what its runs add up to. */
-const jobHeader = (job: JobHistory): Line => [
-  { text: job.relation && !job.relation.startsWith('commits') ? '+ ' : '', role: 'muted' },
-  { text: job.job, role: job.missing ? 'warn' : 'heading', bold: true, url: job.url },
-  {
-    text: job.missing ? '  not on the server' : `  ${tally(job.runs)}`,
-    role: job.missing ? 'warn' : 'muted',
-  },
-];
+/** Whether the step's history is read per branch — a push's commits — rather than per job. */
+export const isBranchStep = (step: StepConfig, context: BoxContext) =>
+  Object.values(context.history?.branches ?? {}).some((steps) =>
+    steps.some((item) => item.step.id === step.id),
+  ) ||
+  (step.job === undefined && !cellOf(context.row, step));
 
-/** What a deploy-like step put on the env: the branch, the run (and its job), the builds. */
+/**
+ * How a step's run relates to the env: the run that is on it — a deploy's last run, the build a
+ * deploy names — or, for a step that does not act on the env, its newest run of the env's branch.
+ */
+export const runOnEnv = (step: StepConfig, jobs: readonly JobHistory[], context: BoxContext) => {
+  const cell = cellOf(context.row, step);
+  if (cell) return runByUrl(jobs, cell.latest.url);
+  const here = deployedHere(context.row, step.id);
+  if (here !== undefined)
+    for (const job of jobs) {
+      const run = job.runs.find((candidate) => candidate.id === String(here));
+      if (run) return { job, run };
+    }
+  return undefined;
+};
+
+/** What a deploy-like step put on the env: the branch, by which run (and job), the builds. */
 const onEnvRows = (cell: EnvCell, jobs: readonly JobHistory[], context: BoxContext): Line[] => {
   const { latest } = cell;
   //? Nothing read (offline, missing job, error): one line saying so
   if (['offline', 'error', 'missing'].includes(latest.state))
-    return [
-      [
-        { text: `on ${context.env}: `, role: 'muted' },
-        { text: `${STATE_ICON[latest.state]} ${latest.summary}`, role: 'warn' },
-      ],
-    ];
+    return [[{ text: `${STATE_ICON[latest.state]} ${latest.summary}`, role: 'warn' }]];
   const shown = runByUrl(jobs, latest.url);
   const rows: Line[] = [
     [
-      { text: `on ${context.env}: `, role: 'muted' },
       { text: `${STATE_ICON[latest.state]} `, role: latest.state === 'done' ? 'ok' : 'warn' },
       latest.branch
         ? {
@@ -349,11 +415,16 @@ const onEnvRows = (cell: EnvCell, jobs: readonly JobHistory[], context: BoxConte
         : { text: latest.summary, role: 'text' },
     ],
     [
-      { text: '  by ', role: 'muted' },
+      { text: 'by ', role: 'muted' },
       ...(shown && shown.job !== jobs[0]
         ? [{ text: `${shown.job.job} `, role: 'text' } as Segment]
         : []),
-      { text: shown?.run.label ?? latest.summary, role: 'accent', url: latest.url },
+      {
+        text: shown?.run.label ?? latest.summary,
+        role: 'accent',
+        url: latest.url,
+        to: shown ? toRun(cell.step.id, shown.job.job, shown.run.id) : undefined,
+      },
       { text: `  ${when(latest.at)}`, role: 'muted' },
       ...(shown?.run.actor
         ? [{ text: `  ${shown.run.actor.name ?? shown.run.actor.login}`, role: 'muted' } as Segment]
@@ -365,13 +436,14 @@ const onEnvRows = (cell: EnvCell, jobs: readonly JobHistory[], context: BoxConte
   );
   if (versions.length)
     rows.push([
-      { text: '  builds ', role: 'muted' },
+      { text: 'with ', role: 'muted' },
       ...versions.flatMap((version, index): Segment[] => [
         { text: `${index ? ' · ' : ''}${version.stepId} `, role: 'muted' },
         {
           text: `#${version.number}`,
           role: 'accent',
           url: findRun(context.history, version.stepId, version.number as number)?.url,
+          to: buildTo(context.history, version.stepId, version.number as number),
         },
       ]),
     ]);
@@ -379,18 +451,30 @@ const onEnvRows = (cell: EnvCell, jobs: readonly JobHistory[], context: BoxConte
 };
 
 /**
- * A build's box: the build the env runs — its branch, when, who, the commit — and how it stands
- * among the builds of that branch (newer good ones?); then the job with that branch's newest runs,
- * the deployed one marked.
+ * A build's box: the build the env runs — its branch, when, who, the commit — and whether the
+ * branch has newer good builds since.
  */
-const buildRows = (here: number, history: StepHistory | undefined, context: BoxContext): Line[] => {
+const buildRows = (
+  step: StepConfig,
+  here: number,
+  history: StepHistory | undefined,
+  context: BoxContext,
+): Line[] => {
   const jobs = history?.jobs ?? [];
+  const runTo = (run: HistoryRun) => {
+    const job = jobs.find((item) => item.runs.includes(run));
+    return job && toRun(step.id, job.job, run.id);
+  };
   const deployed = jobs.flatMap((job) => job.runs).find((run) => run.id === String(here));
-  const marker = `◀ on ${context.env}`;
   const rows: Line[] = [
     [
-      { text: `on ${context.env}: `, role: 'muted' },
-      { text: `#${here}`, role: 'accent', bold: true, url: deployed?.url },
+      {
+        text: `#${here}`,
+        role: 'accent',
+        bold: true,
+        url: deployed?.url,
+        to: deployed && runTo(deployed),
+      },
       ...(deployed
         ? [
             { text: ` ${RUN_ICON[deployed.state]}`, role: RUN_ROLE[deployed.state] } as Segment,
@@ -404,80 +488,68 @@ const buildRows = (here: number, history: StepHistory | undefined, context: BoxC
   if (!deployed) {
     rows.push([
       {
-        text: context.history ? '  older than the builds read — no details' : '  reading…',
+        text: context.history ? 'older than the builds read — no details' : 'reading…',
         role: 'muted',
       },
     ]);
-  } else {
-    rows.push([
-      { text: `  built ${when(deployed.at)}`, role: 'muted' },
-      ...(deployed.actor
-        ? [{ text: `  ${deployed.actor.name ?? deployed.actor.login}`, role: 'muted' } as Segment]
-        : []),
-      ...(deployed.sha ? [{ text: `  ${deployed.sha.slice(0, 8)}`, role: 'text' } as Segment] : []),
-    ]);
-    const sameBranch = jobs
-      .flatMap((job) => job.runs)
-      .filter((run) => run.branch === deployed.branch);
-    const newer = sameBranch.filter((run) => run.state === 'success' && Number(run.id) > here);
-    rows.push(
-      newer.length
-        ? [
-            {
-              text: `  ${newer.length} newer good build${newer.length === 1 ? '' : 's'} of ${deployed.branch ?? 'it'} — newest `,
-              role: 'warn',
-            },
-            { text: newer[0]?.label ?? '', role: 'accent', url: newer[0]?.url },
-            { text: ` ${age(newer[0]?.at)} ago`, role: 'muted' },
-          ]
-        : [{ text: `  the newest good build of ${deployed.branch ?? 'its branch'}`, role: 'ok' }],
+    return rows;
+  }
+  rows.push([
+    { text: `built ${when(deployed.at)}`, role: 'muted' },
+    ...(deployed.actor
+      ? [{ text: `  ${deployed.actor.name ?? deployed.actor.login}`, role: 'muted' } as Segment]
+      : []),
+    ...(deployed.sha ? [{ text: '  ' } as Segment, commitLink(deployed.sha, context)] : []),
+  ]);
+  const newer = jobs
+    .flatMap((job) => job.runs)
+    .filter(
+      (run) => run.branch === deployed.branch && run.state === 'success' && Number(run.id) > here,
     );
-  }
-  for (const job of jobs) {
-    rows.push(jobHeader(job));
-    const branch = deployed?.branch;
-    const runs = branch ? job.runs.filter((run) => run.branch === branch) : job.runs;
-    if (branch) rows.push([{ text: `  newest of ${branch}:`, role: 'muted' }]);
-    for (const run of runs.slice(0, RUNS_IN_BOX))
-      rows.push([
-        { text: '  ' },
-        ...compactRun(run, {
-          hideBranch: Boolean(branch),
-          marker: run === deployed ? marker : undefined,
-        }),
-      ]);
-    //? The deployed build is always shown, even when newer ones push it out of the newest few
-    if (deployed && runs.includes(deployed) && runs.indexOf(deployed) >= RUNS_IN_BOX)
-      rows.push(
-        [{ text: `  … ${runs.indexOf(deployed) - RUNS_IN_BOX} more`, role: 'muted' }],
-        [{ text: '  ' }, ...compactRun(deployed, { hideBranch: true, marker })],
-      );
-  }
+  //? Evidence, not a sentence: latest, or how many good builds came since and the newest one
+  rows.push(
+    newer.length
+      ? [
+          status(false, `${newer.length} newer · `),
+          {
+            text: newer[0]?.label ?? '',
+            role: 'accent',
+            url: newer[0]?.url,
+            to: newer[0] && runTo(newer[0]),
+          },
+          { text: ` ${age(newer[0]?.at)} ago`, role: 'muted' },
+        ]
+      : [status(true, 'latest')],
+  );
   return rows;
 };
 
+/** How far a commit is behind the branch's latest, as a status. */
+const behind = (at: number, read: number): Segment =>
+  at === 0
+    ? status(true, 'latest')
+    : at > 0
+      ? status(false, `${at} commit${at === 1 ? '' : 's'} behind`)
+      : status(false, `older than the ${read} read`);
+
 /**
- * A branch step's box (the push): the branch the env runs, its head commit, the commits the env's
- * builds were made from and how far behind the head they are; then the newest commits.
+ * A branch step's box (the push): the branch, its latest commit, and the commit on the env — how
+ * far behind the latest it is. An env whose builds come from different commits (one build not
+ * redone since a change) gets a line per build, each saying which build it is.
  */
 const branchRows = (history: StepHistory | undefined, context: BoxContext): Line[] => {
   const known = runningBranch(context.row);
-  const running = known ?? context.branch;
   const commits = history?.jobs[0]?.runs ?? [];
-  const head = commits[0];
+  const latest = commits[0];
   const rows: Line[] = [
     known
-      ? [
-          { text: `${context.env} runs `, role: 'muted' },
-          { text: known, role: known === context.branch ? 'accent' : 'text', bold: true },
-        ]
+      ? [{ text: known, role: known === context.branch ? 'accent' : 'text', bold: true }]
       : [
-          { text: `what ${context.env} runs is unknown — showing `, role: 'warn' },
-          { text: running || '—', role: 'accent', bold: true },
-          { text: ', the branch shown', role: 'muted' },
+          { text: 'branch unknown — showing ', role: 'warn' },
+          { text: context.branch || '—', role: 'accent', bold: true },
         ],
   ];
-  if (!history || history.error || !head) {
+  if (!history || history.error || !latest) {
     rows.push([
       {
         text: history?.error ?? (context.history ? 'no commits read' : 'reading…'),
@@ -486,56 +558,82 @@ const branchRows = (history: StepHistory | undefined, context: BoxContext): Line
     ]);
     return rows;
   }
-  rows.push([{ text: 'head ', role: 'muted' }, ...compactRun(head, { hideBranch: true })]);
+  const on = `on ${context.env}`;
+  //? `latest` and `on ci3` in one column, the hashes lined up after it
+  const label = (text: string) =>
+    ({ text: text.padEnd(Math.max('latest'.length, on.length) + 2), role: 'muted' }) as Segment;
+  rows.push([
+    label('latest'),
+    commitLink(latest.sha ?? latest.id, context, latest.url),
+    ...(latest.detail ? [{ text: `  ${latest.detail}`, role: 'text' } as Segment] : []),
+    { text: `  ${age(latest.at)} ago`, role: 'muted' },
+  ]);
   const deployed = deployedCommits(context.row, context.history);
-  if (!deployed.length)
+  if (!deployed.length) {
     rows.push([
+      label(on),
       {
         text: context.row?.cells.some((cell) => Object.keys(cell.latest.versions ?? {}).length)
-          ? 'deployed commit unknown — its builds report no checkout, or are older than read'
-          : `deployed commit unknown — ${context.env}'s deploy was not read`,
+          ? 'commit unknown — its builds report none, or are older than read'
+          : `commit unknown — ${context.env}'s deploy was not read`,
         role: 'muted',
       },
     ]);
-  for (const entry of deployed) {
-    const at = commits.findIndex((commit) => commit.sha === entry.sha);
-    const commit = commits[at];
-    rows.push([
-      { text: 'deployed ', role: 'muted' },
-      { text: entry.sha.slice(0, 8), role: 'accent', bold: true, url: commit?.url },
-      {
-        text:
-          at === 0
-            ? '  = head'
-            : at > 0
-              ? `  ${at} commit${at === 1 ? '' : 's'} behind head`
-              : `  older than the ${commits.length} newest commits`,
-        role: at === 0 ? 'ok' : 'warn',
-      },
-      {
-        text: `  ← ${entry.builds.map((build) => `${build.stepId} ${build.run.label}`).join(', ')}`,
-        role: 'muted',
-      },
-    ]);
+    return rows;
   }
-  rows.push([{ text: 'newest commits:', role: 'muted' }]);
-  const deployedShas = new Set(deployed.map((entry) => entry.sha));
-  for (const commit of commits.slice(0, RUNS_IN_BOX))
-    rows.push([
+  const commitOf = (sha: string) => {
+    const at = commits.findIndex((commit) => commit.sha === sha);
+    return [
+      commitLink(sha, context, commits[at]?.url, true),
       { text: '  ' },
-      ...compactRun(commit, {
-        hideBranch: true,
-        marker: commit.sha && deployedShas.has(commit.sha) ? `◀ on ${context.env}` : undefined,
-      }),
+      behind(at, commits.length),
+    ] as Segment[];
+  };
+  //? One commit: one line. Several: the builds are from different commits — a line per build
+  if (deployed.length === 1 && deployed[0]) {
+    rows.push([label(on), ...commitOf(deployed[0].sha)]);
+    return rows;
+  }
+  const builds = deployed.flatMap((entry) => entry.builds.map((build) => ({ ...build, sha: entry.sha })));
+  const nameWidth = Math.max(...builds.map((build) => `${build.stepId} ${build.run.label}`.length));
+  builds.forEach((build, index) => {
+    rows.push([
+      label(index ? '' : on),
+      { text: `${build.stepId} `, role: 'muted' },
+      {
+        text: build.run.label,
+        role: 'accent',
+        url: build.run.url,
+        to: buildTo(context.history, build.stepId, Number(build.run.id)),
+      },
+      { text: ' '.repeat(nameWidth - `${build.stepId} ${build.run.label}`.length + 2) },
+      ...commitOf(build.sha),
     ]);
+  });
   return rows;
 };
 
+/** A step that does not act on the env: its newest run of the branch the env is on. */
+const branchRunRow = (step: StepConfig, jobs: readonly JobHistory[], context: BoxContext): Line => {
+  const branch = envBranch(context);
+  const newest = jobs
+    .flatMap((job) => job.runs.map((run) => ({ job, run })))
+    .filter((entry) => entry.run.branch === branch)
+    .sort((a, b) => (b.run.at ?? 0) - (a.run.at ?? 0))[0];
+  if (!newest) return [{ text: `no run of ${branch || 'its branch'} read`, role: 'muted' }];
+  return [
+    { text: 'newest ', role: 'muted' },
+    ...compactRun(newest.run, {
+      hideBranch: true,
+      to: toRun(step.id, newest.job.job, newest.run.id),
+    }),
+  ];
+};
+
 /**
- * A step's box for one env — the facts behind it, related to what the env runs: a deploy says
- * what it put there and its builds, a build which of its builds the env runs and how that stands
- * among its branch's builds, a branch step the commits; then each job and its newest runs, the
- * one on the env marked.
+ * A step's box for one env — only what it left there: a deploy, what it put on the env and with
+ * which builds; a build, the one the env runs and whether its branch has newer good ones; the
+ * push, the branch and how far the deployed commit is behind its head. Its title opens the step.
  */
 export const stepContent = (
   step: StepConfig,
@@ -543,116 +641,26 @@ export const stepContent = (
   context: BoxContext,
 ): GraphNodeContent => {
   const title = fillTemplate(step.label, { env: context.env, branch: context.branch });
-  //? A per-branch step (its history is read by branch — a push's commits), or one with no job
-  //? that does not act on the env
-  const perBranch =
-    Object.values(context.history?.branches ?? {}).some((steps) =>
-      steps.some((item) => item.step.id === step.id),
-    ) ||
-    (step.job === undefined && !cellOf(context.row, step));
-  if (perBranch) return { title, rows: branchRows(history, context) };
+  const to = history?.jobs.length ? toStep(step.id) : undefined;
+  if (isBranchStep(step, context)) return { title, to, rows: branchRows(history, context) };
   const here = deployedHere(context.row, step.id);
-  if (here !== undefined) return { title, rows: buildRows(here, history, context) };
-  const rows: Line[] = [];
+  if (here !== undefined) return { title, to, rows: buildRows(step, here, history, context) };
   const cell = cellOf(context.row, step);
   const jobs = history?.jobs ?? [];
-  if (cell) rows.push(...onEnvRows(cell, jobs, context));
-  if (!jobs.length) {
-    rows.push([
-      {
-        text: history?.error ?? (context.history ? 'no runs read' : 'reading…'),
-        role: history?.error ? 'warn' : 'muted',
-      },
-    ]);
-    return { title, rows };
-  }
-  const onEnv = cell && runByUrl(jobs, cell.latest.url)?.run;
-  for (const job of jobs) {
-    rows.push(jobHeader(job));
-    if (job.relation) rows.push([{ text: `  ${job.relation}`, role: 'muted' }]);
-    for (const run of job.runs.slice(0, RUNS_IN_BOX))
-      rows.push([
-        { text: '  ' },
-        ...compactRun(run, {
-          branch: context.branch,
-          marker: run === onEnv ? `◀ on ${context.env}` : undefined,
-        }),
-      ]);
-  }
-  return { title, rows };
-};
-
-// --- the branch relations graph -----------------------------------------------------------------
-
-/**
- * `envs[].branches` against what runs: each branch (pattern) once, its envs fanned out after it,
- * each marked `tracks` (the config says so), `runs` (it does now) or both. An env tracking one
- * branch and running another sits under both.
- */
-export const relationLines = (configs: readonly EnvConfig[], rows: readonly EnvRow[]): Line[] => {
-  const relations = branchRelations(configs, rows);
-  if (!relations.length)
-    return [
-      [
-        {
-          text: 'Nothing to relate yet — no env lists branches (envs[].branches in depli.config.ts) and none has run one',
-          role: 'muted',
-        },
+  if (cell) return { title, to, rows: onEnvRows(cell, jobs, context) };
+  if (!jobs.length)
+    return {
+      title,
+      rows: [
+        [
+          {
+            text: history?.error ?? (context.history ? 'no runs read' : 'reading…'),
+            role: history?.error ? 'warn' : 'muted',
+          },
+        ],
       ],
-    ];
-  const width = Math.max(...relations.map((relation) => relation.branch.length));
-  const envWidth = Math.max(...configs.map((entry) => entry.id.length));
-  const running = new Map(rows.map((row) => [row.env, runningBranch(row)]));
-  const lines: Line[] = [];
-  for (const relation of relations) {
-    const envs = configs
-      .map((entry) => entry.id)
-      .filter((id) => relation.tracks.includes(id) || relation.runs.includes(id));
-    envs.forEach((env, index) => {
-      const config = configs.find((entry) => entry.id === env);
-      const tracks = relation.tracks.includes(env);
-      const runs = relation.runs.includes(env);
-      const connector =
-        index === 0
-          ? envs.length > 1
-            ? ' ─┬─▶ '
-            : ' ───▶ '
-          : index === envs.length - 1
-            ? '  └─▶ '
-            : '  ├─▶ ';
-      const actual = running.get(env);
-      const off = onTrack(config, actual) === false;
-      lines.push([
-        index === 0
-          ? { text: relation.branch.padEnd(width), role: 'accent', bold: true }
-          : { text: ' '.repeat(width) },
-        { text: connector, role: 'muted' },
-        { text: env, role: 'heading', url: config?.url },
-        { text: ' '.repeat(envWidth - env.length + 2) },
-        {
-          text: tracks && runs ? 'tracks · runs' : tracks ? 'tracks' : 'runs',
-          role: tracks && runs ? 'ok' : tracks ? 'warn' : 'muted',
-        },
-        ...(tracks && !runs
-          ? [
-              {
-                text: ` — runs ${actual ?? 'nothing known'}`,
-                role: off ? 'warn' : 'muted',
-              } as Segment,
-            ]
-          : []),
-        ...(!tracks && runs && config?.branches?.length
-          ? [
-              {
-                text: ` — off-track, should run ${config.branches.join(' ')}`,
-                role: 'warn',
-              } as Segment,
-            ]
-          : []),
-      ]);
-    });
-  }
-  return lines;
+    };
+  return { title, to, rows: [branchRunRow(step, jobs, context)] };
 };
 
 // --- runs ---------------------------------------------------------------------------------------
@@ -663,6 +671,8 @@ export interface RunContext {
   branch?: string;
   /** For a build run: the envs running it now (`deployedBuilds`). */
   deployedOn?: Map<number, string[]>;
+  /** The run's page; set, the builds a run deployed link to theirs too. */
+  toRun?: (run: HistoryRun) => string | undefined;
 }
 
 /** One run as a line: number (link), result, time, duration, branch, what it deployed, who. */
@@ -670,8 +680,8 @@ export const runLine = (step: StepConfig, run: HistoryRun, context: RunContext):
   const versions = versionsOf(step, run).filter((version) => version.value);
   const on = context.deployedOn?.get(Number(run.id));
   return [
-    { text: '        ' },
-    { text: run.label.padStart(6), role: 'accent', url: run.url },
+    { text: '    ' },
+    { text: run.label.padStart(6), role: 'accent', url: run.url, to: context.toRun?.(run) },
     { text: ` ${RUN_ICON[run.state]} `, role: RUN_ROLE[run.state] },
     { text: clock(run.at), role: 'text' },
     { text: ` ${duration(run.durationMs).padStart(7)}`, role: 'muted' },
@@ -693,6 +703,7 @@ export const runLine = (step: StepConfig, run: HistoryRun, context: RunContext):
             text: `#${version.number}`,
             role: 'accent',
             url: context.history && findRun(context.history, version.stepId, version.number)?.url,
+            to: context.toRun && buildTo(context.history, version.stepId, version.number),
           },
     ]),
     ...(on?.length ? [{ text: `  → on ${on.join(', ')}`, role: 'ok' } as Segment] : []),
@@ -703,67 +714,8 @@ export const runLine = (step: StepConfig, run: HistoryRun, context: RunContext):
   ];
 };
 
-/** The fold key of a job's runs, and of one day of them. */
-export const jobKey = (scope: string, job: string) => `job:${scope}:${job}`;
+/** The fold key of one day of a job's runs. */
 export const dayKey = (scope: string, job: string, day: string) => `day:${scope}:${job}:${day}`;
-
-/**
- * A job's runs as folds: one line for the job — closed by default, its tally and newest run on
- * it — and, open, one line per day (the newest open), each day's runs under it.
- */
-export const jobLines = (
-  step: StepConfig,
-  job: JobHistory,
-  context: RunContext,
-  scope: string,
-  isOpen: IsOpen,
-): Line[] => {
-  const key = jobKey(scope, job.job);
-  const open = !job.missing && job.runs.length > 0 && isOpen(key, false);
-  const newest = job.runs[0];
-  const lines: Line[] = [
-    [
-      { text: '  ' },
-      {
-        text: `${job.runs.length ? (open ? '▾' : '▸') : ' '} ${job.job}`,
-        role: job.missing ? 'warn' : 'heading',
-        bold: true,
-        action: job.runs.length ? key : undefined,
-        open,
-      },
-      { text: ' ' },
-      { text: '↗', role: 'accent', url: job.url },
-      {
-        text: `  ${job.missing ? 'not on the server' : tally(job.runs)}${job.relation ? ` · ${job.relation}` : ''}`,
-        role: 'muted',
-      },
-      ...(newest && !open
-        ? [
-            { text: '  newest ', role: 'muted' } as Segment,
-            ...compactRun(newest, { branch: context.branch }),
-          ]
-        : []),
-    ],
-  ];
-  if (!open) return lines;
-  runsByDay(job.runs).forEach(({ day, runs }, index) => {
-    const dayOpen = isOpen(dayKey(scope, job.job, day), index === 0);
-    lines.push([
-      { text: '    ' },
-      {
-        text: `${dayOpen ? '▾' : '▸'} ${day}`,
-        bold: true,
-        action: dayKey(scope, job.job, day),
-        open: dayOpen,
-      },
-      { text: `  ${tally(runs)}`, role: 'muted' },
-    ]);
-    if (dayOpen) lines.push(...runs.map((run) => runLine(step, run, context)));
-  });
-  return lines;
-};
-
-// --- the whole document -------------------------------------------------------------------------
 
 export interface DetailInput {
   configs: readonly EnvConfig[];
@@ -775,366 +727,15 @@ export interface DetailInput {
   branch?: string;
   targetEnv: string;
   width: number;
-  /** The folds the person opened or closed; every job closed when unset. */
+  /** The folds the person opened or closed; each as it says by default when unset. */
   isOpen?: IsOpen;
+  /** A commit's page in the repository, when its provider can say. */
+  commitUrl?: (sha: string) => string | undefined;
 }
 
-const closedByDefault: IsOpen = (_key, byDefault) => byDefault;
-
-/** The overview table: one row per env, every value that has a page a link to it. */
-export const overviewLines = (input: DetailInput): Line[] => {
-  const { configs, rows, history, branch, targetEnv } = input;
-  const envWidth = Math.max(3, ...configs.map((entry) => entry.id.length));
-  const branchWidth = Math.max(12, ...rows.map((row) => (runningBranch(row) ?? '').length));
-  const lines: Line[] = [
-    [
-      {
-        text: `  ${'ENV'.padEnd(envWidth)}  ${'BRANCH ON IT'.padEnd(branchWidth)}  ${'TRACKS'.padEnd(16)}  DEPLOYED BY, BUILDS, THEN EVERY ENV STEP`,
-        role: 'muted',
-        bold: true,
-      },
-    ],
-  ];
-  for (const config of configs) {
-    const row = rows.find((item) => item.env === config.id);
-    const running = runningBranch(row);
-    const off = onTrack(config, running) === false;
-    const deploy = row?.cells.find((cell) => cell.latest.branch !== undefined) ?? row?.cells[0];
-    const steps = history?.envs.find((entry) => entry.env === config.id)?.steps ?? [];
-    const runOfLatest = (url?: string) => {
-      for (const step of steps)
-        for (const job of step.jobs) {
-          const run = job.runs.find((candidate) => candidate.url === url);
-          if (run) return { run, job };
-        }
-      return undefined;
-    };
-    const shown = runOfLatest(deploy?.latest.url);
-    lines.push([
-      {
-        text: config.id === targetEnv ? '▸ ' : '  ',
-        role: 'accent',
-      },
-      {
-        text: config.id,
-        role: config.protected ? 'error' : 'heading',
-        bold: true,
-        url: config.url,
-      },
-      { text: ' '.repeat(envWidth - config.id.length + 2) },
-      {
-        text: (running ?? deploy?.latest.summary ?? '…').padEnd(branchWidth),
-        role: off ? 'warn' : running === branch ? 'accent' : 'text',
-      },
-      { text: `  ${(config.branches?.join(' ') ?? '—').padEnd(16)}`, role: off ? 'warn' : 'muted' },
-      ...(deploy
-        ? ([
-            { text: '  ' },
-            {
-              text: shown ? `${shown.job.job} ${shown.run.label}` : deploy.latest.summary,
-              role: 'accent',
-              url: deploy.latest.url,
-            },
-            ...(shown?.run.actor
-              ? [{ text: ` by ${shown.run.actor.name ?? shown.run.actor.login}`, role: 'muted' }]
-              : []),
-            ...versionsOf(deploy.step, { params: deploy.latest.versions }).flatMap(
-              (version): Segment[] =>
-                version.number === undefined
-                  ? []
-                  : [
-                      { text: `  ${version.stepId} `, role: 'muted' },
-                      {
-                        text: `#${version.number}`,
-                        role: 'accent',
-                        url: findRun(history, version.stepId, version.number)?.url,
-                      },
-                    ],
-            ),
-          ] as Segment[])
-        : []),
-      ...(row?.cells ?? [])
-        .filter((cell) => cell !== deploy)
-        .flatMap((cell): Segment[] => [
-          { text: `  ${cell.step.id} `, role: 'muted' },
-          {
-            text: cell.latest.at
-              ? `${STATE_ICON[cell.latest.state]} ${shortStamp(cell.latest.at)} (${age(cell.latest.at)} ago)`
-              : `${STATE_ICON[cell.latest.state]} ${cell.latest.summary}`,
-            role: cell.latest.state === 'done' ? 'text' : 'warn',
-            url: cell.latest.url,
-          },
-        ]),
-    ]);
-    if (config.url || off)
-      lines.push([
-        { text: `  ${' '.repeat(envWidth + 2)}` },
-        ...(config.url ? [{ text: config.url, role: 'muted', url: config.url } as Segment] : []),
-        ...(off
-          ? [
-              {
-                text: `${config.url ? '  ' : ''}⚠ off-track: runs ${running}`,
-                role: 'warn',
-              } as Segment,
-            ]
-          : []),
-      ]);
-  }
-  return lines;
-};
-
-/**
- * One env: its heading, what it is, its pipeline as a graph of boxes holding each step's facts and
- * jobs, then every job's runs as folds. `withBuilds` lists the shared builds' runs too — the
- * window shows one env alone; the detailed view lists them once, after every env.
- */
-export const envLines = (input: DetailInput, env: string, withBuilds = false): Line[] => {
-  const { configs, rows, history, branch = '', width, isOpen = closedByDefault } = input;
-  const config = configs.find((entry) => entry.id === env);
-  const row = rows.find((item) => item.env === env);
-  const running = runningBranch(row);
-  const steps = input.stepsFor(env);
-  const envHistory = history?.envs.find((entry) => entry.env === env);
-  const context: BoxContext = { env, branch, history, row };
-  const historyOf = (step: StepConfig) => historyFor(step, context);
-  const branchSteps = history?.branches[running ?? branch] ?? [];
-  const deployed = deployedBuilds(rows.filter((item) => item.env === env));
-  const off = onTrack(config, running) === false;
-  const listed = steps.filter(
-    (step) =>
-      envHistory?.steps.some((entry) => entry.step.id === step.id) ||
-      branchSteps.some((entry) => entry.step.id === step.id) ||
-      (withBuilds && history?.shared.some((entry) => entry.step.id === step.id)),
-  );
-  return [
-    heading(`${env}${config?.protected ? ' (protected)' : ''}`, width, config?.url),
-    [
-      { text: 'site ', role: 'muted' },
-      config?.url
-        ? { text: config.url, role: 'accent', url: config.url }
-        : { text: '—', role: 'muted' },
-      { text: '  tracks ', role: 'muted' },
-      { text: config?.branches?.join(' ') ?? '— (envs[].branches)', role: 'text' },
-      { text: '  runs ', role: 'muted' },
-      { text: running ?? '—', role: off ? 'warn' : running === branch ? 'accent' : 'text' },
-      ...(off ? [{ text: '  ⚠ off-track', role: 'warn' } as Segment] : []),
-    ],
-    [],
-    subheading('Pipeline', `what ${env} runs, step by step — ◀ marks what is on it`),
-    ...graphLines(steps, (step) => stepContent(step, historyOf(step), context), width - 2).map(
-      (line) => [{ text: '  ' }, ...line],
-    ),
-    [],
-    subheading('Runs', 'every job — ▸ opens its runs by day'),
-    ...(history
-      ? listed.flatMap((step) => {
-          const stepHistory = historyOf(step);
-          if (stepHistory?.error && !stepHistory.jobs.length)
-            return [[{ text: `  ${step.id}: ${stepHistory.error}`, role: 'warn' } as Segment]];
-          return (stepHistory?.jobs ?? []).flatMap((job) =>
-            jobLines(
-              step,
-              job,
-              { history, branch, deployedOn: deployed.get(step.id) },
-              env,
-              isOpen,
-            ),
-          );
-        })
-      : [[{ text: '  reading…', role: 'muted' } as Segment]]),
-    [],
-  ];
-};
-
-/** The top of the detailed view: the overview table, then branches → envs. */
-export const overviewDoc = (input: DetailInput): Line[] => [
-  heading('Environments', input.width),
-  ...overviewLines(input),
-  [],
-  heading('Branches → envs (envs[].branches, and what runs)', input.width),
-  ...relationLines(input.configs, input.rows),
-  [],
-];
-
-/** A page of the detailed view's tabs: one env with its jobs, or one job across its envs. */
-export type DetailTab =
-  | { kind: 'env'; id: string; label: string }
-  | { kind: 'job'; id: string; label: string; step: StepConfig };
-
-/** The tab's id — `env:ci`, `job:deploy` — unique across both kinds. */
-export const tabId = (tab: Pick<DetailTab, 'kind' | 'id'>) => `${tab.kind}:${tab.id}`;
-
-/**
- * The detailed view's tabs: every env, then every step with jobs read — the builds, and each
- * env-scoped step once (`deploy_frontend_only_{env}` is one tab, its envs inside it).
- */
-export const detailTabs = (input: Pick<DetailInput, 'configs' | 'pipeline' | 'history'>) => {
-  const { configs, pipeline, history } = input;
-  const read = (step: StepConfig) =>
-    Boolean(
-      history?.shared.some((entry) => entry.step.id === step.id) ||
-        history?.envs.some((env) => env.steps.some((entry) => entry.step.id === step.id)),
-    );
-  return {
-    envs: configs.map((config): DetailTab => ({ kind: 'env', id: config.id, label: config.id })),
-    jobs: pipeline.filter(read).map(
-      (step): DetailTab => ({
-        kind: 'job',
-        id: step.id,
-        label: step.label.replaceAll('{env}', '*'),
-        step,
-      }),
-    ),
-  };
-};
-
-/** Scoped to one job its runs are what the page is for — open until closed. */
-const jobsOpen =
-  (isOpen: IsOpen): IsOpen =>
-  (key, byDefault) =>
-    isOpen(key, key.startsWith('job:') || byDefault);
-
-/** A step's jobs as folds, or why they could not be read. */
-const stepJobs = (
-  stepHistory: StepHistory | undefined,
-  context: RunContext,
-  scope: string,
-  isOpen: IsOpen,
-): Line[] => {
-  if (!stepHistory) return [[{ text: '  not read', role: 'muted' }]];
-  if (stepHistory.error && !stepHistory.jobs.length)
-    return [[{ text: `  ${stepHistory.error}`, role: 'warn' }]];
-  if (!stepHistory.jobs.length) return [[{ text: '  no jobs', role: 'muted' }]];
-  return stepHistory.jobs.flatMap((job) =>
-    jobLines(stepHistory.step, job, context, scope, isOpen),
-  );
-};
-
-/**
- * One job across the envs: a build — which envs run which of its builds now, then its runs; an
- * env-scoped step — its latest run on every env, then per env its jobs (`alsoDeployedBy` ones
- * too) and their runs.
- */
-export const jobTabLines = (input: DetailInput, step: StepConfig): Line[] => {
-  const { configs, rows, history, branch = '', width } = input;
-  const isOpen = jobsOpen(input.isOpen ?? closedByDefault);
-  const deployedOn = deployedBuilds(rows).get(step.id);
-  const job = typeof step.job === 'string' ? step.job : step.id;
-  const also = Array.isArray(step.alsoDeployedBy) ? (step.alsoDeployedBy as string[]) : [];
-  const top: Line[] = [
-    heading(step.label.replaceAll('{env}', '*'), width),
-    [
-      { text: 'job ', role: 'muted' },
-      { text: job, role: 'text' },
-      ...(also.length
-        ? [
-            { text: '  also deployed by ', role: 'muted' } as Segment,
-            { text: also.join(' '), role: 'text' } as Segment,
-          ]
-        : []),
-    ],
-    [],
-  ];
-  if (!history) return [...top, [{ text: '  reading…', role: 'muted' }]];
-
-  const shared = history.shared.find((entry) => entry.step.id === step.id);
-  if (shared) {
-    const builds = [...(deployedOn ?? new Map<number, string[]>())].sort(([a], [b]) => b - a);
-    return [
-      ...top,
-      subheading('On envs now', 'the builds each env runs, from its deploy'),
-      ...(builds.length
-        ? builds.map(([number, envs]): Line => [
-            { text: '    ' },
-            {
-              text: `#${number}`.padStart(6),
-              role: 'accent',
-              url: findRun(history, step.id, number)?.url,
-            },
-            { text: '  → ', role: 'muted' },
-            { text: envs.join(', '), role: 'ok', bold: true },
-          ])
-        : [[{ text: '    none of its builds is on an env', role: 'muted' } as Segment]]),
-      [],
-      subheading('Runs', 'by day — ▾ closes a job or a day'),
-      ...stepJobs(shared, { history, branch, deployedOn }, 'jobtab', isOpen),
-      [],
-    ];
-  }
-
-  const envs = configs.filter((config) =>
-    input.stepsFor(config.id).some((item) => item.id === step.id),
-  );
-  const envWidth = Math.max(3, ...envs.map((config) => config.id.length));
-  const latest = envs.map((config): Line => {
-    const cell = cellOf(
-      rows.find((row) => row.env === config.id),
-      step,
-    );
-    const versions = cell
-      ? versionsOf(step, { params: cell.latest.versions }).filter(
-          (version) => version.number !== undefined,
-        )
-      : [];
-    return [
-      { text: '    ' },
-      {
-        text: config.id.padEnd(envWidth),
-        role: config.protected ? 'error' : 'heading',
-        bold: true,
-        url: config.url,
-      },
-      ...(cell
-        ? ([
-            { text: `  ${STATE_ICON[cell.latest.state]} `, role: 'text' },
-            { text: cell.latest.summary, role: 'accent', url: cell.latest.url },
-            { text: `  ${when(cell.latest.at)}`, role: 'muted' },
-            ...(cell.latest.branch
-              ? [
-                  {
-                    text: `  ${cell.latest.branch}`,
-                    role: cell.latest.branch === branch ? 'accent' : 'text',
-                    bold: cell.latest.branch === branch,
-                  },
-                ]
-              : []),
-            ...versions.flatMap((version): Segment[] => [
-              { text: `  ${version.stepId} `, role: 'muted' },
-              {
-                text: `#${version.number}`,
-                role: 'accent',
-                url: findRun(history, version.stepId, version.number as number)?.url,
-              },
-            ]),
-          ] as Segment[])
-        : [{ text: '  …', role: 'muted' } as Segment]),
-    ];
-  });
-  return [
-    ...top,
-    subheading('Per env', 'its latest run on each env'),
-    ...latest,
-    [],
-    ...envs.flatMap((config): Line[] => {
-      const stepHistory = history.envs
-        .find((entry) => entry.env === config.id)
-        ?.steps.find((entry) => entry.step.id === step.id);
-      return [
-        subheading(config.id, config.url),
-        ...stepJobs(stepHistory, { history, branch }, 'jobtab', isOpen),
-        [],
-      ];
-    }),
-  ];
-};
-
-/** The page of a tab. An env tab lists the builds' runs too — the view has no other place for them. */
-export const tabLines = (input: DetailInput, tab: DetailTab): Line[] =>
-  tab.kind === 'env' ? envLines(input, tab.id, true) : jobTabLines(input, tab.step);
-
-/** The jobs' folds in the lines, and whether any is closed — what "open all" acts on. */
-export const jobFolds = (lines: readonly Line[]) => {
-  const folds = linksOf(lines).filter((item) => item.action?.startsWith('job:'));
+/** The folds in the lines, and whether any is closed — what "open all" acts on. */
+export const foldsOf = (lines: readonly Line[]) => {
+  const folds = linksOf(lines).filter((item) => item.action);
   return {
     keys: folds.map((item) => item.action as string),
     anyClosed: folds.some((item) => !item.open),

@@ -68,6 +68,12 @@ export const listTextWidth = (columns: number, theme: TuiTheme): number => {
   return Math.max(1, paneWidth - 6);
 };
 
+/** Whether the arrow keys are in the detail pane — see `detailFocusable`. */
+export interface DetailFocus {
+  isFocused: boolean;
+  blur: () => void;
+}
+
 export interface ListDetailProps<T> {
   /** Names the list pane, with its count in the badge. */
   title: string;
@@ -86,8 +92,16 @@ export interface ListDetailProps<T> {
   emptyText?: ReactNode;
   /** Names the detail pane. Defaults to the selected row's own label. */
   detailTitle?: string;
-  /** Draws the right-hand pane for whichever row the cursor is on. */
-  renderDetail: (item: PickItem<T> | undefined, index: number) => ReactNode;
+  /**
+   * Draws the right-hand pane for whichever row the cursor is on. With `detailFocusable`, `focus`
+   * says whether the arrows are in that pane, and `blur` hands them back to the list.
+   */
+  renderDetail: (item: PickItem<T> | undefined, index: number, focus: DetailFocus) => ReactNode;
+  /**
+   * → moves the arrow keys from the list into the detail pane (its toolbar, say), and the pane
+   * gives them back through `blur`. While there, the list ignores the arrows and Enter.
+   */
+  detailFocusable?: boolean;
   /** Enter, and a click, on a row that can be acted on. */
   onActivate?: (item: PickItem<T>, index: number) => void;
   /** Appended to the navigation hints this already draws. */
@@ -193,6 +207,7 @@ export const ListDetail = <T,>({
   emptyText,
   detailTitle,
   renderDetail,
+  detailFocusable = false,
   onActivate,
   hints = [],
   onSelectionChange,
@@ -281,6 +296,14 @@ export const ListDetail = <T,>({
   }, [ids, selectRequest?.seq]);
 
   const current = items[selected];
+  const [detailFocused, setDetailFocused] = useState(false);
+  //? A different row has different buttons: the arrows go back to the list
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new row is the trigger
+  useEffect(() => setDetailFocused(false), [current?.id]);
+  const focus: DetailFocus = {
+    isFocused: detailFocused && isInputActive,
+    blur: () => setDetailFocused(false),
+  };
 
   //? Held in a ref for the same reason: callers write `onSelectionChange`
   //? inline, so as a dependency it would re-report on every render.
@@ -320,15 +343,20 @@ export const ListDetail = <T,>({
         setSelected((at) => moveInList(items, columns, at, 'left'));
       else if (layout === 'grid' && key.rightArrow)
         setSelected((at) => moveInList(items, columns, at, 'right'));
+      else if (detailFocusable && key.rightArrow && current && !current.isHeader)
+        setDetailFocused(true);
       else if (key.return && current && !current.isHeader && !current.disabled) {
         onActivate?.(current, selected);
       }
     },
-    { isActive: isInputActive },
+    { isActive: isInputActive && !detailFocused },
   );
 
   const navigationHints: Hint[] = [
     { key: layout === 'grid' ? '↑/↓/←/→' : '↑/↓', label: 'move' },
+    ...(detailFocusable
+      ? [{ key: detailFocused ? '←' : '→', label: detailFocused ? 'back to list' : 'actions' }]
+      : []),
     ...(onActivate ? [{ key: 'Enter', label: activateLabel }] : []),
     ...hints,
   ];
@@ -379,7 +407,7 @@ export const ListDetail = <T,>({
           selected={selected}
           visibleRows={listRows}
           scrollbar={listScrollbar}
-          isFocused={isInputActive}
+          isFocused={isInputActive && !detailFocused}
           width={listWidth}
           columns={columns}
           cellHeight={layout === 'grid' ? Math.min(gridCellHeight, listRows) : 1}
@@ -428,10 +456,10 @@ export const ListDetail = <T,>({
           ) : detailScroll ? (
             //? Keyed on the row: the next one is read from its top
             <ScrollPanel key={current?.id} keyboardMode="preview" isActive={isInputActive}>
-              {renderDetail(current, selected)}
+              {renderDetail(current, selected, focus)}
             </ScrollPanel>
           ) : (
-            renderDetail(current, selected)
+            renderDetail(current, selected, focus)
           )}
         </Panel>
       </Box>

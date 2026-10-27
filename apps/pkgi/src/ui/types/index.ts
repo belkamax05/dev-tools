@@ -23,8 +23,6 @@ export interface Session {
   compareFilter?: string;
   /** The Add tab's last search, so coming back from an install shows the same results. */
   search?: string;
-  /** The Add tab's prod/dev switch; undefined until toggled, then it overrides `installAs`. */
-  installDev?: boolean;
   /** The version picker, when open: on which package, and whether it adds or changes it. */
   picker?: { name: string; mode: 'set' | 'add' };
 }

@@ -16,6 +16,13 @@ import { ghLoginSetup } from './ghLogin';
 import { checkLog } from './logs';
 import { headsSshCommand, probeSsh, SSH_GUIDE } from './ssh';
 
+/**
+ * A commit's page — built, not read: it needs only the repo and the SHA (github.com only — an
+ * Enterprise `apiUrl` does not say where its web pages are).
+ */
+const commitUrl = (options: Pick<GithubOptions, 'repo' | 'apiUrl'>, sha: string) =>
+  options.repo && !options.apiUrl ? `https://github.com/${options.repo}/commit/${sha}` : undefined;
+
 export type { GithubOptions };
 
 /**
@@ -184,12 +191,7 @@ const branchStatus = async (
       state: 'done',
       summary: `head ${head.sha.slice(0, 8)} (SSH: no commit time, checks or PRs)`,
       ref: { sha: head.sha },
-      //? Built, not read: the commit page needs only the repo and the SHA (github.com only —
-      //? an Enterprise apiUrl does not say where its web pages are)
-      url:
-        options.repo && !options.apiUrl
-          ? `https://github.com/${options.repo}/commit/${head.sha}`
-          : undefined,
+      url: commitUrl(options, head.sha),
       notes: [
         'Over SSH git sees only branch heads — checks, PRs and Actions runs (last run) need the API transport.',
       ],
@@ -279,6 +281,7 @@ export const githubPlugin = definePlugin<GithubOptions>({
   id: 'github',
   label: 'GitHub',
   icon: '🐙',
+  commitUrl: (options, sha) => commitUrl(options, sha),
   transports: [
     {
       id: 'api',

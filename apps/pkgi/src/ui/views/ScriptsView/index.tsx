@@ -186,12 +186,13 @@ export const ScriptsView = ({
           setCurrentId(item?.id);
           session.selected.scripts = item?.id;
         }}
-        renderDetail={(item) => {
+        detailFocusable
+        renderDetail={(item, _index, focus) => {
           const script = item?.value;
           if (!script) return null;
           return (
             <Box flexDirection="column">
-              <Toolbar actions={actionsFor(script)} />
+              <Toolbar actions={actionsFor(script)} isFocused={focus.isFocused} onExit={focus.blur} />
               <Box marginTop={1} flexDirection="column">
                 <Field label="Command">
                   <Text color={colors.text} wrap="wrap">

@@ -49,6 +49,7 @@ export const useLinesNav = (lines: readonly Line[], resetKey?: string) => {
     focused: focusedLink && { line: focusedLink.line, segment: focusedLink.segment },
     focusedUrl: focusedLink?.url,
     focusedAction: focusedLink?.action,
+    focusedTo: focusedLink?.to,
     focusedOpen: focusedLink?.open ?? false,
   };
 };

@@ -10,19 +10,21 @@ import { onFrame } from '@/dev-tools/ui/terminal/frames';
 import type { Line, Segment } from './lines';
 
 /**
- * A link (underlined; a click opens it) or a fold (a click toggles it) — lit under the pointer or
- * the keyboard's focus.
+ * A link (underlined; a click opens it), a page of the view (bold; a click goes there) or a fold
+ * (a click toggles it) — lit under the pointer or the keyboard's focus.
  */
 const LinkSegment = ({
   segment,
   focused,
   onOpen,
   onAction,
+  onGo,
 }: {
   segment: Segment;
   focused: boolean;
   onOpen: (url: string) => void;
   onAction: (action: string, open: boolean) => void;
+  onGo?: (to: string) => void;
 }) => {
   const colors = useColors();
   const ref = useRef<DOMElement>(null);
@@ -30,15 +32,18 @@ const LinkSegment = ({
     onClick: () =>
       segment.action
         ? onAction(segment.action, Boolean(segment.open))
-        : segment.url && onOpen(segment.url),
+        : segment.to && onGo
+          ? onGo(segment.to)
+          : segment.url && onOpen(segment.url),
   });
   const lit = isHovered || focused;
+  const page = Boolean(segment.to && onGo);
   return (
     <Box ref={ref} flexShrink={0} backgroundColor={lit ? colors.accent : undefined}>
       <Text
         color={lit ? colors.accentText : colors[segment.role ?? 'accent']}
-        bold={segment.bold}
-        underline={!lit && !segment.action}
+        bold={segment.bold || page}
+        underline={!lit && !segment.action && !page}
       >
         {segment.text}
       </Text>
@@ -58,6 +63,8 @@ export interface LinesPanelProps {
   onOpen: (url: string) => void;
   /** A fold's line was clicked. */
   onAction?: (action: string, open: boolean) => void;
+  /** A page of the view was clicked; unset, those segments open their `url` like any link. */
+  onGo?: (to: string) => void;
   isActive?: boolean;
 }
 
@@ -74,6 +81,7 @@ export const LinesPanel = ({
   focused,
   onOpen,
   onAction = () => {},
+  onGo,
   isActive = true,
 }: LinesPanelProps) => {
   const colors = useColors();
@@ -107,13 +115,14 @@ export const LinesPanel = ({
                 <Text> </Text>
               ) : (
                 line.map((segment, part) =>
-                  (segment.url || segment.action) && isActive ? (
+                  (segment.url || segment.action || (segment.to && onGo)) && isActive ? (
                     <LinkSegment
                       key={part}
                       segment={segment}
                       focused={focused?.line === at && focused.segment === part}
                       onOpen={onOpen}
                       onAction={onAction}
+                      onGo={onGo}
                     />
                   ) : (
                     <Box key={part} flexShrink={0}>

@@ -26,7 +26,6 @@ import useDepli, { type DepliData } from '../useDepli';
 import BranchesView from '../views/BranchesView';
 import ChainView from '../views/ChainView';
 import ConnectionsView from '../views/ConnectionsView';
-import EnvironmentsDetail from '../views/EnvironmentsDetail';
 import EnvironmentsView from '../views/EnvironmentsView';
 import SettingsView from '../views/SettingsView';
 
@@ -126,7 +125,7 @@ export interface AppProps {
   configPath: string;
   session: Session;
   notice?: string;
-  /** Open on the Environments window (`depli environments`) rather than the tab alone. */
+  /** Open on the Environments view (`depli environments`) rather than the tab alone. */
   environments?: boolean;
   onConfigChange: (config: DepliConfig) => void;
   /** The tab changed — the session already holds the new value. */
@@ -172,11 +171,8 @@ export const App = ({
   const [branchPicker, setBranchPicker] = useState(Boolean(flowIntent?.pickBranch));
   //? Bumped to open the Chain's environments panel from the status row
   const [envOpenRequest] = useState(0);
-  //? The Environments window, over whichever tab is open (footer E), and its detailed view —
-  //? the whole interface while open. Esc steps back: detailed → window → the tab
-  const [envView, setEnvView] = useState<'closed' | 'window' | 'detailed'>(
-    environments ? 'window' : 'closed',
-  );
+  //? The Environments view (footer E): the whole interface while open; Esc goes back to the tab
+  const [envView, setEnvView] = useState<'closed' | 'open'>(environments ? 'open' : 'closed');
   const { status, notify, setStatus } = useStatus(notice ?? project.problems[0]);
   const data = useDepli(depli, notify);
   const envs = project.config.envs ?? [];
@@ -202,7 +198,7 @@ export const App = ({
       data.resetBranch();
       notify(`Back on ${data.current}`, 'ok');
     },
-    { isActive: !isInputCaptured && envView !== 'detailed' },
+    { isActive: !isInputCaptured && envView === 'closed' },
   );
 
   //? fe ⇄ be: the other flow's config, in place — the App is mounted again on it
@@ -257,33 +253,24 @@ export const App = ({
       },
       tooltip: 'Read the chain, the branches and the envs again',
     },
-    envView === 'window'
-      ? {
-          id: 'environments',
-          label: 'Open detailed',
-          hotkey: 'E',
-          onPress: () => setEnvView('detailed'),
-          tooltip:
-            'Every env in full: all jobs, every run by day, how they relate — over everything',
-        }
-      : {
-          id: 'environments',
-          label: 'Environments',
-          hotkey: 'E',
-          onPress: () => setEnvView('window'),
-          tooltip: 'Every env: what it runs, what it should, its jobs and runs (Esc back)',
-        },
+    {
+      id: 'environments',
+      label: 'Environments',
+      hotkey: 'E',
+      onPress: () => setEnvView('open'),
+      tooltip: 'Every env: what is on it, each job and run in place, over everything (Esc back)',
+    },
   ];
 
-  if (envView === 'detailed')
+  if (envView === 'open')
     return (
       <TuiThemeProvider theme={depliTheme} palette={config.theme}>
-        <EnvironmentsDetail
+        <EnvironmentsView
           data={data}
           project={project}
           status={status}
           notify={notify}
-          onClose={() => setEnvView('window')}
+          onClose={() => setEnvView('closed')}
         />
       </TuiThemeProvider>
     );
@@ -327,14 +314,6 @@ export const App = ({
       footerHints="[r] refresh · [B] checkout branch"
       footerActions={footerActions}
     >
-      {envView === 'window' && (
-        <EnvironmentsView
-          data={data}
-          project={project}
-          notify={notify}
-          onClose={() => setEnvView('closed')}
-        />
-      )}
       {envView === 'closed' && tab === 'chain' && branchPicker && (
         <BranchesView
           data={data}

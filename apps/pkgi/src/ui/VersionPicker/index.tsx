@@ -22,6 +22,8 @@ export interface VersionPickerProps {
   /** What Enter does with the version, in words — "install", "switch to". */
   verb: string;
   onPick: (version: string) => void;
+  /** Where the cursor starts — the version chosen last time, for a picker used as a dropdown. */
+  initialVersion?: string;
   onClose: () => void;
 }
 
@@ -47,6 +49,7 @@ export const VersionPicker = ({
   showUnstable: initialUnstable,
   verb,
   onPick,
+  initialVersion,
   onClose,
 }: VersionPickerProps) => {
   const colors = useColors();
@@ -126,7 +129,11 @@ export const VersionPicker = ({
         activateLabel={verb}
         activateOnClick={false}
         initialSelectedId={
-          current && rows.some((row) => row.version === current) ? current : info?.latest
+          initialVersion && rows.some((row) => row.version === initialVersion)
+            ? initialVersion
+            : current && rows.some((row) => row.version === current)
+              ? current
+              : info?.latest
         }
         hints={[
           {
@@ -137,13 +144,16 @@ export const VersionPicker = ({
           { key: 'Esc', label: 'back', onPress: onClose },
         ]}
         onActivate={(item) => item.value && onPick(item.value.version)}
-        renderDetail={(item) => {
+        detailFocusable
+        renderDetail={(item, _index, focus) => {
           const row = item?.value;
           if (!row) return null;
           const kind = current ? updateKind(current, row.version) : 'none';
           return (
             <Box flexDirection="column">
               <Toolbar
+                isFocused={focus.isFocused}
+                onExit={focus.blur}
                 actions={[
                   {
                     hotkey: 'Enter',

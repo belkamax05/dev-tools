@@ -20,7 +20,7 @@ import {
 } from './api';
 import type { JobStepOptions } from './index';
 
-/** Builds read per job for the detailed view — more than a status needs, still one request. */
+/** Builds read per job for the Environments view — more than a status needs, still one request. */
 export const HISTORY_READ = 100;
 
 const HISTORY_TREE = `url,builds[number,result,building,timestamp,duration,url,actions[parameters[name,value],causes[userId,userName,shortDescription],lastBuiltRevision[SHA1],remoteUrls]]{0,${HISTORY_READ}}`;

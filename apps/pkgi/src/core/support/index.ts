@@ -84,7 +84,7 @@ export const getPackageSupport = async (
   if (!current) return undefined;
   const published = ENDOFLIFE_PRODUCTS[name] ? await getSupport(name, current, force) : undefined;
   if (!info || info.error) return published;
-  const activity = await getReleaseActivity(name, registry, force);
+  const activity = await getReleaseActivity(name, registry, force, [info.latest, info.next]);
   const major = parseVersion(current)?.major;
   const newest = info.latest ? parseVersion(info.latest)?.major : undefined;
   const highestVersion = highestRelease(activity?.published ?? {});
@@ -92,6 +92,8 @@ export const getPackageSupport = async (
     lastPublished: activity?.lastPublished,
     highestVersion,
     highestPublished: highestVersion ? activity?.published[highestVersion] : undefined,
+    latestPublished: info.latest ? activity?.published[info.latest] : undefined,
+    nextPublished: info.next ? activity?.published[info.next] : undefined,
     lineVersion: Object.entries(activity?.published ?? {}).find(
       ([version, time]) =>
         major !== undefined &&

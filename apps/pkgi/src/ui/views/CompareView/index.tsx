@@ -544,13 +544,16 @@ export const CompareView = ({
           hints={hints}
           onActivate={(item) => toggle(item.value)}
           onSelectionChange={(item) => setPickId(item?.id)}
-          renderDetail={(item) => {
+          detailFocusable
+          renderDetail={(item, _index, focus) => {
             const folder = item?.value;
             if (!folder) return null;
             const ticked = selection.includes(folder.path);
             return (
               <Box flexDirection="column">
                 <Toolbar
+                  isFocused={focus.isFocused}
+                  onExit={focus.blur}
                   actions={[
                     {
                       hotkey: 'Space',
@@ -679,13 +682,16 @@ export const CompareView = ({
           setCurrentId(item?.id);
           session.selected.compare = item?.id;
         }}
-        renderDetail={(item) => {
+        detailFocusable
+        renderDetail={(item, _index, focus) => {
           const row = item?.value;
           if (!row) return null;
           const targets = behind(row);
           return (
             <Box flexDirection="column">
               <Toolbar
+                isFocused={focus.isFocused}
+                onExit={focus.blur}
                 actions={[
                   ...(targets.length && row.highest
                     ? [

@@ -74,7 +74,7 @@ test('the header lines its columns up with the rows', () => {
   expect(drawn.indexOf('#1020')).toBe(header.indexOf('build-nginx'));
 });
 
-test('the extended table adds TRACKS after the branch and tags an env off-track', () => {
+test('the extended table adds MEANT FOR after the branch and tags an env off-track', () => {
   const colors = { error: 'red', warn: 'orange', accent: 'blue', ok: 'green' };
   const data = { branch: 'develop', chain, envs: [row], targetEnv: 'ci3' };
   const plain = envTable({ envIds: ['ci3'], protectedEnvs: [], data, colors });
@@ -85,13 +85,13 @@ test('the extended table adds TRACKS after the branch and tags an env off-track'
     colors,
     configs: [{ id: 'ci3', branches: ['develop'] }],
   });
-  expect(plain.header).not.toContain('TRACKS');
+  expect(plain.header).not.toContain('MEANT FOR');
   expect(plain.items[0]?.prefix.text.trim()).toBe('current');
   expect(extended.items[0]?.prefix).toEqual({ text: 'current · off-track', color: 'orange' });
-  //? TRACKS sits between the branch and the build columns, in the header and the row alike
+  //? MEANT FOR sits between the branch and the build columns, in the header and the row alike
   const label = extended.items[0]?.label ?? '';
   const drawn = `  ${extended.items[0]?.prefix.text} ${label}`;
-  expect(drawn.indexOf('develop')).toBe(extended.header.indexOf('TRACKS'));
+  expect(drawn.indexOf('develop')).toBe(extended.header.indexOf('MEANT FOR'));
   expect(label.indexOf('release-sprint-26.14')).toBeLessThan(label.indexOf('develop'));
   expect(label.indexOf('develop')).toBeLessThan(label.indexOf('#1020'));
 });
