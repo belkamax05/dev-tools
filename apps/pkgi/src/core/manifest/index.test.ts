@@ -10,6 +10,9 @@ import {
   detectPackageManager,
   findLockfile,
   installCommand,
+  overrideValue,
+  readOverrides,
+  replaceJsonString,
   parsePackageManagerField,
   readManifest,
   removeCommand,
@@ -197,5 +200,44 @@ describe('script, audit and cache commands', () => {
     expect(clearCacheCommand('bun')).toEqual(['bun', 'pm', 'cache', 'rm']);
     expect(clearCacheCommand('npm')).toEqual(['npm', 'cache', 'clean', '--force']);
     expect(clearCacheCommand('pnpm')).toEqual(['pnpm', 'store', 'prune']);
+  });
+});
+
+describe('overrides', () => {
+  const text = `{
+  "devDependencies": {
+    "vite": "8.3.5"
+  },
+  "overrides": {
+    "stylus": "github:stylus/stylus#0.64.0",
+    "nested": { "vite": "1.0.0" },
+    "vite": "8.2.0"
+  },
+  "pnpm": { "overrides": { "react": "^18.2.0" } }
+}
+`;
+
+  test('plain entries for a package name are read from every override field', () => {
+    const found = readOverrides(JSON.parse(text), '/x/package.json');
+    expect(found.vite).toEqual({ file: '/x/package.json', field: 'overrides', value: '8.2.0' });
+    expect(found.react?.field).toBe('pnpm.overrides');
+    expect(found.nested).toBeUndefined();
+  });
+
+  test('only the override value changes; the range, nested lookalikes and layout stay', () => {
+    const next = replaceJsonString(text, ['overrides', 'vite'], '8.4.1');
+    expect(next).toBe(text.replace('"vite": "8.2.0"', '"vite": "8.4.1"'));
+    expect(replaceJsonString(text, ['pnpm', 'overrides', 'react'], '^19.0.0')).toContain(
+      '"react": "^19.0.0"',
+    );
+    expect(replaceJsonString(text, ['overrides', 'missing'], '1.0.0')).toBeUndefined();
+    expect(replaceJsonString(text, ['overrides', 'nested'], '1.0.0')).toBeUndefined();
+  });
+
+  test('the new override keeps the old one\'s form, and non-versions are not touched', () => {
+    const base = { file: '', field: 'overrides' as const };
+    expect(overrideValue({ ...base, value: '8.2.0' }, '8.4.1')).toBe('8.4.1');
+    expect(overrideValue({ ...base, value: '^5.1.0' }, '5.2.0')).toBe('^5.2.0');
+    expect(overrideValue({ ...base, value: 'github:stylus/stylus#0.64.0' }, '1.0.0')).toBeUndefined();
   });
 });

@@ -13,6 +13,23 @@ export interface Dependency {
   installed?: string;
   /** Declared somewhere other than the registry (`workspace:`, `file:`, git) — nothing to update. */
   local: boolean;
+  /** An override that decides the installed version whatever the range says — see `Override`. */
+  override?: Override;
+}
+
+/** The fields that force a version on every copy of a package: npm and Bun, Yarn, pnpm. */
+export type OverrideField = 'overrides' | 'resolutions' | 'pnpm.overrides';
+
+/**
+ * A version forced by `overrides` (or `resolutions`, `pnpm.overrides`) — in this folder's
+ * `package.json` or its workspace root's. Only a plain entry for the package's own name counts;
+ * nested and selector forms (`a>b`, `a@1`, objects) are left alone.
+ */
+export interface Override {
+  /** The `package.json` it is in. */
+  file: string;
+  field: OverrideField;
+  value: string;
 }
 
 export interface Manifest {
@@ -56,6 +73,138 @@ export const installedVersion = async (dir: string, name: string): Promise<strin
   }
 };
 
+const OVERRIDE_PATHS: Record<OverrideField, string[]> = {
+  overrides: ['overrides'],
+  resolutions: ['resolutions'],
+  'pnpm.overrides': ['pnpm', 'overrides'],
+};
+
+/** The plain overrides a parsed `package.json` declares, by package name. */
+export const readOverrides = (pkg: Record<string, unknown>, file: string) => {
+  const found: Record<string, Override> = {};
+  for (const [field, path] of Object.entries(OVERRIDE_PATHS) as [OverrideField, string[]][]) {
+    let section: unknown = pkg;
+    for (const key of path)
+      section = section && typeof section === 'object' ? (section as Record<string, unknown>)[key] : undefined;
+    if (!section || typeof section !== 'object') continue;
+    for (const [name, value] of Object.entries(section as Record<string, unknown>))
+      if (typeof value === 'string' && !(name in found)) found[name] = { file, field, value };
+  }
+  return found;
+};
+
+/**
+ * Overrides that reach this folder: its own `package.json`'s, then its workspace root's (the
+ * nearest parent with `workspaces`), which a package manager applies to every member.
+ */
+const overridesFor = async (dir: string, pkg: Record<string, unknown>) => {
+  const own = readOverrides(pkg, join(dir, 'package.json'));
+  let at = dirname(dir);
+  while (true) {
+    const file = join(at, 'package.json');
+    if (existsSync(file)) {
+      try {
+        const parent = (await Bun.file(file).json()) as Record<string, unknown>;
+        if (parent.workspaces) return { ...readOverrides(parent, file), ...own };
+      } catch {}
+    }
+    const up = dirname(at);
+    if (up === at) return own;
+    at = up;
+  }
+};
+
+/** Index just past the JSON string whose opening quote is at `at`. */
+const skipString = (text: string, at: number) => {
+  let index = at + 1;
+  while (index < text.length) {
+    if (text[index] === '\\') index += 2;
+    else if (text[index] === '"') return index + 1;
+    else index += 1;
+  }
+  return index;
+};
+
+/** The keys of the JSON object opening at `open`, with where each value starts — its own only. */
+const objectKeys = (text: string, open: number) => {
+  const keys: { key: string; valueAt: number }[] = [];
+  let depth = 0;
+  let expectKey = false;
+  let index = open;
+  while (index < text.length) {
+    const char = text[index];
+    if (char === '"') {
+      const end = skipString(text, index);
+      if (depth === 1 && expectKey) {
+        let value = text.indexOf(':', end) + 1;
+        while (/\s/.test(text[value] ?? '')) value += 1;
+        keys.push({ key: JSON.parse(text.slice(index, end)) as string, valueAt: value });
+        expectKey = false;
+        index = value;
+        continue;
+      }
+      index = end;
+      continue;
+    }
+    if (char === '{' || char === '[') {
+      depth += 1;
+      if (depth === 1) expectKey = true;
+    } else if (char === '}' || char === ']') {
+      depth -= 1;
+      if (depth === 0) break;
+    } else if (char === ',' && depth === 1) expectKey = true;
+    index += 1;
+  }
+  return keys;
+};
+
+/**
+ * `text` with the string at `path` replaced by `value` — the one value, so the file keeps its own
+ * formatting and key order. Undefined when the path does not lead to a string.
+ */
+export const replaceJsonString = (
+  text: string,
+  path: string[],
+  value: string,
+): string | undefined => {
+  let at = text.indexOf('{');
+  for (const [step, key] of path.entries()) {
+    if (at < 0 || text[at] !== '{') return undefined;
+    const found = objectKeys(text, at).find((entry) => entry.key === key);
+    if (!found) return undefined;
+    at = found.valueAt;
+    if (step === path.length - 1) {
+      if (text[at] !== '"') return undefined;
+      return text.slice(0, at) + JSON.stringify(value) + text.slice(skipString(text, at));
+    }
+  }
+  return undefined;
+};
+
+/**
+ * The override `version` should be written as, keeping the old one's `^`/`~`/exact form —
+ * undefined for one that is not a plain version (a git URL, `$foo`, `>=1`), which is left alone.
+ */
+export const overrideValue = (override: Override, version: string): string | undefined => {
+  const prefix = rangePrefix(override.value);
+  return prefix === undefined ? undefined : `${prefix}${version}`;
+};
+
+/** Move `name`'s override to `version`. False when it could not be: see `overrideValue`. */
+export const writeOverride = async (
+  name: string,
+  override: Override,
+  version: string,
+): Promise<boolean> => {
+  const value = overrideValue(override, version);
+  if (value === undefined) return false;
+  const text = await Bun.file(override.file).text();
+  const next = replaceJsonString(text, [...OVERRIDE_PATHS[override.field], name], value);
+  if (next === undefined) return false;
+  if (next !== text) await Bun.write(override.file, next);
+  return true;
+};
+
 /** Read a folder's `package.json` and what is installed for each dependency it declares. */
 export const readManifest = async (
   dir: string,
@@ -84,8 +233,13 @@ export const readManifest = async (
       declared.push({ name, range, type, local: isLocalSpec(range) });
     }
   }
+  const overrides = await overridesFor(dir, pkg);
   const dependencies = await Promise.all(
-    declared.map(async (dep) => ({ ...dep, installed: await installedVersion(dir, dep.name) })),
+    declared.map(async (dep) => ({
+      ...dep,
+      installed: await installedVersion(dir, dep.name),
+      ...(overrides[dep.name] ? { override: overrides[dep.name] } : {}),
+    })),
   );
   return {
     dir,

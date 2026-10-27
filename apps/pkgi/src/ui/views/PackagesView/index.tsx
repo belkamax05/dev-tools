@@ -16,10 +16,12 @@ import type { DependencyType } from '../../../config/settings';
 import type { SupportInfo } from '../../../core/eol';
 import {
   addCommand,
+  overrideValue,
   readManifest,
   removeCommand,
   setVersionCommand,
   shellQuote,
+  writeOverride,
 } from '../../../core/manifest';
 import { buildRows, fetchInfos, isOutdated, type PackageRow } from '../../../core/packages';
 import { type SearchResult, searchPackages } from '../../../core/registry';
@@ -116,6 +118,7 @@ const rowHint = (row: PackageRow, support: SupportInfo | undefined, checking: bo
   if (support?.status === 'eol' || support?.status === 'stale')
     parts.push(`⚠ ${supportLabel(support)}`);
   else if (support) parts.push(supportLabel(support));
+  if (row.override) parts.push(`⚑ pinned ${row.override.value}`);
   if (row.mismatch) parts.push('≠ declared');
   if (row.note) parts.push('✎');
   return parts.join(' ');
@@ -286,11 +289,34 @@ export const PackagesView = ({
       })),
     );
 
+  //? An override decides the installed version whatever the range says: changing the range alone
+  //? reinstalls the pinned version and looks like nothing happened, so the override moves too
+  const pinnedByHand = (row: PackageRow, version: string) =>
+    row.override !== undefined && overrideValue(row.override, version) === undefined;
+  const moveOverrides = async (moves: { row: PackageRow; version: string }[]) => {
+    try {
+      for (const { row, version } of moves)
+        if (row.override) await writeOverride(row.name, row.override, version);
+      return true;
+    } catch (error) {
+      notify(`Could not update the override: ${(error as Error).message}`, 'error');
+      return false;
+    }
+  };
+
   const setVersion = (row: PackageRow, version: string) => {
+    if (pinnedByHand(row, version)) {
+      notify(
+        `${row.name} is pinned by "${row.override?.field}": ${row.override?.value} — change it in ${row.override?.file}`,
+        'warn',
+      );
+      return;
+    }
     const command = setVersionCommand(manager.name, row.name, version, row.type, row.range);
-    prompt.confirm(`${row.current} → ${version}: ${shellQuote(command)}?`, () =>
-      runCommands([command], `${row.name} ${row.current} → ${version}`),
-    );
+    prompt.confirm(`${row.current} → ${version}: ${shellQuote(command)}?`, async () => {
+      if (!(await moveOverrides([{ row, version }]))) return;
+      runCommands([command], `${row.name} ${row.current} → ${version}`);
+    });
   };
 
   const update = (row: PackageRow | undefined) => {
@@ -322,7 +348,11 @@ export const PackagesView = ({
    */
   const updateSafe = () => {
     const safe = rows.filter(
-      (row) => !row.local && row.latest && (row.update === 'minor' || row.update === 'patch'),
+      (row) =>
+        !row.local &&
+        row.latest &&
+        (row.update === 'minor' || row.update === 'patch') &&
+        !pinnedByHand(row, row.latest),
     );
     if (!safe.length) {
       notify('Nothing behind by only a minor or patch');
@@ -333,7 +363,11 @@ export const PackagesView = ({
     );
     prompt.confirm(
       `Update ${safe.length} package(s) with minor/patch updates (majors skipped)?`,
-      () => runCommands(commands, `${safe.length} minor/patch update(s)`),
+      async () => {
+        if (!(await moveOverrides(safe.map((row) => ({ row, version: row.latest as string })))))
+          return;
+        runCommands(commands, `${safe.length} minor/patch update(s)`);
+      },
     );
   };
 

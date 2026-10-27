@@ -316,6 +316,13 @@ export const PackageDetail = ({
             </Text>
           )}
         </Field>
+        {row.override && (
+          <Field label="Pinned">
+            <Text color={colors.warn} wrap="wrap">
+              {`${row.override.value} by "${row.override.field}" in ${row.override.file} — installed whatever the range says; updates move it too`}
+            </Text>
+          </Field>
+        )}
         <Box marginY={1} flexDirection="column">
           <Field label="">
             <Text color={colors.muted} wrap="truncate">
