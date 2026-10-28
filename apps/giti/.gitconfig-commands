@@ -114,6 +114,9 @@ patch-save = "!git giti patch-save"
 # Print the commit history as an ASCII branch graph
 print-graph = "!git giti print-graph"
 
+# Same as giti send-to — force-push HEAD into another branch of the remote
+push-to = "!git giti push-to"
+
 # Pull this repository, then every subrepo, submodule and subtree in it — takes all git pull flags and [<remote> [<branch>]]; a screen with incoming commits and strategy when none are given (--yes skips it, --no-self)
 receive = "!git giti receive"
 
@@ -142,6 +145,9 @@ save = "!git giti save"
 
 # Push every subrepo, submodule and subtree upstream, then this repository — takes all git push flags and [<remote> [<branch>]]; a screen to pick flags when none are given (--yes skips it, --no-self)
 send = "!git giti send"
+
+# Force-push HEAD into another branch of the remote, replacing it, after a y — no branch opens a picker; the current branch falls back to send (--remote=, --yes, git push flags)
+send-to = "!git giti send-to"
 
 # Pretty-print repository status: branch, staged/modified/untracked files, stash, and recent commits
 state = "!git giti state"
