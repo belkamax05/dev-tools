@@ -9,6 +9,7 @@ import getRemotes from '../getRemotes';
 import getSendToTargets, { pickSendToRemote } from '../getSendToTargets';
 import getWorkingDir from '../getWorkingDir';
 import gitExec from '../gitExec';
+import { isDryRun } from '../megaCommands';
 import runGitStep from '../runGitStep';
 import runTransferCommand from '../runTransferCommand';
 
@@ -33,8 +34,9 @@ const forcePush = async (cwd: string, remote: string, branch: string, from: stri
     process.exitCode = 1;
     return;
   }
+  const done = isDryRun(flags) ? `would now be ${from} (dry run)` : `is now ${from}`;
   step.succeed(
-    [formatColor(`✅ ${remote}/${branch} is now ${from}`, 'success'), ...describePush(step.output)].join('\n'),
+    [formatColor(`✅ ${remote}/${branch} ${done}`, 'success'), ...describePush(step.output)].join('\n'),
   );
 };
 
