@@ -11,6 +11,22 @@ describe('repoWebLinks', () => {
     expect(result?.links.pages).toBe('https://acme.github.io/widgets/');
   });
 
+  test("serves an owner's own <owner>.github.io repository from the root of its Pages site", () => {
+    expect(repoWebLinks('git@github.com:Acme/acme.github.io.git')?.links.pages).toBe(
+      'https://acme.github.io/',
+    );
+  });
+
+  test('offers GitLab Pages on gitlab.com only, with subgroups in the path', () => {
+    expect(repoWebLinks('git@gitlab.com:team/tools/app.git')?.links.pages).toBe(
+      'https://team.gitlab.io/tools/app/',
+    );
+    expect(repoWebLinks('git@gitlab.com:team/team.gitlab.io.git')?.links.pages).toBe(
+      'https://team.gitlab.io/',
+    );
+    expect(repoWebLinks('git@gitlab.example.com:team/app.git')?.links.pages).toBeUndefined();
+  });
+
   test('opens the real site when the remote goes through an SSH host alias', () => {
     const result = repoWebLinks('git@github.com-work:acme/widgets.git');
 

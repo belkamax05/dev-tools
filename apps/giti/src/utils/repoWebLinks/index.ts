@@ -28,6 +28,27 @@ const detectHost = (hostname: string): RepoHost => {
 };
 
 /**
+ * The GitHub Pages site a repository publishes to. A repository named `<owner>.github.io` is the
+ * owner's own site, served from the root; any other is served under its name.
+ */
+const githubPages = (owner: string, repo: string) => {
+  const site = `https://${owner.toLowerCase()}.github.io`;
+  return repo.toLowerCase() === `${owner.toLowerCase()}.github.io` ? `${site}/` : `${site}/${repo}/`;
+};
+
+/**
+ * The GitLab Pages site of a gitlab.com project: the top-level group is the subdomain, subgroups
+ * and the project are the path. Self-hosted GitLab serves Pages from a domain of its own choosing,
+ * which nothing in the remote URL reveals — so only gitlab.com gets one.
+ */
+const gitlabPages = (pathname: string) => {
+  const [group = '', ...rest] = pathname.split('/').filter(Boolean);
+  const site = `https://${group.toLowerCase()}.gitlab.io`;
+  const path = rest.join('/');
+  return path.toLowerCase() === `${group.toLowerCase()}.gitlab.io` ? `${site}/` : `${site}/${path}/`;
+};
+
+/**
  * Web pages for a repository, derived from one of its remote URLs.
  *
  * Undefined when the remote has no web page at all (a local path, a `file://` remote). For a
@@ -58,7 +79,7 @@ const repoWebLinks = (
         actions: `${home}/actions`,
         pulls: `${home}/pulls`,
         issues: `${home}/issues`,
-        pages: `https://${owner}.github.io/${repo}/`,
+        pages: githubPages(owner, repo),
         settings: `${home}/settings`,
         ...(source && {
           pr: baseBranch
@@ -82,6 +103,7 @@ const repoWebLinks = (
         pulls: `${home}/-/merge_requests`,
         issues: `${home}/-/issues`,
         settings: `${home}/-/settings/general`,
+        ...(hostname === 'gitlab.com' && { pages: gitlabPages(pathname) }),
         ...(branch && { pr: `${home}/-/merge_requests/new?${params}` }),
       },
     };

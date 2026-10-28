@@ -99,6 +99,9 @@ mega-status = "!git giti mega/status"
 # Open the repository in the browser — home, actions, pulls, issues, pages, settings, a new PR for the current branch — or its folder (--print to only print it)
 open = "!git giti open"
 
+# Open the repository's GitHub Pages (or gitlab.com Pages) site in the browser — `pages print` only prints it
+pages = "!git giti pages"
+
 # Apply a .patch file — changes land as unstaged working-tree edits. Pick interactively if no name is given.
 patch-apply = "!git giti patch-apply"
 
@@ -214,6 +217,9 @@ undo = "!git giti undo"
 
 # Unstage paths, or every staged change of a kind: --modified, --added, --deleted, --renamed, --all. Bare: count what is staged
 unmark = "!git giti unmark"
+
+# Open the repository's web page (GitHub, GitLab, …) in the browser — `url print` only prints it
+url = "!git giti url"
 
 # Stage all changes and commit them, bypassing hooks — the first argument is the message ("wip" when none is given)
 wip = "!git giti wip"
