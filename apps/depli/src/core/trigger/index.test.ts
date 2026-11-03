@@ -274,3 +274,43 @@ describe('fixes applied before sending', () => {
     ]);
   });
 });
+
+test('a step waiting on one before it with no result for the branch cannot be triggered', async () => {
+  const plugin = definePlugin({
+    id: 'waiting',
+    label: 'Waiting',
+    icon: '🧪',
+    transports: [
+      {
+        id: 'api',
+        label: 'api',
+        capabilities: ['trigger'],
+        probe: async () => ({ ok: true, detail: 'ok' }),
+      },
+    ],
+    steps: {
+      //? Never built this branch: no ref for the deploy to use
+      build: { status: async () => ({ state: 'none', summary: 'never built' }) },
+      job: {
+        status: async () => ({ state: 'stale', summary: 'behind', ref: { buildNumber: 1 } }),
+        plan: async () => ({ target: 'deploy', method: 'POST', url: 'fake://', params: {} }),
+        send: async () => ({}),
+      },
+    },
+  });
+  const project = resolveProject('/tmp/depli-waiting', {
+    plugins: [plugin],
+    providers: { ci: { plugin: 'waiting' } },
+    envs: [{ id: 'qa' }],
+    pipeline: [
+      { id: 'build', label: 'Build', provider: 'ci', kind: 'build' },
+      { id: 'deploy', label: 'Deploy', provider: 'ci', kind: 'job', after: ['build'] },
+    ],
+    triggers: { enabled: true },
+  });
+  const connections = await connectAll(project, {});
+  const chain = await evaluateChain(project, connections, {}, 'main', 'qa');
+  expect(chain.find((entry) => entry.step.id === 'deploy')?.status.state).toBe('blocked');
+  const planned = await planTrigger(project, connections, {}, chain, 'deploy', 'main', 'qa');
+  expect(planned.blockers.join('\n')).toContain('Waiting on build');
+});

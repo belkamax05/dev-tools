@@ -118,15 +118,28 @@ export const usePrompt = (onCaptureInput: (captured: boolean) => void): PromptAp
 
   const line =
     prompt?.kind === 'confirm' ? (
-      <Box flexDirection="row">
+      //? Framed answers: a question that blocks the keyboard has to be seen at once
+      <Box flexDirection="row" alignItems="center">
         <Box flexShrink={1} marginRight={1}>
-          <Text color={colors.warn} wrap="truncate">
+          <Text color={colors.warn} bold wrap="truncate">
             {prompt.message}
           </Text>
         </Box>
         <Box flexShrink={0}>
-          <ActionButton hotkey="y" label="Yes" color={colors.warn} onPress={() => answer(true)} />
-          <ActionButton hotkey="N" label="No" onPress={() => answer(false)} />
+          <ActionButton
+            hotkey="y"
+            label="Yes"
+            color={colors.warn}
+            bordered
+            onPress={() => answer(true)}
+          />
+          <ActionButton
+            hotkey="N"
+            label="No"
+            color={colors.text}
+            bordered
+            onPress={() => answer(false)}
+          />
         </Box>
       </Box>
     ) : prompt?.kind === 'text' ? (

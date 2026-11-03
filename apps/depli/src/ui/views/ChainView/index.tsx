@@ -756,6 +756,7 @@ export const ChainView = ({
               hotkey="T"
               label="Trigger…"
               color={entry.protected ? colors.error : colors.accent}
+              bordered
               onPress={() => startTrigger(entry)}
             />
           ) : (
@@ -913,6 +914,7 @@ export const ChainView = ({
                   hotkey="a"
                   label="Remove auto trigger"
                   color={colors.accent}
+                  bordered
                   onPress={() => startAuto(entry)}
                 />
                 <Text color={colors.muted} wrap="wrap">
@@ -932,6 +934,7 @@ export const ChainView = ({
                   hotkey="a"
                   label="Auto trigger…"
                   color={entry.protected ? colors.error : colors.accent}
+                  bordered
                   onPress={() => startAuto(entry)}
                 />
                 <Text color={colors.muted} wrap="wrap">
@@ -1239,6 +1242,9 @@ export const ChainView = ({
         </Panel>
       </Box>
       {data.autos.length > 0 && (
+        //? Never squeezed: the panels above were sized with its rows taken out (`autoPanelRows`),
+        //? and a Panel shrinks by default — under flex it came down to one row
+        <Box flexShrink={0} height={autoPanelRows} flexDirection="column">
         <Panel
           title="Auto triggers"
           badge={`${data.autos.length} pending${shownAutos.length ? ` · all done in ${formatEstimate(allDone.ms, allDone.known)}` : ''} · once each · not kept on restart`}
@@ -1246,7 +1252,11 @@ export const ChainView = ({
           width={appWidth}
         >
           {/* The rows it was priced at; more scroll under the wheel and scrollbar, buttons and all */}
-          <Box height={Math.min(data.autos.length, AUTO_ROWS)} flexDirection="column">
+          <Box
+            height={Math.min(data.autos.length, AUTO_ROWS)}
+            flexShrink={0}
+            flexDirection="column"
+          >
             <ScrollPanel isActive={false} isMouseActive={!prompt.isOpen}>
               {data.autos.map((auto) => {
                 const id = autoKey(auto);
@@ -1304,6 +1314,7 @@ export const ChainView = ({
             </ScrollPanel>
           </Box>
         </Panel>
+        </Box>
       )}
       <Box marginTop={1} flexShrink={0}>
         <HintBar

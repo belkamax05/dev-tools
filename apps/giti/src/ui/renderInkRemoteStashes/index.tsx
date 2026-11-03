@@ -122,7 +122,7 @@ export const RemoteStashPicker = ({
             {isLoading
               ? `Reading stashes from ${remote}…`
               : error
-                ? String(error instanceof Error ? error.message : error)
+                ? String(error)
                 : `${stashes.length} stash(es) on ${remote}${mode === 'apply' ? ` · staged changes ${index ? 'restored as staged' : 'applied unstaged'} [i]` : ''}`}
           </Text>
         )}

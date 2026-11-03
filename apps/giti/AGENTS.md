@@ -370,6 +370,35 @@ files in the repo root:
 Anything touching this flow must keep the `*.patch` exclusion; without it `cancel-all` deletes
 the patch it is meant to enable restoring from.
 
+## Remote stashes (`stash/*`)
+
+`giti stash list | save | apply | remove` share work in progress with the team through the remote.
+They are never local stashes — those stay `git stash`'s. Bodies live in `src/core/remoteStash`;
+the commands parse with `parseStashArgs` (`[<name>] [--remote=] [--yes] [--force] [--unstaged]`,
+strict: nothing is forwarded to git).
+
+- **Storage.** Each stash is a real `git stash -u` commit (parents: HEAD, the index, the untracked
+  files) pushed to `refs/stashes/<name>` on the remote — not a branch, so hosting UIs, branch lists
+  and CI branch discovery never see it. `list` fetches `refs/stashes/*` into
+  `refs/giti/stashes/<remote>/*` with `--prune`, sorted by committer date.
+- **`save` leaves the work tree alone.** `createStashCommit` writes the three trees through
+  scratch `GIT_INDEX_FILE`s under `.git` rather than `git stash push`, which would empty the tree.
+  Names go through `git check-ref-format`; slashes are fine (`me/feature`). An existing name is
+  refused by the remote itself (the new commit is unrelated, so the push is non-fast-forward);
+  `--force` replaces it.
+- **`apply` keeps staged as staged** (`git stash apply --index`), falling back to a plain apply
+  when git refuses the index — git checks that before writing anything. `--unstaged` (or `i` on
+  the picker) skips it. It merges against the commit the stash was taken on, so it applies across
+  branches. The stash stays on the remote; `remove` deletes it for everyone and always asks
+  (`--yes` skips).
+- **Previews.** On a terminal without `--yes`: `save` opens `renderInkStashSave` (`giti save`'s
+  `StatusView`, with a name field for the message); `apply`/`remove` open
+  `renderInkRemoteStashes` (stashes on the left, files and diff on the right). Off a terminal they
+  print the file list and need a name.
+- **`stash` is also git's command.** The folder gets no git alias (the generator skips folder
+  names in `git --list-cmds=main`; its leaves still get `stash-list` etc.), and `run.ts` hands
+  anything that is not one of the folder's commands to git: `giti stash pop` is `git stash pop`.
+
 ## shulker-controller mirrors
 
 `src/config/systemConfig.ts`, `src/config/sysPaths.ts`, `src/types/SystemConfig.ts`, and

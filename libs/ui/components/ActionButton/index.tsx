@@ -28,6 +28,11 @@ export interface ActionButtonProps {
   isFocused?: boolean;
   /** Accent when idle and not selected. Defaults to the theme's muted colour. */
   color?: string;
+  /**
+   * Drawn as a real button — a rounded frame in its colour, the text bold — for the one action a
+   * screen is asking for (a confirmation's answers, a step's Trigger). Three rows tall, not one.
+   */
+  bordered?: boolean;
   onPress: () => void;
   /** Told when the pointer enters and leaves, for a caller's status line. */
   onHover?: (hovered: boolean) => void;
@@ -51,6 +56,7 @@ export const ActionButton = ({
   //? No default in the signature: the fallback is a theme colour, and a default
   //? parameter is evaluated before the hook that knows what the theme is.
   color,
+  bordered = false,
   onPress,
   onHover,
 }: ActionButtonProps) => {
@@ -93,6 +99,28 @@ export const ActionButton = ({
   //? already in brackets — two bracketed groups in a row and neither one reads
   //? as the key you are meant to press.
   const marker = isOn === undefined ? '' : isOn ? '▣ ' : '▢ ';
+
+  if (bordered) {
+    const frame = disabled ? colors.muted : lit ? colors.highlight : (color ?? colors.accent);
+    return (
+      <Box
+        ref={ref}
+        //? As wide as its label: in a column a box otherwise stretches the frame to the edge
+        alignSelf="flex-start"
+        flexShrink={0}
+        marginRight={1}
+        borderStyle="round"
+        borderColor={frame}
+        paddingX={1}
+      >
+        <Text color={frame} bold dimColor={disabled}>
+          {hotkey === undefined ? '' : `[${hotkey}] `}
+          {marker}
+          {label}
+        </Text>
+      </Box>
+    );
+  }
 
   return (
     <Box

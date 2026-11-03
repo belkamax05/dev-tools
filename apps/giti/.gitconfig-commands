@@ -149,6 +149,18 @@ send = "!git giti send"
 # Force-push HEAD into another branch of the remote, replacing it, after a y — no branch opens a picker; the current branch falls back to send (--remote=, --yes, git push flags)
 send-to = "!git giti send-to"
 
+# Apply a stash shared on the remote, previewing its files and diff first; staged changes come back staged (--unstaged applies them all unstaged); the stash stays on the remote
+stash-apply = "!git giti stash/apply"
+
+# List the stashes shared on the remote (refs/stashes/*), most recent first, with author, age and branch
+stash-list = "!git giti stash/list"
+
+# Delete a stash shared on the remote, for everyone; picks one with a preview when no name is given (--yes skips the question)
+stash-remove = "!git giti stash/remove"
+
+# Share your uncommitted changes (staged, unstaged and untracked) as a named stash on the remote; previews the files first, leaves the work tree as it is (--force replaces, --yes skips the preview)
+stash-save = "!git giti stash/save"
+
 # Pretty-print repository status: branch, staged/modified/untracked files, stash, and recent commits
 state = "!git giti state"
 

@@ -45,6 +45,9 @@ export const planTrigger = async (
   if (entry.status.state === 'running') blockers.push('already running');
   if (['missing', 'offline', 'error'].includes(entry.status.state))
     blockers.push(`step is ${entry.status.state}: ${entry.status.summary}`);
+  //? Waiting on a step before it with no usable result for this branch: nothing to run on yet
+  if (entry.status.state === 'blocked')
+    blockers.push(entry.status.notes?.[0] ?? `step is blocked: ${entry.status.summary}`);
   blockers.push(...(plan.blockers ?? []));
   if (plan.warnings?.some((warning) => warning.includes('no successful build')))
     blockers.push('missing input from an earlier step');
