@@ -15,6 +15,7 @@ import {
   useTuiTheme,
 } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { checkStashName } from '../../core/remoteStash';
 import { getDiff } from '../../core/hunks';
@@ -150,7 +151,7 @@ export const StashSaveForm = ({
   useInput((input, key) => {
     if (key.ctrl && input === 'c') return exit();
     if (key.escape) return cancel();
-    if (input === 'q' && !key.ctrl && !key.meta && section !== 'name') return cancel();
+    if (input === hotkeys.quit && !key.ctrl && !key.meta && section !== 'name') return cancel();
     if (key.tab) {
       const sections: Section[] = ['files', 'name', 'flags'];
       setSection(sections[(sections.indexOf(section) + (key.shift ? 2 : 1)) % 3] ?? 'files');

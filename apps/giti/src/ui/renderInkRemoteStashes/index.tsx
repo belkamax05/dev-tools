@@ -16,6 +16,7 @@ import {
   useTuiTheme,
 } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   getRemoteStashDiff,
@@ -108,7 +109,7 @@ export const StashFilesStep = ({
   };
 
   useInput((input, key) => {
-    if (key.escape || input === 'q') return onBack();
+    if (key.escape || input === hotkeys.quit) return onBack();
     if (key.return) return apply();
     if (input === 'i') onToggleIndex();
   });
@@ -325,7 +326,7 @@ export const RemoteStashPicker = ({
     (input, key) => {
       if (key.ctrl && input === 'c') return exit();
       if (opened) return;
-      if (key.escape || input === 'q') return exit();
+      if (key.escape || input === hotkeys.quit) return exit();
       if (mode === 'apply' && input === 'i') setIndex((on) => !on);
     },
     { isActive: !captured },

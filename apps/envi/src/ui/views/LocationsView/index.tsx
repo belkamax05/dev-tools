@@ -11,6 +11,7 @@ import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   PROJECT_CONFIG_NAMES,
@@ -457,7 +458,7 @@ export const LocationsView = ({
   useInput(
     (input, key) => {
       const place = placeOfRow(current);
-      if (input === '/') open();
+      if (input === hotkeys.search) open();
       else if (key.escape && search) clear();
       else if (input === 'A') addFile();
       else if (key.leftArrow && place) {
@@ -468,21 +469,21 @@ export const LocationsView = ({
       else if (input === 'a') addVar(place);
       else if (current.kind === 'place') {
         const layer = place.layer;
-        if (input === 'o' || input === 'e') openPlace(place);
+        if (input === 'o' || input === hotkeys.edit) openPlace(place);
         else if (place.location?.kind !== 'file' || !layer) return;
         else if (input === ' ') toggleFile(layer);
         else if (input === '[') reorder(layer, -1);
         else if (input === ']') reorder(layer, 1);
-        else if (input === 'x') unlistFile(layer);
+        else if (input === hotkeys.delete) unlistFile(layer);
       } else if (current.kind === 'var') {
         const { key: name, value } = current;
-        if (input === 'e') editVar(place, name, value);
+        if (input === hotkeys.edit) editVar(place, name, value);
         else if (input === 'R') renameVar(place, name);
         else if (input === 'm') transfer(place, name, false);
         else if (input === 'M') transfer(place, name, true);
-        else if (input === 'x') deleteVar(place, name);
+        else if (input === hotkeys.delete) deleteVar(place, name);
         else if (input === 'c') copy(name, value);
-        else if (input === 'y') copy(name, value, true);
+        else if (input === hotkeys.copy) copy(name, value, true);
         else if (input === 'C') copySecret(name, value);
         else if (input === 'l') showInValues(name);
         else if (input === 'o') openPlace(place);
@@ -520,7 +521,7 @@ export const LocationsView = ({
         ? [
             { hotkey: '[', label: 'Earlier', onPress: () => reorder(fileLayer, -1) },
             { hotkey: ']', label: 'Later', onPress: () => reorder(fileLayer, 1) },
-            { hotkey: 'x', label: 'Unlist', onPress: () => unlistFile(fileLayer), tone: 'danger' as const },
+            { hotkey: hotkeys.delete, label: 'Unlist', onPress: () => unlistFile(fileLayer), tone: 'danger' as const },
           ]
         : []),
     ];
@@ -595,7 +596,7 @@ export const LocationsView = ({
     const writable = Boolean(place.location);
     return [
       {
-        hotkey: 'e',
+        hotkey: hotkeys.edit,
         label: writable ? 'Edit' : 'Edit config',
         onPress: () => editVar(place, key, value),
         tone: 'primary',
@@ -611,7 +612,7 @@ export const LocationsView = ({
       ...(isOpRef(value) ? [{ hotkey: 'C', label: 'Copy secret', onPress: () => copySecret(key, value) }] : []),
       { hotkey: 'l', label: 'Show in Values', onPress: () => showInValues(key) },
       ...(writable
-        ? [{ hotkey: 'x', label: 'Delete', onPress: () => deleteVar(place, key), tone: 'danger' as const }]
+        ? [{ hotkey: hotkeys.delete, label: 'Delete', onPress: () => deleteVar(place, key), tone: 'danger' as const }]
         : []),
     ];
   };
@@ -743,7 +744,7 @@ export const LocationsView = ({
           { key: 'A', label: 'add file', onPress: addFile },
           ...searchHints,
           ...(current?.kind === 'var'
-            ? [{ key: 'y', label: 'copy KEY=value', onPress: () => copy(current.key, current.value, true) }]
+            ? [{ key: hotkeys.copy, label: 'copy KEY=value', onPress: () => copy(current.key, current.value, true) }]
             : []),
         ]}
         onActivate={(item) => activate(item.value)}

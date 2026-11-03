@@ -27,6 +27,7 @@ import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import type { ViewProps } from '../../types';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 type Row =
   | { kind: 'installed'; skill: InstalledSkill }
@@ -179,7 +180,7 @@ export const SkillsView = ({
     }
     const { skill } = row;
     return [
-      { hotkey: 'e', label: 'Edit SKILL.md', onPress: () => edit(skill), tone: 'primary' },
+      { hotkey: hotkeys.edit, label: 'Edit SKILL.md', onPress: () => edit(skill), tone: 'primary' },
       {
         hotkey: 'u',
         label: 'Update',
@@ -189,7 +190,7 @@ export const SkillsView = ({
       },
       { hotkey: 'o', label: 'Reveal', onPress: () => revealPath(skill.path) },
       {
-        hotkey: 'x',
+        hotkey: hotkeys.delete,
         label: 'Remove',
         onPress: () => remove(skill),
         tone: 'danger',
@@ -201,7 +202,7 @@ export const SkillsView = ({
   useInput(
     (input, key) => {
       if (busy) return;
-      if (input === '/') return startSearch();
+      if (input === hotkeys.search) return startSearch();
       if (input === 'G') return toggleGlobal();
       if (input === 'R' && missing.length) return restore();
       if (key.escape && search) return setSearch(undefined);
@@ -213,8 +214,8 @@ export const SkillsView = ({
       if (current?.kind !== 'installed') return;
       const { skill } = current;
       if (input === 'u') update(skill);
-      else if (input === 'x') remove(skill);
-      else if (input === 'e') edit(skill);
+      else if (input === hotkeys.delete) remove(skill);
+      else if (input === hotkeys.edit) edit(skill);
       else if (input === 'o') revealPath(skill.path);
     },
     { isActive: isActive && !prompt.isOpen },
@@ -223,11 +224,11 @@ export const SkillsView = ({
   //? Row actions are the toolbar's; the strip keeps searching
   const hints: Hint[] = search
     ? [
-        { key: '/', label: 'search again', onPress: startSearch },
+        { key: hotkeys.search, label: 'search again', onPress: startSearch },
         { key: 'Esc', label: 'installed', onPress: () => setSearch(undefined) },
       ]
     : [
-        { key: '/', label: 'search registry', onPress: startSearch },
+        { key: hotkeys.search, label: 'search registry', onPress: startSearch },
         {
           key: 'G',
           label: global ? 'showing: user-wide' : 'showing: this repo',

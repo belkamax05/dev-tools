@@ -107,9 +107,9 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 
 ## TUI hotkeys across the apps
 
-- Delete / remove / drop one item is `x`; its bigger variant is Shift+X — the remote side as well
-  (giti's remote branch, a ref with its remote counterpart), or everything (Settings' clear all,
-  `ClearDataDialog`). Never `d`: across the apps it already means description, disable, discard
-  hunk and more.
-- A question that follows a delete answers with the same keys: `x` for the smaller choice,
-  Shift+X for the bigger one.
+Keys that mean the same in every app live in `libs/config/hotkeys` — delete (`x`) and its bigger
+variant (`X`: the remote side too, or clear all), edit, search, copy, yes/no, quit, and the
+process stop keys. Use `hotkeys.<action>` (`@/dev-tools/config/hotkeys` in an app, a relative
+import inside `libs/`) instead of a literal, for the input check and the printed hotkey alike. A
+key whose meaning is a view's own stays a literal there; never bind a shared key to something
+else. A question that follows a delete answers with `hotkeys.delete` / `hotkeys.deleteMore`.

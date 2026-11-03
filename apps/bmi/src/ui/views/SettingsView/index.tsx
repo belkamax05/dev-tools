@@ -18,6 +18,7 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   type BmiConfig,
@@ -133,9 +134,9 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'e') onEditFile(configPath);
+      else if (input === hotkeys.edit) onEditFile(configPath);
       else if (input === 'E') onEditFile(workspacePath);
-      else if (input === 'X') setClearing(true);
+      else if (input === hotkeys.deleteMore) setClearing(true);
     },
     { isActive: !clearing },
   );
@@ -271,7 +272,7 @@ export const SettingsView = ({
                 onPress: () => onEditFile(path),
               },
               {
-                hotkey: 'X',
+                hotkey: hotkeys.deleteMore,
                 label: 'Clear settings & state…',
                 tone: 'danger',
                 onPress: () => setClearing(true),
@@ -344,7 +345,7 @@ export const SettingsView = ({
       initialSelectedId={session.selected.settings}
       hints={[
         {
-          key: 'e',
+          key: hotkeys.edit,
           label: 'edit your list',
           onPress: () => onEditFile(configPath),
         },
@@ -353,7 +354,7 @@ export const SettingsView = ({
           label: 'edit workspace',
           onPress: () => onEditFile(workspacePath),
         },
-        { key: 'X', label: 'clear', onPress: () => setClearing(true) },
+        { key: hotkeys.deleteMore, label: 'clear', onPress: () => setClearing(true) },
       ]}
       onActivate={(item) => apply(item.value)}
       onSelectionChange={(item) => {

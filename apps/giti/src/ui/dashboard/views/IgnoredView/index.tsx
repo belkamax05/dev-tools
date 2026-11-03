@@ -10,6 +10,7 @@ import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import useScrollWindow from '@/dev-tools/ui/hooks/useScrollWindow';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   applyIgnoredOptions,
@@ -299,7 +300,7 @@ export const IgnoredView = ({
 
   useInput((input, key) => {
     if (busy) return;
-    if (key.escape || input === 'q') onClose();
+    if (key.escape || input === hotkeys.quit) onClose();
     else if (key.shift && (key.upArrow || key.downArrow)) return;
     else if (key.upArrow || input === 'k') setCursor(Math.max(0, at - 1));
     else if (key.downArrow || input === 'j') setCursor(Math.min(rows.length - 1, at + 1));

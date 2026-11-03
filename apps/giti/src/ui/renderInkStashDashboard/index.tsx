@@ -14,6 +14,7 @@ import {
   useTuiTheme,
 } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   applyRemoteStash,
@@ -101,11 +102,11 @@ export const StashDashboard = ({ cwd, remote }: StashDashboardProps) => {
     (input, key) => {
       if (key.ctrl && input === 'c') return exit();
       if (screen.kind !== 'list') return;
-      if (key.escape || input === 'q') return exit();
+      if (key.escape || input === hotkeys.quit) return exit();
       if (input === 's') return openSave();
       if (input === 'r') return refresh();
       if (input === 'i') return toggleIndex();
-      if (input === 'x' && current) return remove(current);
+      if (input === hotkeys.delete && current) return remove(current);
     },
     { isActive: !captured },
   );
@@ -197,7 +198,7 @@ export const StashDashboard = ({ cwd, remote }: StashDashboardProps) => {
         onCurrentChange={setCurrent}
         actionsFor={(stash) => [
           { hotkey: 'Enter', label: 'Apply…', onPress: () => openApply(stash), tone: 'primary' },
-          { hotkey: 'x', label: 'Remove', onPress: () => remove(stash), tone: 'danger' },
+          { hotkey: hotkeys.delete, label: 'Remove', onPress: () => remove(stash), tone: 'danger' },
         ]}
         hints={[{ key: 'Esc/q', label: 'quit', onPress: exit }]}
       />

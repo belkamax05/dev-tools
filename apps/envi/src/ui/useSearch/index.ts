@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import type { PromptApi } from '@/dev-tools/ui/hooks/usePrompt';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import type { Session } from '../types';
 
@@ -27,7 +28,7 @@ export const useSearch = (session: Session, tab: string, prompt: PromptApi) => {
   };
   const clear = () => set('');
   const hints: Hint[] = [
-    { key: '/', label: search ? `search: ${search}` : 'search', onPress: open },
+    { key: hotkeys.search, label: search ? `search: ${search}` : 'search', onPress: open },
     ...(search ? [{ key: 'Esc', label: 'clear', onPress: clear }] : []),
   ];
   return { search, open, clear, hints };

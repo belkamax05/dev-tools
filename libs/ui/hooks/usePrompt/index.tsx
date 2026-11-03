@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import ActionButton from '../../components/ActionButton';
 import Box from '../../components/Box';
 import { useColors } from '../../providers/TuiThemeProvider';
+import hotkeys from '../../../config/hotkeys';
 
 type Prompt =
   | { kind: 'confirm'; message: string; onYes: () => void }
@@ -96,7 +97,7 @@ export const usePrompt = (
       }
       if (prompt.kind === 'confirm') {
         setPrompt(undefined);
-        if (input === 'y' || input === 'Y') prompt.onYes();
+        if (input.toLowerCase() === hotkeys.yes) prompt.onYes();
         return;
       }
       if (key.return) {
@@ -144,14 +145,14 @@ export const usePrompt = (
         </Text>
         <Box flexDirection="row">
           <ActionButton
-            hotkey="y"
+            hotkey={hotkeys.yes}
             label="Yes"
             color={colors.warn}
             bordered
             onPress={() => answer(true)}
           />
           <ActionButton
-            hotkey="N"
+            hotkey={hotkeys.no}
             label="No"
             color={colors.text}
             bordered
@@ -172,14 +173,14 @@ export const usePrompt = (
         </Box>
         <Box flexShrink={0}>
           <ActionButton
-            hotkey="y"
+            hotkey={hotkeys.yes}
             label="Yes"
             color={colors.warn}
             bordered
             onPress={() => answer(true)}
           />
           <ActionButton
-            hotkey="N"
+            hotkey={hotkeys.no}
             label="No"
             color={colors.text}
             bordered

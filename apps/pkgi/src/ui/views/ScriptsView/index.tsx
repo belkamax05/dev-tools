@@ -10,6 +10,7 @@ import useDebouncedCallback from '@/dev-tools/ui/hooks/useDebouncedCallback';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { runScriptCommand, shellQuote } from '../../../core/manifest';
 import { readScripts, type Script, splitArgs } from '../../../core/scripts';
@@ -130,7 +131,7 @@ export const ScriptsView = ({
   useInput(
     (input, key) => {
       if (input === 'a') runWithArgs(current);
-      else if (input === '/') askFilter();
+      else if (input === hotkeys.search) askFilter();
       else if (key.escape && filter) changeFilter('');
     },
     { isActive: !prompt.isOpen },
@@ -143,7 +144,7 @@ export const ScriptsView = ({
 
   const hints: Hint[] = [
     { key: 'a', label: 'run with args', onPress: () => runWithArgs(current) },
-    { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
+    { key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
   ];
 
   if (data && !data.exists) {

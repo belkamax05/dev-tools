@@ -14,6 +14,7 @@ import ActionButton from '../ActionButton';
 import Box from '../Box';
 import Panel from '../Panel';
 import Toolbar from '../Toolbar';
+import hotkeys from '../../../config/hotkeys';
 
 /** One file the dialog offers to clear. */
 export interface ClearTarget {
@@ -249,7 +250,7 @@ export const ClearDataDialog = ({
  * (`X`) in every app, same label, same danger colour.
  */
 export const ClearButton = ({ onPress }: { onPress: () => void }) => (
-  <Toolbar actions={[{ hotkey: 'X', label: 'Clear settings & state…', onPress, tone: 'danger' }]} />
+  <Toolbar actions={[{ hotkey: hotkeys.deleteMore, label: 'Clear settings & state…', onPress, tone: 'danger' }]} />
 );
 
 export default ClearDataDialog;

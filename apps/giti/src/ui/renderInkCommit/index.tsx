@@ -16,6 +16,7 @@ import {
   useTuiTheme,
 } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { getChanges } from '../../core/status';
 import saveCommit from '../../utils/saveCommit';
@@ -240,7 +241,7 @@ export const CommitForm = ({
     if (key.escape) return exit();
     if (captured || submitting || staging) return;
     //? Only while no text field has the keys: in the message, `q` is a letter of it
-    if (input === 'q' && !key.ctrl && !key.meta && section !== 'message') return exit();
+    if (input === hotkeys.quit && !key.ctrl && !key.meta && section !== 'message') return exit();
     if (key.return && key.shift) return quickCommit();
     //? The dashboard's keys for the bar on top — except in the message, where they are letters
     if (section !== 'message' && !key.ctrl && !key.meta && snapshot?.isRepo) {

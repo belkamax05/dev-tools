@@ -8,6 +8,7 @@ import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   applyStash,
@@ -76,7 +77,7 @@ export const StashView = ({
       if (!current) return;
       if (input === 'p') void run(() => popStash(root, current.ref));
       else if (input === 'a') void run(() => applyStash(root, current.ref));
-      else if (input === 'x') drop(current);
+      else if (input === hotkeys.delete) drop(current);
     },
     { isActive: !prompt.isOpen },
   );
@@ -134,7 +135,7 @@ export const StashView = ({
                     label: 'Apply, keep it',
                     onPress: () => void run(() => applyStash(root, entry.ref)),
                   },
-                  { hotkey: 'x', label: 'Drop', onPress: () => drop(entry), tone: 'danger' },
+                  { hotkey: hotkeys.delete, label: 'Drop', onPress: () => drop(entry), tone: 'danger' },
                 ]}
               />
               <PatchLines text={diff} isActive={!prompt.isOpen} />

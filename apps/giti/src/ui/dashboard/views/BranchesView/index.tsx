@@ -11,6 +11,7 @@ import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   type Branch,
@@ -322,11 +323,11 @@ export const BranchesView = ({
       else if (input === 'v') setCompare((on) => !on);
       else if (input === 'M') merge(current);
       else if (current.isRemote) {
-        if (input === 'X') removeRemote(current);
+        if (input === hotkeys.deleteMore) removeRemote(current);
         //? Plain x is the local delete; a remote one takes the deliberate Shift+X
-        else if (input === 'x') notify('Shift+X deletes a remote branch', 'info');
+        else if (input === hotkeys.delete) notify(`Shift+${hotkeys.deleteMore} deletes a remote branch`, 'info');
       } else if (input === 'r') rename(current);
-      else if (input === 'x') remove(current);
+      else if (input === hotkeys.delete) remove(current);
       else if (input === 'u') track(current);
     },
     { isActive: !prompt.isOpen && !isVendoredOpen && isInputActive },
@@ -387,7 +388,7 @@ export const BranchesView = ({
           { hotkey: 'r', label: 'Rename', onPress: () => rename(branch) },
           { hotkey: 'u', label: 'Set upstream', onPress: () => track(branch) },
           {
-            hotkey: 'x',
+            hotkey: hotkeys.delete,
             label: 'Delete',
             onPress: () => remove(branch),
             tone: 'danger' as const,
@@ -396,7 +397,7 @@ export const BranchesView = ({
         ]
       : [
           {
-            hotkey: 'Shift+X',
+            hotkey: hotkeys.deleteMore,
             label: 'Delete on remote',
             onPress: () => removeRemote(branch),
             tone: 'danger' as const,
@@ -412,7 +413,7 @@ export const BranchesView = ({
       onPress: sync.progress ? undefined : pull,
     },
     { key: 'n', label: 'new branch', onPress: () => create(current) },
-    { key: '/', label: 'search', onPress: () => setIsSearching(true) },
+    { key: hotkeys.search, label: 'search', onPress: () => setIsSearching(true) },
     {
       key: 's',
       label: sort === 'time' ? 'sort: time' : 'sort: name',

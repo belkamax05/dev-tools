@@ -13,6 +13,7 @@ import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   branchAt,
@@ -107,7 +108,7 @@ export const LogView = ({
       if (input === 'g') return setGraph((on) => !on);
       if (!current) return;
       if (input === 'v') setShowDiff((on) => !on);
-      else if (input === 'y') copy(current);
+      else if (input === hotkeys.copy) copy(current);
       else if (input === 'b') branchHere(current);
       else if (input === 'k') checkout(current);
       else if (input === 'p') pick(current);
@@ -136,7 +137,7 @@ export const LogView = ({
       isOn: showDiff,
       tone: 'primary',
     },
-    { hotkey: 'y', label: 'Copy hash', onPress: () => copy(commit) },
+    { hotkey: hotkeys.copy, label: 'Copy hash', onPress: () => copy(commit) },
     { hotkey: 'b', label: 'Branch here', onPress: () => branchHere(commit) },
     { hotkey: 'k', label: 'Checkout', onPress: () => checkout(commit) },
     { hotkey: 'p', label: 'Cherry-pick', onPress: () => pick(commit) },

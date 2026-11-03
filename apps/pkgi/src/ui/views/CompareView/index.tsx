@@ -13,6 +13,7 @@ import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   buildComparison,
@@ -416,11 +417,11 @@ export const CompareView = ({
         else if (input === 'c' || key.escape) done();
         else if (input === 'a') addPath();
         else if (input === 's') save(pickFolder);
-        else if (input === 'x') forget(pickFolder);
+        else if (input === hotkeys.delete) forget(pickFolder);
         return;
       }
       if (input === 'p' || input === 'f') setPicking(true);
-      else if (input === '/') askFilter();
+      else if (input === hotkeys.search) askFilter();
       else if (key.escape && filter) changeFilter('');
       else if (input === 'd') {
         setOnlyDifferent((was) => {
@@ -569,7 +570,7 @@ export const CompareView = ({
                     ...(folder.source === 'saved'
                       ? [
                           {
-                            hotkey: 'x',
+                            hotkey: hotkeys.delete,
                             label: 'Forget',
                             onPress: () => forget(folder),
                             tone: 'danger' as const,
@@ -628,7 +629,7 @@ export const CompareView = ({
   const differing = comparison.filter((row) => row.differs).length;
   const hints: Hint[] = [
     { key: 'p', label: 'folders', onPress: () => setPicking(true) },
-    { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
+    { key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
     ...(filter ? [{ key: 'Esc', label: 'clear', onPress: () => changeFilter('') }] : []),
     {
       key: 'd',

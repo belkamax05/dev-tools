@@ -11,6 +11,7 @@ import type PickerItem from '@/dev-tools/types/PickerItem';
 import resolvePickerChildren from '@/dev-tools/utils/picker/resolvePickerChildren';
 
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 export interface CommandsViewProps {
   /** The command tree, already folded into groups by `getCommandPickerItems`. */
@@ -136,7 +137,7 @@ export const CommandsView = ({ items, onRun, onCaptureInput }: CommandsViewProps
   const breadcrumb = ['giti', ...current.path].join(' ');
 
   const hints: Hint[] = [
-    { key: '/', label: 'search', onPress: () => setIsSearching(true) },
+    { key: hotkeys.search, label: 'search', onPress: () => setIsSearching(true) },
     ...(query ? [{ key: 'Esc', label: 'clear', onPress: () => setQuery('') }] : []),
     ...(current.path.length > 0 && !query
       ? [{ key: 'Esc', label: 'back', onPress: () => navigateBack() }]

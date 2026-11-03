@@ -8,6 +8,7 @@ import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { isSecretKey } from '../../../config/settings';
 import {
@@ -283,17 +284,17 @@ export const ValuesView = ({
 
   useInput(
     (input, key) => {
-      if (input === '/') open();
+      if (input === hotkeys.search) open();
       else if (key.escape && search) clear();
       else if (!current) return;
       else if (input === 'c') copy(current);
-      else if (input === 'y') copy(current, true);
+      else if (input === hotkeys.copy) copy(current, true);
       else if (input === 'C') copySecret(current);
       else if (input === 's') setAt(current);
       else if (current.kind !== 'var') return;
-      else if (input === 'e') editAtSource(current.entry);
+      else if (input === hotkeys.edit) editAtSource(current.entry);
       else if (input === 'l') showInLocations(current.entry);
-      else if (input === 'x') removeSource(current.entry);
+      else if (input === hotkeys.delete) removeSource(current.entry);
       else if (input === 'o' && current.entry.source.path) onEdit(current.entry.source.path);
     },
     { isActive: !busy },
@@ -309,7 +310,7 @@ export const ValuesView = ({
       ...(isOpRef(value)
         ? [{ hotkey: 'C', label: 'Copy secret', onPress: () => copySecret(row) }]
         : []),
-      { hotkey: 'y', label: 'Copy KEY=value', onPress: () => copy(row, true) },
+      { hotkey: hotkeys.copy, label: 'Copy KEY=value', onPress: () => copy(row, true) },
     ];
     if (row.kind === 'shell') {
       return [
@@ -322,7 +323,7 @@ export const ValuesView = ({
     const writable = Boolean(sourceLocation(entry));
     return [
       {
-        hotkey: 'e',
+        hotkey: hotkeys.edit,
         label: writable ? `Edit in ${entry.source.label}` : 'Edit config',
         onPress: () => editAtSource(entry),
         tone: 'primary',
@@ -332,7 +333,7 @@ export const ValuesView = ({
       { hotkey: 's', label: 'Set in…', onPress: () => setAt(row) },
       { hotkey: 'l', label: 'Show in Locations', onPress: () => showInLocations(entry) },
       ...(writable
-        ? [{ hotkey: 'x', label: 'Remove', onPress: () => removeSource(entry), tone: 'danger' as const }]
+        ? [{ hotkey: hotkeys.delete, label: 'Remove', onPress: () => removeSource(entry), tone: 'danger' as const }]
         : []),
     ];
   };
@@ -445,7 +446,7 @@ export const ValuesView = ({
           ...searchHints,
           ...(current?.kind === 'var'
             ? [
-                { key: 'y', label: 'copy KEY=value', onPress: () => copy(current, true) },
+                { key: hotkeys.copy, label: 'copy KEY=value', onPress: () => copy(current, true) },
                 ...(current.entry.source.path
                   ? [{ key: 'o', label: 'open file', onPress: () => onEdit(current.entry.source.path ?? '') }]
                   : []),

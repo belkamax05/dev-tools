@@ -17,6 +17,7 @@ import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   DEPENDENCY_TYPES,
@@ -253,8 +254,8 @@ export const SettingsView = ({
     (input) => {
       if (input === ' ') apply(current);
       else if (input === 'a') addFolder();
-      else if (input === 'X') setClearing(true);
-      else if (input === 'x' && current) {
+      else if (input === hotkeys.deleteMore) setClearing(true);
+      else if (input === hotkeys.delete && current) {
         const key = keyOf(current);
         if (key) reset(key);
         else if (current.kind === 'folder') forgetFolder(current.folder);
@@ -414,7 +415,7 @@ export const SettingsView = ({
         isInputActive={!prompt.isOpen}
         hints={[
           { key: 'a', label: 'add folder', onPress: addFolder },
-          { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
+          { key: hotkeys.deleteMore, label: 'clear all', onPress: () => setClearing(true) },
         ]}
         onActivate={(item) => apply(item.value)}
         onSelectionChange={(item) => {
@@ -429,7 +430,7 @@ export const SettingsView = ({
               <ClearButton onPress={() => setClearing(true)} />
               {key && key in state.settings && (
                 <Toolbar
-                  actions={[{ hotkey: 'x', label: 'Drop the override', onPress: () => reset(key) }]}
+                  actions={[{ hotkey: hotkeys.delete, label: 'Drop the override', onPress: () => reset(key) }]}
                 />
               )}
               {themes.owns(setting) ? (

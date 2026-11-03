@@ -7,6 +7,7 @@ import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useTerminalSize from '@/dev-tools/ui/hooks/useTerminalSize';
 import { TuiThemeProvider, useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import type { SendToTarget } from '../../utils/getSendToTargets';
 import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
@@ -58,7 +59,7 @@ export const SendToForm = ({ targets, from, remote, onDone }: SendToFormProps) =
       if (key.escape || input === 'n') return back();
       return;
     }
-    if (key.escape || input === 'q') return onDone(undefined);
+    if (key.escape || input === hotkeys.quit) return onDone(undefined);
     if (key.return) return ask(selected);
     if (key.upArrow || input === 'k') return setSelected((at) => moveInList(items, 1, at, 'up'));
     if (key.downArrow || input === 'j') return setSelected((at) => moveInList(items, 1, at, 'down'));

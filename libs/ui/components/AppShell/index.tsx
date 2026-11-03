@@ -15,6 +15,7 @@ import ResizeOverlay from '../ResizeOverlay';
 import StatusNote, { type StatusMessage } from '../StatusNote';
 import TabStrip, { type TabDefinition } from '../TabStrip';
 import TerminalTooSmall from '../TerminalTooSmall';
+import hotkeys from '../../../config/hotkeys';
 
 export interface AppShellProps<Id extends string = string> {
   /** What the app is, in the header bar. */
@@ -136,7 +137,7 @@ export const AppShell = <Id extends string = string>({
             },
           ]
         : []),
-      { id: 'quit', label: 'Quit', hotkey: 'q', onPress: exit, tooltip: `Close ${name}` },
+      { id: 'quit', label: 'Quit', hotkey: hotkeys.quit, onPress: exit, tooltip: `Close ${name}` },
     ];
   }, [footerActions, onPaletteChange, themeControl, exit, title]);
 

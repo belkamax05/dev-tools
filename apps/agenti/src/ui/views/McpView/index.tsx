@@ -36,6 +36,7 @@ import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import type { ViewProps } from '../../types';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 type Row =
   | { kind: 'server'; comparison: McpServerComparison }
@@ -352,7 +353,7 @@ export const McpView = ({
     }
     if (c.targetEntry) {
       actions.push({
-        hotkey: 'x',
+        hotkey: hotkeys.delete,
         label: 'Remove from IDE',
         onPress: () => removeFromIde(c),
         tone: 'danger',
@@ -373,7 +374,7 @@ export const McpView = ({
       if (!source || !target) return;
       if (input === 'P') return pushAllMissing();
       if (input === 'S') return cycleScope();
-      if (input === 'e') return handoff({ type: 'edit', path: source.path });
+      if (input === hotkeys.edit) return handoff({ type: 'edit', path: source.path });
       //? Claude Code's own ~/.claude.json is not for hand-editing while it runs
       if (input === 'E' && target.file) return handoff({ type: 'edit', path: target.location });
       if (input === 'n' && target.file && !target.exists) {
@@ -395,7 +396,7 @@ export const McpView = ({
       else if (input === 'd') toggleDisabled(c);
       else if (input === 'y') approve(c, true);
       else if (input === 'n') approve(c, false);
-      else if (input === 'x') removeFromIde(c);
+      else if (input === hotkeys.delete) removeFromIde(c);
     },
     { isActive: isActive && !prompt.isOpen && Boolean(targetDef) },
   );
@@ -403,7 +404,7 @@ export const McpView = ({
   //? Row actions are the toolbar's; the strip keeps the ones about the files
   const hints: Hint[] = [
     {
-      key: 'e',
+      key: hotkeys.edit,
       label: 'edit reference',
       onPress: source ? () => handoff({ type: 'edit', path: source.path }) : undefined,
     },

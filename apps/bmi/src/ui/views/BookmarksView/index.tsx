@@ -13,6 +13,7 @@ import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
 import openUrl from '@/dev-tools/utils/system/openUrl';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   BOOKMARK_LAYOUTS,
@@ -122,7 +123,7 @@ const SearchLine = ({
         {isFocused ? (
           <ActionButton hotkey="Esc" label="Hotkeys" onPress={onEscape} />
         ) : (
-          <ActionButton hotkey="/" label="Search" onPress={onFocus} />
+          <ActionButton hotkey={hotkeys.search} label="Search" onPress={onFocus} />
         )}
       </Box>
     </Box>
@@ -473,18 +474,18 @@ export const BookmarksView = ({
 
   useInput(
     (input, key) => {
-      if (input === '/') focusSearch();
+      if (input === hotkeys.search) focusSearch();
       else if (input === 'g') toggleLayout();
       else if (input === 'u') toggleUserBookmarks();
       else if (input === 'p') toggleThumbnails();
       else if (input === 'o') open(current);
-      else if (input === 'y') copy(current);
+      else if (input === hotkeys.copy) copy(current);
       else if (input === 'a') add();
       else if (input === 'n') rename(current);
       else if (input === 'd') describe(current);
       else if (input === 'T') retag(current);
       else if (input === 'm') move(current);
-      else if (input === 'x') remove(current);
+      else if (input === hotkeys.delete) remove(current);
       else if (input === 'f' && current) setForceKey((at) => at + 1);
       else if (input === 'i') openImage();
       else if (input === 'c') clearSearch();
@@ -508,7 +509,7 @@ export const BookmarksView = ({
         tone: 'primary' as const,
       },
       //? Shift+click on a bookmark or its URL does the same, so it is taught here beside the key
-      { hotkey: 'y', label: 'Copy URL · Shift+Click', onPress: () => copy(entry) },
+      { hotkey: hotkeys.copy, label: 'Copy URL · Shift+Click', onPress: () => copy(entry) },
       { hotkey: 'n', label: 'Title', onPress: () => rename(entry) },
       { hotkey: 'T', label: 'Tags', onPress: () => retag(entry) },
       { hotkey: 'd', label: 'Description', onPress: () => describe(entry) },
@@ -522,7 +523,7 @@ export const BookmarksView = ({
         ? [
             { hotkey: 'm', label: 'Move', onPress: () => move(entry) },
             {
-              hotkey: 'x',
+              hotkey: hotkeys.delete,
               label: 'Remove',
               onPress: () => remove(entry),
               tone: 'danger' as const,
@@ -539,7 +540,7 @@ export const BookmarksView = ({
         ...(query ? [{ key: '^U', label: 'clear', onPress: clearSearch }] : []),
       ]
     : [
-        { key: '/', label: 'search', onPress: focusSearch },
+        { key: hotkeys.search, label: 'search', onPress: focusSearch },
         { key: 'a', label: 'add', onPress: add },
         ...(query ? [{ key: 'c', label: 'clear search', onPress: clearSearch }] : []),
         ...(scope ? [{ key: 'Esc', label: 'all pages', onPress: clearScope }] : []),

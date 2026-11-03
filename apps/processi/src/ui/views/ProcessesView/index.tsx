@@ -13,6 +13,7 @@ import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import { barInnerWidth } from '@/dev-tools/ui/theme';
 import type { ProcessInfo } from '@/dev-tools/utils/process/listProcesses';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   describeState,
@@ -226,13 +227,13 @@ export const ProcessesView = ({
   useInput(
     (input, key) => {
       if (busy) return;
-      if (input === 'k') stop(current);
+      if (input === hotkeys.stop) stop(current);
       else if (input === 'K') stop(current, { force: true });
-      else if (input === 'g') stop(current, { tree: true });
-      else if (input === 'p') stopParent(current);
+      else if (input === hotkeys.stopTree) stop(current, { tree: true });
+      else if (input === hotkeys.stopParent) stopParent(current);
       else if (input === 's') changeSort(next(SORT_KEYS, sort));
       else if (input === 'f') changeScope(next(SCOPES, scope));
-      else if (input === '/') askFilter();
+      else if (input === hotkeys.search) askFilter();
       else if (key.escape && filter) changeFilter('');
     },
     { isActive: !prompt.isOpen },
@@ -240,22 +241,22 @@ export const ProcessesView = ({
 
   const actionsFor = (row: ProcessRow): ToolbarAction[] =>
     [
-      { hotkey: 'k', label: 'Stop', onPress: () => stop(row), tone: 'primary' as const },
+      { hotkey: hotkeys.stop, label: 'Stop', onPress: () => stop(row), tone: 'primary' as const },
       {
         hotkey: 'K',
         label: 'Kill now',
         onPress: () => stop(row, { force: true }),
         tone: 'danger' as const,
       },
-      { hotkey: 'g', label: 'Stop + children', onPress: () => stop(row, { tree: true }) },
+      { hotkey: hotkeys.stopTree, label: 'Stop + children', onPress: () => stop(row, { tree: true }) },
       ...(row.ppid > 1
-        ? [{ hotkey: 'p', label: 'Stop parent', onPress: () => stopParent(row) }]
+        ? [{ hotkey: hotkeys.stopParent, label: 'Stop parent', onPress: () => stopParent(row) }]
         : []),
     ].map((action) => ({ ...action, disabled: busy || row.pid === process.pid }));
 
   //? Sort and show are not here: the chip rows above the list carry their keys
   const hints: Hint[] = [
-    { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
+    { key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
     ...(filter ? [{ key: 'Esc', label: 'clear', onPress: () => changeFilter('') }] : []),
   ];
 

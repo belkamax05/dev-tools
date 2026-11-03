@@ -7,6 +7,7 @@ import Toolbar from '@/dev-tools/ui/components/Toolbar';
 import useClickable from '@/dev-tools/ui/hooks/useClickable';
 import { TuiThemeProvider, useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import type { HopAction, VendoredHop } from '../../core/vendoredHop';
 import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
@@ -100,7 +101,7 @@ export const VendoredHopForm = ({
 
   useInput(
     (input, key) => {
-      if (key.escape || input === 'q' || (key.ctrl && input === 'c')) return finish(new Set());
+      if (key.escape || input === hotkeys.quit || (key.ctrl && input === 'c')) return finish(new Set());
       if (key.return) return finish(picked);
       if (actionable.length === 0) return;
       if (key.upArrow || input === 'k') {

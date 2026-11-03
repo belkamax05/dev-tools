@@ -10,6 +10,7 @@ import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import { barInnerWidth } from '@/dev-tools/ui/theme';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { fuzzyFilter } from '../../../core/fuzzy';
 import type { BranchHead } from '../../../core/plugin';
@@ -93,7 +94,7 @@ export const BranchesView = ({
 
   useInput(
     (input, key) => {
-      if (input === '/') askFilter();
+      if (input === hotkeys.search) askFilter();
       else if (input === 'a') loadBranches(!allBranches);
       else if (key.escape && filter) changeFilter('');
       else if (key.escape) onClose?.();
@@ -141,7 +142,7 @@ export const BranchesView = ({
   const headerHints: Hint[] = filter
     ? [{ key: 'Esc', label: 'clear', onPress: () => changeFilter('') }]
     : [
-        { key: '/', label: 'filter', onPress: askFilter },
+        { key: hotkeys.search, label: 'filter', onPress: askFilter },
         {
           key: 'a',
           label: `all / ${recent ? 'recent' : 'watched'}`,
@@ -191,7 +192,7 @@ export const BranchesView = ({
         initialSelectedId={filter ? items[0]?.id : (data.branch ?? session.selected.branches)}
         isInputActive={!prompt.isOpen}
         hints={[
-          { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
+          { key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
           {
             key: 'a',
             label: allBranches ? (recent ? 'recent only' : 'watched only') : 'all branches',

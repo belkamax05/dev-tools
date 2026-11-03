@@ -15,6 +15,7 @@ import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import copyToClipboard from '@/dev-tools/utils/system/copyToClipboard';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   DEFAULT_MASK_PATTERNS,
@@ -180,9 +181,9 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'e') onEdit(current?.kind === 'state' ? stateStore.path : configPath);
-      else if (input === 'X') setClearing(true);
-      else if (current?.kind === 'pattern' && input === 'x')
+      else if (input === hotkeys.edit) onEdit(current?.kind === 'state' ? stateStore.path : configPath);
+      else if (input === hotkeys.deleteMore) setClearing(true);
+      else if (current?.kind === 'pattern' && input === hotkeys.delete)
         removePattern(current.pattern);
       else if (current?.kind === 'hook' && input === 'c') copyHook(current.shell);
     },
@@ -287,7 +288,7 @@ export const SettingsView = ({
             <Toolbar
               actions={[
                 {
-                  hotkey: 'x',
+                  hotkey: hotkeys.delete,
                   label: 'Remove',
                   onPress: () => removePattern(setting.pattern),
                   tone: 'danger',
@@ -387,11 +388,11 @@ export const SettingsView = ({
         isInputActive={!prompt.isOpen}
         hints={[
           {
-            key: 'e',
+            key: hotkeys.edit,
             label: 'edit file',
             onPress: () => onEdit(current?.kind === 'state' ? stateStore.path : configPath),
           },
-          { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
+          { key: hotkeys.deleteMore, label: 'clear all', onPress: () => setClearing(true) },
         ]}
         onActivate={(item) => apply(item.value)}
         onSelectionChange={(item) => {

@@ -12,6 +12,7 @@ import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import type { Session } from '../../types';
 
@@ -55,8 +56,8 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'e') onEditFile(current?.kind === 'file' ? current.path : configPath);
-      else if (input === 'X') setClearing(true);
+      else if (input === hotkeys.edit) onEditFile(current?.kind === 'file' ? current.path : configPath);
+      else if (input === hotkeys.deleteMore) setClearing(true);
     },
     { isActive: !clearing },
   );
@@ -132,11 +133,11 @@ export const SettingsView = ({
       initialSelectedId={session.selected.settings}
       hints={[
         {
-          key: 'e',
+          key: hotkeys.edit,
           label: 'edit file',
           onPress: () => onEditFile(current?.kind === 'file' ? current.path : configPath),
         },
-        { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
+        { key: hotkeys.deleteMore, label: 'clear all', onPress: () => setClearing(true) },
       ]}
       onActivate={(item) => apply(item.value)}
       onSelectionChange={(item) => {

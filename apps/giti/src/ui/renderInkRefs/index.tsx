@@ -10,6 +10,7 @@ import {
   useTuiTheme,
 } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import gitiTheme, { GITI_DEFAULT_PALETTE } from '../dashboard/theme';
 import type { Tone, UndoOffer } from '../dashboard/types';
@@ -39,7 +40,7 @@ const RefsScreen = ({ cwd }: { cwd: string }) => {
 
   useInput(
     (input, key) => {
-      if ((key.ctrl && input === 'c') || key.escape || input === 'q') return exit();
+      if ((key.ctrl && input === 'c') || key.escape || input === hotkeys.quit) return exit();
       if (key.ctrl && input === 'z') return void runUndo();
       if (input === 'r') reload();
     },

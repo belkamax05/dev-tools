@@ -10,6 +10,7 @@ import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import openUrl from '@/dev-tools/utils/system/openUrl';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { addCommand, readManifest, shellQuote } from '../../../core/manifest';
 import { type SearchResult, searchPackages } from '../../../core/registry';
@@ -111,7 +112,7 @@ export const AddView = ({
 
   useInput(
     (input) => {
-      if (input === '/' || input === 's') search();
+      if (input === hotkeys.search || input === 's') search();
       else if (input === 'i' && current) install(current.name, chosen[current.name], false);
       else if (input === 'd' && current) install(current.name, chosen[current.name], true);
       else if (input === 'l' && current) choose(current.name, undefined);
@@ -184,7 +185,7 @@ export const AddView = ({
         activateOnClick={false}
         initialSelectedId={currentId}
         isInputActive={!prompt.isOpen}
-        hints={[{ key: '/', label: 'search', onPress: search }]}
+        hints={[{ key: hotkeys.search, label: 'search', onPress: search }]}
         onActivate={(item) => item.value && install(item.value.name, chosen[item.value.name])}
         onSelectionChange={(item) => {
           setCurrentId(item?.id);

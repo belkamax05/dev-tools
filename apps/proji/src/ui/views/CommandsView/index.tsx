@@ -9,6 +9,7 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { splitWords } from '../../../../../devi/src/core/resolve';
 import { SHOW_IDS, type ShowId } from '../../../config/settings';
@@ -166,7 +167,7 @@ export const CommandsView = ({
   useInput(
     (input, key) => {
       if (input === 'a') askArgs(current);
-      else if (input === '/') askFilter();
+      else if (input === hotkeys.search) askFilter();
       else if (input === 'f')
         changeShow(SHOW_IDS[(SHOW_IDS.indexOf(show) + 1) % SHOW_IDS.length] ?? 'all');
       else if (key.escape && filter) changeFilter('');
@@ -206,7 +207,7 @@ export const CommandsView = ({
   };
 
   const hints: Hint[] = [
-    { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
+    { key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
     ...(filter ? [{ key: 'Esc', label: 'clear', onPress: () => changeFilter('') }] : []),
     ...(path.length && !filter ? [{ key: 'Esc', label: 'up', onPress: goUp }] : []),
   ];

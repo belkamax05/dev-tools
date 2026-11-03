@@ -19,6 +19,7 @@ import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import revealPath from '@/dev-tools/utils/system/revealPath';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { findIdeBinary, IDES, type IdeDefinition } from '../../../core/ides';
 import { launchDetached, launchPlan } from '../../../core/launch';
@@ -275,7 +276,7 @@ export const SettingsView = ({
   useInput(
     (input, key) => {
       if (input === 'g') return cycleLogoMode();
-      if (input === 'X') return setClearing(true);
+      if (input === hotkeys.deleteMore) return setClearing(true);
       if (input === 'l' && currentIde) return launch(currentIde);
 
       if (focus === 'detail') {
@@ -485,7 +486,7 @@ export const SettingsView = ({
             label: `logo: ${logoMode}${logoMode === 'auto' ? ` (${technique.id})` : ''}`,
             onPress: cycleLogoMode,
           },
-          { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
+          { key: hotkeys.deleteMore, label: 'clear all', onPress: () => setClearing(true) },
         ]}
         onActivate={(item) => apply(item.value)}
         onSelectionChange={(item) => {

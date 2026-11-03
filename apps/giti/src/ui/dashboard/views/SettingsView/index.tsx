@@ -12,6 +12,7 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { type RefreshSetting, refreshLabel, refreshRows } from '@/dev-tools/ui/utils/choiceRows';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 /** Seconds between background re-reads of the repository; 0 switches them off. */
 export const REFRESH_CHOICES = [0, 2, 5, 10, 30] as const;
@@ -73,7 +74,7 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'X' && canClear) setClearing(true);
+      else if (input === hotkeys.deleteMore && canClear) setClearing(true);
     },
     { isActive: !clearing },
   );
@@ -169,7 +170,7 @@ export const SettingsView = ({
       }
       activateLabel="apply"
       onActivate={(item) => apply(item.value)}
-      hints={canClear ? [{ key: 'X', label: 'clear all', onPress: () => setClearing(true) }] : []}
+      hints={canClear ? [{ key: hotkeys.deleteMore, label: 'clear all', onPress: () => setClearing(true) }] : []}
       onSelectionChange={(item) => setCurrent(item?.value)}
       renderDetail={(item) => (
         <Box flexDirection="column">

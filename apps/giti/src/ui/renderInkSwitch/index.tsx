@@ -11,6 +11,7 @@ import {
   useTuiTheme,
 } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import createConfigStore from '@/dev-tools/utils/config/createConfigStore';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import type { SwitchOptions } from '../../core/branches';
 import FlagsPanel, { type FlagOption } from '../dashboard/FlagsPanel';
@@ -143,7 +144,7 @@ export const SwitchForm = ({
     if (captured) return;
     //? The picker owns Esc while the branches have the keys: it clears a search first
     if (key.escape && section === 'flags') return exit();
-    if (input === 'q' && !key.ctrl && !key.meta) return exit();
+    if (input === hotkeys.quit && !key.ctrl && !key.meta) return exit();
     if (key.tab) return setSection((was) => (was === 'branches' ? 'flags' : 'branches'));
     if (key.return && section === 'flags') return setSection('branches');
     //? The picker's delete says ^Z brings a branch back — the dashboard's footer Undo, here a key

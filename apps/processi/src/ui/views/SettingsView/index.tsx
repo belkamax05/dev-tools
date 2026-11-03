@@ -13,6 +13,7 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { type RefreshSetting, refreshRows } from '@/dev-tools/ui/utils/choiceRows';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   DEFAULT_REFRESH_SECONDS,
@@ -73,8 +74,8 @@ export const SettingsView = ({
   useInput(
     (input) => {
       if (input === ' ') apply(current);
-      else if (input === 'e') onEditConfig(current?.kind === 'state' ? stateStore.path : undefined);
-      else if (input === 'X') setClearing(true);
+      else if (input === hotkeys.edit) onEditConfig(current?.kind === 'state' ? stateStore.path : undefined);
+      else if (input === hotkeys.deleteMore) setClearing(true);
     },
     { isActive: !clearing },
   );
@@ -158,11 +159,11 @@ export const SettingsView = ({
       initialSelectedId={session.selected.settings}
       hints={[
         {
-          key: 'e',
+          key: hotkeys.edit,
           label: 'edit file',
           onPress: () => onEditConfig(current?.kind === 'state' ? stateStore.path : undefined),
         },
-        { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
+        { key: hotkeys.deleteMore, label: 'clear all', onPress: () => setClearing(true) },
       ]}
       onActivate={(item) => apply(item.value)}
       onSelectionChange={(item) => {

@@ -10,6 +10,7 @@ import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import openUrl from '@/dev-tools/utils/system/openUrl';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { type BmiConfig, userList } from '../../../config/settings';
 import {
@@ -149,7 +150,7 @@ export const TagsView = ({
       else if (input === 'a') add();
       else if (input === 'c') promote(current);
       else if (input === 'd') describe(current);
-      else if (input === 'x') remove(current);
+      else if (input === hotkeys.delete) remove(current);
     },
     { isActive: !prompt.isOpen },
   );
@@ -193,7 +194,7 @@ export const TagsView = ({
     ...(tag.declared && isOwn(tag)
       ? [
           {
-            hotkey: 'x',
+            hotkey: hotkeys.delete,
             label: 'Remove',
             onPress: () => remove(tag),
             tone: 'danger' as const,

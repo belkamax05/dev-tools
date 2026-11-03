@@ -8,6 +8,7 @@ import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { type PortiConfig, parsePort, withoutPort, withPort } from '../../../config/settings';
 import {
@@ -246,14 +247,14 @@ export const PortsView = ({
   useInput(
     (input, key) => {
       if (busy) return;
-      if (input === 'k') stop(current);
+      if (input === hotkeys.stop) stop(current);
       else if (input === 'K') stop(current, { force: true });
-      else if (input === 'g') stop(current, { tree: true });
-      else if (input === 'p') stopParent(current);
+      else if (input === hotkeys.stopTree) stop(current, { tree: true });
+      else if (input === hotkeys.stopParent) stopParent(current);
       else if (input === 'w') toggleWatch(current);
       else if (input === 'n') rename(current);
       else if (input === 'a') addPort();
-      else if (input === '/' && mode === 'listening') askFilter();
+      else if (input === hotkeys.search && mode === 'listening') askFilter();
       else if (key.escape && filter) {
         setFilter('');
         session.filter = '';
@@ -268,16 +269,16 @@ export const PortsView = ({
     return [
       ...(owned
         ? [
-            { hotkey: 'k', label: 'Stop', onPress: () => stop(status), tone: 'primary' as const },
+            { hotkey: hotkeys.stop, label: 'Stop', onPress: () => stop(status), tone: 'primary' as const },
             {
               hotkey: 'K',
               label: 'Kill now',
               onPress: () => stop(status, { force: true }),
               tone: 'danger' as const,
             },
-            { hotkey: 'g', label: 'Stop + children', onPress: () => stop(status, { tree: true }) },
+            { hotkey: hotkeys.stopTree, label: 'Stop + children', onPress: () => stop(status, { tree: true }) },
             ...(hasParent
-              ? [{ hotkey: 'p', label: 'Stop parent', onPress: () => stopParent(status) }]
+              ? [{ hotkey: hotkeys.stopParent, label: 'Stop parent', onPress: () => stopParent(status) }]
               : []),
           ]
         : []),
@@ -293,7 +294,7 @@ export const PortsView = ({
   const hints: Hint[] = [
     { key: 'a', label: 'watch port', onPress: addPort },
     ...(mode === 'listening'
-      ? [{ key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter }]
+      ? [{ key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter }]
       : []),
     ...(filter && mode === 'listening'
       ? [

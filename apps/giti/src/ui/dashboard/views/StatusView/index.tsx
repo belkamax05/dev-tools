@@ -12,6 +12,7 @@ import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import revealPath from '@/dev-tools/utils/system/revealPath';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { commit, isHeadPushed } from '../../../../core/commit';
 import {
@@ -314,8 +315,8 @@ export const StatusView = ({
       else if (input === 'N') setHunk((at) => Math.max(0, at - 1));
       else if (input === 's') hunkAction('stage');
       else if (input === 'd') hunkAction('discard');
-      else if (input === 'x') discardFile(current);
-      else if (input === 'e') handoff({ type: 'edit', path: join(root, current.change.path) });
+      else if (input === hotkeys.delete) discardFile(current);
+      else if (input === hotkeys.edit) handoff({ type: 'edit', path: join(root, current.change.path) });
       else if (input === 'o') revealPath(join(root, current.change.path));
       else if (current.side === 'conflict' && (input === 'O' || input === 'T')) {
         const side = input === 'O' ? 'ours' : 'theirs';
@@ -375,7 +376,7 @@ export const StatusView = ({
       if (stagingOnly) return [];
       return [
         {
-          hotkey: 'e',
+          hotkey: hotkeys.edit,
           label: 'Edit to resolve',
           onPress: () => handoff({ type: 'edit', path: join(root, row.change.path) }),
           tone: 'primary',
@@ -436,7 +437,7 @@ export const StatusView = ({
                 ]
               : []),
             {
-              hotkey: 'x',
+              hotkey: hotkeys.delete,
               label: 'Discard file',
               onPress: () => discardFile(row),
               tone: 'danger' as const,
@@ -446,7 +447,7 @@ export const StatusView = ({
       ...(!stagingOnly
         ? [
             {
-              hotkey: 'e',
+              hotkey: hotkeys.edit,
               label: 'Edit',
               onPress: () => handoff({ type: 'edit', path: join(root, row.change.path) }),
             },

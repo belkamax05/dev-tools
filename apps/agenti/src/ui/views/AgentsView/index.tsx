@@ -41,6 +41,7 @@ import PreviewLines, { PREVIEW_SCROLL_HINT } from '../../PreviewLines';
 import type { ViewProps } from '../../types';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 /**
  * The checkbox each row carries, one per status — three cells wide on every
@@ -446,7 +447,7 @@ export const AgentsView = ({
     actions.push(
       { hotkey: 'v', label: 'Preview', onPress: togglePreview, isOn: preview },
       {
-        hotkey: 'e',
+        hotkey: hotkeys.edit,
         label: exists ? 'Edit AGENTS.md' : 'Write AGENTS.md',
         onPress: () => handoff({ type: 'edit', path: scope.instructionsPath }),
         tone: instructionsStatus === 'no-source' && !adoptableInstructions ? 'primary' : 'normal',
@@ -617,10 +618,10 @@ export const AgentsView = ({
         tone: status === 'synced' ? 'primary' : 'normal',
       });
     }
-    if (isFile) actions.push({ hotkey: 'e', label: 'Edit', onPress: () => edit(node) });
+    if (isFile) actions.push({ hotkey: hotkeys.edit, label: 'Edit', onPress: () => edit(node) });
     actions.push(
       { hotkey: 'o', label: 'Reveal', onPress: () => reveal(node) },
-      { hotkey: 'x', label: 'Delete', onPress: () => remove(node), tone: 'danger' },
+      { hotkey: hotkeys.delete, label: 'Delete', onPress: () => remove(node), tone: 'danger' },
     );
     return actions;
   };
@@ -630,7 +631,7 @@ export const AgentsView = ({
       if (onInstructions) {
         if (input === ' ') toggleInstructions();
         else if (input === 'v') togglePreview();
-        else if (input === 'e') handoff({ type: 'edit', path: scope.instructionsPath });
+        else if (input === hotkeys.edit) handoff({ type: 'edit', path: scope.instructionsPath });
         else if (input === 'a' || input === 'p') {
           instructionsActions()
             .find((action) => action.hotkey === input)
@@ -649,8 +650,8 @@ export const AgentsView = ({
       else if (input === 'a') adopt(node);
       else if (input === 'p') push(node);
       else if (input === 'v') togglePreview();
-      else if (input === 'e') edit(node);
-      else if (input === 'x') remove(node);
+      else if (input === hotkeys.edit) edit(node);
+      else if (input === hotkeys.delete) remove(node);
       else if (input === 'o') reveal(node);
     },
     { isActive: isActive && !prompt.isOpen },

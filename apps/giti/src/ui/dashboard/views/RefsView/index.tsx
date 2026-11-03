@@ -11,6 +11,7 @@ import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   type DeletedRef,
@@ -221,8 +222,8 @@ export const RefsView = ({
     (input, key) => {
       if (!pending) return;
       if (key.escape || input === 'N' || input === 'n') return closeDelete();
-      if (input === 'x') return deleteOneSide();
-      if (input === 'X') return deleteBothSides();
+      if (input === hotkeys.delete) return deleteOneSide();
+      if (input === hotkeys.deleteMore) return deleteBothSides();
       const count = pending.counterparts?.length ?? 0;
       if (key.upArrow || key.downArrow)
         return setPending({
@@ -282,14 +283,14 @@ export const RefsView = ({
       ) : null}
       <Box flexDirection="row">
         <ActionButton
-          hotkey="x"
+          hotkey={hotkeys.delete}
           label={`${thisSide} only`}
           color={colors.warn}
           bordered
           onPress={deleteOneSide}
         />
         <ActionButton
-          hotkey="Shift+X"
+          hotkey={hotkeys.deleteMore}
           label={`${thisSide} + ${otherSide}${tickedRefs.length ? ` (${tickedRefs.length})` : ''}`}
           color={colors.warn}
           bordered
@@ -318,13 +319,13 @@ export const RefsView = ({
 
   useInput(
     (input) => {
-      if (input === '/') return search();
+      if (input === hotkeys.search) return search();
       if (input === 'L') return void toggleRemotes();
       const picked = MODES.find((entry) => entry.hotkey === input);
       if (picked) return setMode(picked.mode);
       if (!current) return;
-      if (input === 'x') remove(current);
-      else if (input === 'y') copy(current.hash, current.hash.slice(0, 12));
+      if (input === hotkeys.delete) remove(current);
+      else if (input === hotkeys.copy) copy(current.hash, current.hash.slice(0, 12));
       else if (input === 'Y') copy(current.name, current.name);
     },
     { isActive: !prompt.isOpen && !pending },
@@ -365,13 +366,13 @@ export const RefsView = ({
 
   //? The views are a tab row of their own: in the Toolbar, past three buttons it stacks a line each
   const actionsFor = (ref: RefEntry): ToolbarAction[] => [
-    { hotkey: 'y', label: 'Copy hash', onPress: () => copy(ref.hash, ref.hash.slice(0, 12)) },
+    { hotkey: hotkeys.copy, label: 'Copy hash', onPress: () => copy(ref.hash, ref.hash.slice(0, 12)) },
     { hotkey: 'Y', label: 'Copy name', onPress: () => copy(ref.name, ref.name) },
-    { hotkey: 'x', label: 'Delete', onPress: () => remove(ref), tone: 'danger' },
+    { hotkey: hotkeys.delete, label: 'Delete', onPress: () => remove(ref), tone: 'danger' },
   ];
 
   const hints: Hint[] = [
-    { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: search },
+    { key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: search },
     {
       key: 'L',
       label: advertised ? 'hide remote refs' : 'list remote refs',

@@ -12,6 +12,7 @@ import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import openUrl, { remoteWebUrl } from '@/dev-tools/utils/system/openUrl';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import { getBranches } from '../../../../core/branches';
 import {
@@ -131,7 +132,7 @@ export const RemotesView = ({
       //? Ctrl+P / Ctrl+X arrive as 'p' / 'x' too; they belong to the palette and the op banner
       if (key.ctrl) return;
       if (input === 'f') fetch();
-      else if (input === 'x') remove();
+      else if (input === hotkeys.delete) remove();
       else if (input === 'p') pull();
       //? On a vendored row, push means every vendored directory — what send does
       else if (input === 'P') currentVendored ? onRunCommand('send') : push();
@@ -262,7 +263,7 @@ export const RemotesView = ({
           ...(vendored.length
             ? [{ key: 'S', label: 'status of all', onPress: () => onRunCommand('mega/status') }]
             : []),
-          ...(current ? [{ key: 'x', label: `remove ${current.name}`, onPress: () => remove() }] : []),
+          ...(current ? [{ key: hotkeys.delete, label: `remove ${current.name}`, onPress: () => remove() }] : []),
         ]}
         onActivate={(item) => {
           const url = item.value?.kind === 'remote' && remoteWebUrl(item.value.remote.fetchUrl);
@@ -290,7 +291,7 @@ export const RemotesView = ({
                 actions={[
                   ...actions,
                   {
-                    hotkey: 'x',
+                    hotkey: hotkeys.delete,
                     label: 'Remove',
                     onPress: () => remove(remote),
                     tone: 'danger',

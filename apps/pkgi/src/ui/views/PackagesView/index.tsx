@@ -11,6 +11,7 @@ import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 import openUrl from '@/dev-tools/utils/system/openUrl';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import type { DependencyType } from '../../../config/settings';
 import type { SupportInfo } from '../../../core/eol';
@@ -474,7 +475,7 @@ export const PackagesView = ({
       else if (input === 'v') {
         if (currentResult) setAddPicker(currentResult.name);
         else openPicker(current);
-      } else if (input === 'x') remove(current);
+      } else if (input === hotkeys.delete) remove(current);
       else if (input === 'n') editNote(current);
       else if (input === 'i' && currentResult)
         add(currentResult.name, chosen[currentResult.name], false);
@@ -488,7 +489,7 @@ export const PackagesView = ({
       else if (input === 'o') toggleOutdated();
       else if (input === 'e') toggleSupportMode();
       else if (input === 'c') checkNow();
-      else if (input === '/') askFilter();
+      else if (input === hotkeys.search) askFilter();
       else if (key.escape && filter) changeFilter('');
     },
     { isActive: !prompt.isOpen && !picker && !addPicker },
@@ -582,7 +583,7 @@ export const PackagesView = ({
               onPress: () => openUrl(`https://www.npmjs.com/package/${row.name}`),
             },
           ]),
-      { hotkey: 'x', label: 'Remove', onPress: () => remove(row), tone: 'danger' as const },
+      { hotkey: hotkeys.delete, label: 'Remove', onPress: () => remove(row), tone: 'danger' as const },
     ];
   };
 
@@ -601,7 +602,7 @@ export const PackagesView = ({
       label: `[${supportMode ? 'x' : ' '}] EOL/stale mode (${unsupportedCount})`,
       onPress: toggleSupportMode,
     },
-    { key: '/', label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
+    { key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
     { key: 'c', label: 'check now', onPress: checkNow },
     { key: 'A', label: 'update minor/patch', onPress: updateSafe },
   ];

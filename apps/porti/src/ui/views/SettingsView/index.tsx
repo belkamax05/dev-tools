@@ -15,6 +15,7 @@ import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useThemeSettings, { type ThemeSetting } from '@/dev-tools/ui/hooks/useThemeSettings';
 import { type RefreshSetting, refreshRows } from '@/dev-tools/ui/utils/choiceRows';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import hotkeys from '@/dev-tools/config/hotkeys';
 
 import {
   DEFAULT_PORTS,
@@ -142,9 +143,9 @@ export const SettingsView = ({
     (input) => {
       if (input === ' ') apply(current);
       else if (input === 'a') addPort();
-      else if (input === 'e') onEditConfig(current?.kind === 'state' ? stateStore.path : undefined);
-      else if (input === 'X') setClearing(true);
-      else if (current?.kind === 'port' && input === 'x') remove(current.entry);
+      else if (input === hotkeys.edit) onEditConfig(current?.kind === 'state' ? stateStore.path : undefined);
+      else if (input === hotkeys.deleteMore) setClearing(true);
+      else if (current?.kind === 'port' && input === hotkeys.delete) remove(current.entry);
       else if (current?.kind === 'port' && input === 'n') rename(current.entry);
     },
     { isActive: !prompt.isOpen && !clearing },
@@ -199,7 +200,7 @@ export const SettingsView = ({
                   tone: 'primary',
                 },
                 {
-                  hotkey: 'x',
+                  hotkey: hotkeys.delete,
                   label: 'Unwatch',
                   onPress: () => remove(setting.entry),
                   tone: 'danger',
@@ -297,11 +298,11 @@ export const SettingsView = ({
         hints={[
           { key: 'a', label: 'watch port', onPress: addPort },
           {
-            key: 'e',
+            key: hotkeys.edit,
             label: 'edit file',
             onPress: () => onEditConfig(current?.kind === 'state' ? stateStore.path : undefined),
           },
-          { key: 'X', label: 'clear all', onPress: () => setClearing(true) },
+          { key: hotkeys.deleteMore, label: 'clear all', onPress: () => setClearing(true) },
         ]}
         onActivate={(item) => apply(item.value)}
         onSelectionChange={(item) => {
