@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import makeRepo from '../testRepo';
 import {
   deleteRef,
+  findCounterparts,
   getAdvertisedRefs,
   getRefDetail,
   getRefs,
@@ -157,5 +158,36 @@ describe('refs', () => {
     expect(await listed()).toBeUndefined();
     expect((await restoreRef(repo.root, removed.restore!)).ok).toBe(true);
     expect(await listed()).toBeDefined();
+  });
+
+  test('finds what the other side holds of a ref: by refspec, by name, or only by its object', async () => {
+    repo = makeRepo({ remote: true });
+    repo.sh(['push', '-q', 'origin', 'HEAD:refs/custom/same-name', 'HEAD:refs/elsewhere/copy']);
+    //? Fetched with a refspec typed on the command line, never configured: only the object ties them
+    repo.sh(['fetch', '-q', 'origin', 'refs/elsewhere/*:refs/mirror/origin/*']);
+    repo.sh(['update-ref', 'refs/custom/same-name', 'HEAD']);
+    const local = await getRefs(repo.root);
+    const find = (name: string) => local.find((ref) => ref.name === name);
+
+    const mirror = await findCounterparts(repo.root, find('refs/mirror/origin/copy')!, local);
+    expect(mirror.counterparts.map((c) => [c.ref.name, c.reason])).toContainEqual([
+      'refs/elsewhere/copy',
+      'same object',
+    ]);
+    const named = await findCounterparts(repo.root, find('refs/custom/same-name')!, local);
+    expect(named.counterparts[0]).toMatchObject({ reason: 'same name' });
+    const tracking = await findCounterparts(repo.root, find('refs/remotes/origin/main')!, local);
+    expect(tracking.counterparts[0]).toMatchObject({
+      reason: 'fetched as this',
+      ref: { name: 'refs/heads/main', remote: 'origin' },
+    });
+    //? From the remote side: the local ref its refspec fills
+    const advertised = await getAdvertisedRefs(repo.root, 'origin', local);
+    const back = await findCounterparts(
+      repo.root,
+      advertised.find((ref) => ref.name === 'refs/heads/main')!,
+      local,
+    );
+    expect(back.counterparts.map((c) => c.ref.name)).toEqual(['refs/remotes/origin/main']);
   });
 });

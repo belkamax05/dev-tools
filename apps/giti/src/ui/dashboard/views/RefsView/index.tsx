@@ -13,11 +13,14 @@ import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
 import {
+  type DeletedRef,
   deleteRef,
+  findCounterparts,
   getAdvertisedRefs,
   getRefDetail,
   getRefs,
   getRemoteNames,
+  type RefCounterpart,
   type RefEntry,
   restoreRef,
   splitRefName,
@@ -126,31 +129,183 @@ export const RefsView = ({
     notify(`Copied ${what} to the clipboard`, 'ok');
   };
 
-  const remove = (ref: RefEntry) =>
-    prompt.confirm(
-      ref.remote
-        ? `Delete ${ref.name} on ${ref.remote}, for everyone who fetches it?`
-        : `Delete ${ref.name} (${ref.hash.slice(0, 8) || ref.symref})? Its reflog goes with it.`,
-      async () => {
-        const result = await deleteRef(root, ref);
-        notify(result.message, result.ok ? 'ok' : 'error');
-        if (!result.ok) return;
-        const restore = result.restore;
-        if (restore)
-          offerUndo({
-            label: result.message,
-            run: async () => {
-              const back = await restoreRef(root, restore);
-              //? A remote's listing is a snapshot: read it again to show the ref back
-              if (back.ok && restore.remote) setAdvertised(undefined);
-              reload();
-              return back;
-            },
-          });
-        if (ref.remote) setAdvertised((was) => was?.filter((entry) => entry.id !== ref.id));
-        reload();
-      },
+  //? Deleting asks where: the side the ref is on, or that side and what the other side holds of
+  //? it — looked up first (`ls-remote` for a local ref), so the choice names real refs. `d`
+  //? deletes the side it is on, Shift (`D`) both — letters nothing else in the view uses
+  const [pending, setPending] = useState<{
+    ref: RefEntry;
+    counterparts?: RefCounterpart[];
+    errors?: string[];
+    /** Ids of the counterparts that go along with Shift. */
+    ticked: Set<string>;
+    cursor: number;
+  }>();
+  const remove = (ref: RefEntry) => {
+    setPending({ ref, ticked: new Set(), cursor: 0 });
+    onCaptureInput(true);
+    const settle = ({
+      counterparts,
+      errors,
+    }: {
+      counterparts: RefCounterpart[];
+      errors: string[];
+    }) => {
+      //? A refspec or the same name says it is this ref; the same object alone could be chance,
+      //? so it starts ticked only when nothing says more
+      const strong = counterparts.filter((counterpart) => counterpart.reason !== 'same object');
+      const ticked = new Set((strong.length ? strong : counterparts).map((c) => c.ref.id));
+      setPending((was) =>
+        was?.ref.id === ref.id ? { ref, counterparts, errors, ticked, cursor: 0 } : was,
+      );
+    };
+    findCounterparts(root, ref, refs).then(settle, (failure: Error) =>
+      settle({ counterparts: [], errors: [failure.message] }),
     );
+  };
+  const closeDelete = () => {
+    setPending(undefined);
+    onCaptureInput(false);
+  };
+  const runDelete = async (ref: RefEntry, also: RefEntry[]) => {
+    closeDelete();
+    const targets = [ref, ...also];
+    const restores: DeletedRef[] = [];
+    const said: string[] = [];
+    let failed = false;
+    for (const target of targets) {
+      const result = await deleteRef(root, target);
+      said.push(result.message);
+      if (result.restore) restores.push(result.restore);
+      //? Stop at the first refusal: what is left stays as it was, and the undo covers the rest
+      if (!result.ok) {
+        failed = true;
+        break;
+      }
+    }
+    notify(said.join(' · '), failed ? 'error' : 'ok');
+    if (restores.length)
+      offerUndo({
+        label: said.join(' · '),
+        run: async () => {
+          const back = await Promise.all(restores.map((restore) => restoreRef(root, restore)));
+          //? A remote's listing is a snapshot: read it again to show the ref back
+          if (restores.some((restore) => restore.remote)) setAdvertised(undefined);
+          reload();
+          return {
+            ok: back.every((result) => result.ok),
+            message: back.map((result) => result.message).join(' · '),
+          };
+        },
+      });
+    setAdvertised((was) =>
+      was?.filter((entry) => !targets.some((target) => target.id === entry.id)),
+    );
+    reload();
+  };
+
+  const tickedRefs = (pending?.counterparts ?? [])
+    .filter((counterpart) => pending?.ticked.has(counterpart.ref.id))
+    .map((counterpart) => counterpart.ref);
+  const deleteOneSide = () => pending && void runDelete(pending.ref, []);
+  const deleteBothSides = () =>
+    pending && tickedRefs.length && void runDelete(pending.ref, tickedRefs);
+  const toggle = (id: string) =>
+    setPending((was) => {
+      if (!was) return was;
+      const ticked = new Set(was.ticked);
+      if (!ticked.delete(id)) ticked.add(id);
+      return { ...was, ticked };
+    });
+
+  useInput(
+    (input, key) => {
+      if (!pending) return;
+      if (key.escape || input === 'N' || input === 'n') return closeDelete();
+      if (input === 'd') return deleteOneSide();
+      if (input === 'D') return deleteBothSides();
+      const count = pending.counterparts?.length ?? 0;
+      if (key.upArrow || key.downArrow)
+        return setPending({
+          ...pending,
+          cursor: (pending.cursor + (key.upArrow ? count - 1 : 1)) % Math.max(1, count),
+        });
+      const at = pending.counterparts?.[pending.cursor];
+      if (input === ' ' && at) toggle(at.ref.id);
+    },
+    { isActive: Boolean(pending) },
+  );
+
+  const describeRef = (ref: RefEntry) => (ref.remote ? `${ref.remote}: ${ref.name}` : ref.name);
+  const thisSide = pending?.ref.remote ? 'Remote' : 'Local';
+  const otherSide = pending?.ref.remote ? 'local' : 'remote';
+  const deleteQuestion = pending && (
+    <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+      <Text color={colors.warn} bold wrap="wrap">
+        Delete {describeRef(pending.ref)}?{' '}
+        {pending.ref.remote ? 'Gone for everyone who fetches it.' : 'Its reflog goes with it.'}
+      </Text>
+      {!pending.counterparts ? (
+        <Text color={colors.muted}>
+          <SpinnerGlyph /> Looking for it {pending.ref.remote ? 'locally' : 'on the remotes'}…
+        </Text>
+      ) : pending.counterparts.length ? (
+        <>
+          <Text color={colors.muted}>
+            Also {pending.ref.remote ? 'here' : 'on the remotes'}
+            {pending.counterparts.length > 1 ? ' — ↑/↓ and Space or a click tick them' : ''}:
+          </Text>
+          {pending.counterparts.map((counterpart, index) => (
+            <Box key={counterpart.ref.id} flexDirection="row">
+              <Text color={colors.accent}>
+                {pending.counterparts && pending.counterparts.length > 1 && index === pending.cursor
+                  ? '❯ '
+                  : '  '}
+              </Text>
+              <ActionButton
+                label={`${pending.ticked.has(counterpart.ref.id) ? '[x]' : '[ ]'} ${describeRef(counterpart.ref)}`}
+                color={colors.text}
+                onPress={() => toggle(counterpart.ref.id)}
+              />
+              <Text color={colors.muted}> · {counterpart.reason}</Text>
+            </Box>
+          ))}
+        </>
+      ) : (
+        <Text color={colors.muted}>
+          Nothing matches it {pending.ref.remote ? 'locally' : 'on any remote'}.
+        </Text>
+      )}
+      {pending.errors?.length ? (
+        <Text color={colors.error} wrap="truncate">
+          {pending.errors.join(' · ')}
+        </Text>
+      ) : null}
+      <Box flexDirection="row">
+        <ActionButton
+          hotkey="d"
+          label={`${thisSide} only`}
+          color={colors.warn}
+          bordered
+          onPress={deleteOneSide}
+        />
+        <ActionButton
+          hotkey="D"
+          label={`${thisSide} + ${otherSide}${tickedRefs.length ? ` (${tickedRefs.length})` : ''}`}
+          color={colors.warn}
+          bordered
+          disabled={!tickedRefs.length}
+          onPress={deleteBothSides}
+        />
+        <ActionButton
+          hotkey="N"
+          label="Cancel"
+          color={colors.text}
+          bordered
+          onPress={closeDelete}
+        />
+      </Box>
+    </Box>
+  );
 
   const search = () => {
     const before = filter;
@@ -172,7 +327,7 @@ export const RefsView = ({
       else if (input === 'y') copy(current.hash, current.hash.slice(0, 12));
       else if (input === 'Y') copy(current.name, current.name);
     },
-    { isActive: !prompt.isOpen },
+    { isActive: !prompt.isOpen && !pending },
   );
 
   //? Groups in the order the refs come — root first, namespaces by name, then each remote's listing
@@ -247,7 +402,7 @@ export const RefsView = ({
         )}
       </Box>
       <ListDetail
-        question={prompt.question}
+        question={deleteQuestion || prompt.question}
         detailScroll={false}
         title={`Refs (${shown.length})`}
         items={items}
@@ -256,7 +411,7 @@ export const RefsView = ({
         reservedChrome={['viewHeader', ...reservedChrome]}
         activateLabel="next view"
         activateOnClick={false}
-        isInputActive={!prompt.isOpen}
+        isInputActive={!prompt.isOpen && !pending}
         fitToHost={fitToHost}
         hints={hints}
         onActivate={() =>

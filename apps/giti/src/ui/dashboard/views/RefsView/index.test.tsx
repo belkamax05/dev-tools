@@ -17,13 +17,15 @@ const until = async (ready: () => boolean, what: string) => {
   }
 };
 
-test('a filtered custom ref shows its info, raw object, reflog and preview', async () => {
-  const repo = makeRepo();
+test('a filtered custom ref shows its info, raw object, reflog and preview, and deletes on both sides', async () => {
+  const repo = makeRepo({ remote: true });
   repo.write('a.txt', 'custom-change\n');
   repo.sh(['add', 'a.txt']);
   const tree = repo.sh(['write-tree']).trim();
   const commit = repo.sh(['commit-tree', tree, '-p', 'HEAD', '-m', 'custom-marker']).trim();
   repo.sh(['update-ref', '--create-reflog', '-m', 'made-by-test', 'refs/custom/probe', commit]);
+  repo.sh(['push', '-q', 'origin', 'refs/custom/probe']);
+  const onRemote = () => repo.sh(['ls-remote', 'origin', 'refs/custom/probe']).trim();
   const stdout = Object.assign(new PassThrough(), { columns: 140, rows: 40, isTTY: true });
   const stdin = Object.assign(new PassThrough(), {
     isTTY: true,
@@ -76,12 +78,16 @@ test('a filtered custom ref shows its info, raw object, reflog and preview', asy
     stdin.write('4');
     await until(() => output.includes('+custom-change'), 'the preview');
     stdin.write('x');
-    await until(() => output.includes('Delete refs/custom/probe'), 'the question');
-    stdin.write('y');
+    await until(() => output.includes('[x] origin: refs/custom/probe'), 'the remote counterpart');
+    expect(output).toContain('Local + remote (1)');
+    expect(last()).toMatch(/Delete refs\/custom\/probe[\s\S]*\[x\] origin: refs\/custom\/probe/);
+    stdin.write('D');
     await until(() => Boolean(undo), 'the undo offer');
     expect(repo.sh(['for-each-ref', 'refs/custom']).trim()).toBe('');
+    expect(onRemote()).toBe('');
     expect((await undo!.run()).ok).toBe(true);
     expect(repo.sh(['rev-parse', 'refs/custom/probe']).trim()).toBe(commit);
+    expect(onRemote()).toContain(commit);
   } finally {
     app.unmount();
     app.cleanup();

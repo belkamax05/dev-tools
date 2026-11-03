@@ -530,3 +530,56 @@ export const restoreRef = async (cwd: string, deleted: DeletedRef): Promise<Oper
       }
     : { ok: false, message: failure(result, `Could not restore ${deleted.name}`) };
 };
+
+/** A ref on the other side of `ref` — on a remote for a local ref, or local for a remote's. */
+export interface RefCounterpart {
+  ref: RefEntry;
+  /** How it was matched: by a fetch refspec, by name, or only by pointing at the same object. */
+  reason: 'fetched as this' | 'same name' | 'same object';
+}
+
+/**
+ * The refs on the other side of `ref` that deleting it on one side would leave behind, found from
+ * git's own data alone: for a local ref, every remote's advertised refs (`ls-remote`) that a fetch
+ * refspec maps onto it, that have its name, or that point at its object; for an advertised ref,
+ * the local ref its refspec fills. Reaches the network for a local ref.
+ */
+export const findCounterparts = async (
+  cwd: string,
+  ref: RefEntry,
+  local: RefEntry[],
+): Promise<{ counterparts: RefCounterpart[]; errors: string[] }> => {
+  if (ref.remote) {
+    const fetched = local.find((entry) => entry.name === ref.localRef);
+    return {
+      counterparts: fetched ? [{ ref: fetched, reason: 'fetched as this' }] : [],
+      errors: [],
+    };
+  }
+  const remotes = await getRemoteNames(cwd);
+  const settled = await Promise.allSettled(
+    remotes.map((remote) => getAdvertisedRefs(cwd, remote, local)),
+  );
+  const counterparts: RefCounterpart[] = [];
+  const errors: string[] = [];
+  for (const result of settled) {
+    if (result.status === 'rejected') {
+      errors.push(String((result.reason as Error).message));
+      continue;
+    }
+    for (const advertised of result.value) {
+      const reason: RefCounterpart['reason'] | undefined =
+        advertised.localRef === ref.name
+          ? 'fetched as this'
+          : advertised.name === ref.name
+            ? 'same name'
+            : //? A symbolic ref (a remote's HEAD) only repeats the ref it names
+              ref.hash && advertised.hash === ref.hash && !advertised.symref
+              ? 'same object'
+              : undefined;
+      if (reason) counterparts.push({ ref: advertised, reason });
+    }
+  }
+  const rank = { 'fetched as this': 0, 'same name': 1, 'same object': 2 };
+  return { counterparts: counterparts.sort((a, b) => rank[a.reason] - rank[b.reason]), errors };
+};
