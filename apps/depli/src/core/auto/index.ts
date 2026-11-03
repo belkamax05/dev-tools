@@ -56,15 +56,27 @@ const pendingAncestors = (
 const ARMABLE: ReadonlySet<string> = new Set(['none', 'stale', 'blocked', 'failed', 'done']);
 
 /**
- * Can this step be armed: it is not running and something before it is running — or armed
- * itself, so a whole tail can be queued behind one build, each sent once the one before succeeds.
- * Every step after a running one qualifies, however far down and whatever it reads now.
+ * Can this step be armed: it is not running, something before it is on its way (running, or
+ * armed itself), and every step directly before it will have a result for it when that lands —
+ * on its way too, or done with nothing above it about to replace what it did. A step after one
+ * that never ran and is not armed is not offered: nothing would run that one, so it could only be
+ * dropped. A whole tail is still queued behind one build — each step armed after the one above.
  */
 export const canArm = (
   chain: readonly ChainStep[],
   entry: ChainStep,
   armed: ReadonlySet<string> = new Set(),
-) => ARMABLE.has(entry.status.state) && pendingAncestors(chain, entry.step.id, armed).length > 0;
+) => {
+  if (!ARMABLE.has(entry.status.state)) return false;
+  if (!pendingAncestors(chain, entry.step.id, armed).length) return false;
+  const onItsWay = (item: ChainStep) => item.status.state === 'running' || armed.has(item.step.id);
+  return (entry.step.after ?? []).every((id) => {
+    const parent = chain.find((item) => item.step.id === id);
+    if (!parent) return false;
+    if (onItsWay(parent)) return true;
+    return parent.status.state === 'done' && !pendingAncestors(chain, id, armed).length;
+  });
+};
 
 /**
  * What an armed trigger does on this evaluation of its chain. It waits while anything before it
@@ -101,6 +113,27 @@ export const decideAuto = (
   if (entry.recommended || parents.every((parent) => parent?.status.state === 'done'))
     return { kind: 'fire' };
   return { kind: 'drop', reason: 'the steps before it finished, but it is not next to run' };
+};
+
+/**
+ * Disarm one trigger, and with it every trigger armed after it on the same branch and env: each
+ * waits on a result the removed one would have made, so left armed it could only drop — or worse,
+ * fire on the old result. `stepsOf` gives an env's pipeline, for what comes after what.
+ */
+export const disarmWithTail = <Auto extends AutoTrigger>(
+  autos: readonly Auto[],
+  key: string,
+  stepsOf: (env: string) => ReadonlyArray<{ id: string; after?: string[] }>,
+): { kept: Auto[]; removed: Auto[] } => {
+  const target = autos.find((auto) => autoKey(auto) === key);
+  if (!target) return { kept: [...autos], removed: [] };
+  const entries = stepsOf(target.env).map((step) => ({ step })) as unknown as ChainStep[];
+  const after = (auto: Auto) =>
+    auto.branch === target.branch &&
+    auto.env === target.env &&
+    ancestorsOf(entries, auto.stepId).some((entry) => entry.step.id === target.stepId);
+  const removed = autos.filter((auto) => auto === target || after(auto));
+  return { kept: autos.filter((auto) => !removed.includes(auto)), removed };
 };
 
 /** How long a sent step may take to show a run at all before it counts as lost. */

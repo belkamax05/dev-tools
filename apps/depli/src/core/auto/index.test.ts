@@ -38,19 +38,41 @@ test('ancestors are every step before, not only the direct parent', () => {
   ]);
 });
 
-test('every step after a running one can be armed, whatever it reads now', () => {
+test('a step can be armed only when the step right before it will have a result for it', () => {
   const running = chain({ build: 'running', deploy: 'stale', propagate: 'none' });
   expect(canArm(running, entry(running, 'deploy'))).toBe(true);
-  //? Two levels below the running build counts too
-  expect(canArm(running, entry(running, 'propagate'))).toBe(true);
+  //? Two levels below: nothing would run the deploy in between — not offered…
+  expect(canArm(running, entry(running, 'propagate'))).toBe(false);
+  //? …until the deploy is armed itself: then the tail queues, in order
+  expect(canArm(running, entry(running, 'propagate'), new Set(['deploy']))).toBe(true);
+  //? The step before never ran and is not armed: never offered
+  const never = chain({ build: 'running', deploy: 'none', propagate: 'none' });
+  expect(canArm(never, entry(never, 'propagate'))).toBe(false);
   const idle = chain({ deploy: 'stale' }, ['deploy']);
   expect(canArm(idle, entry(idle, 'deploy'))).toBe(false);
-  //? Done against the result the running build replaces: armable, down to the last step
+  //? Done against the result the running build replaces: the deploy is armable, the propagate
+  //? after it only once the deploy is armed
   const done = chain({ build: 'running' });
   expect(canArm(done, entry(done, 'deploy'))).toBe(true);
-  expect(canArm(done, entry(done, 'propagate'))).toBe(true);
+  expect(canArm(done, entry(done, 'propagate'))).toBe(false);
+  expect(canArm(done, entry(done, 'propagate'), new Set(['deploy']))).toBe(true);
   expect(canArm(done, entry(done, 'push'))).toBe(false);
   expect(canArm(done, entry(done, 'build'))).toBe(false);
+});
+
+test('beside a running build, a parallel one that is done for the branch still counts', () => {
+  //? deploy after nginx (running) and nodejs (done, nothing above it on its way)
+  const steps: ChainStep[] = [
+    { id: 'nginx', state: 'running' as StepState },
+    { id: 'nodejs', state: 'done' as StepState },
+    { id: 'deploy', state: 'stale' as StepState, after: ['nginx', 'nodejs'] },
+  ].map(({ id, state, after }) => ({
+    step: { id, label: id, provider: 'test', kind: 'job', after },
+    status: { state, summary: '' },
+    recommended: false,
+    protected: false,
+  }));
+  expect(canArm(steps, entry(steps, 'deploy'))).toBe(true);
 });
 
 test('a step armed while it read done waits, then drops if still up to date', () => {
@@ -168,7 +190,8 @@ test('a step with no past run makes the estimate a lower bound', () => {
 test('a chain can be armed end to end: the blocked step after an armed one, sent when it succeeds', () => {
   //? build runs; deploy (stale) is armed; propagate waits on deploy, so reads blocked
   const running = chain({ build: 'running', deploy: 'stale', propagate: 'blocked' });
-  expect(canArm(running, entry(running, 'propagate'))).toBe(true);
+  expect(canArm(running, entry(running, 'propagate'))).toBe(false);
+  expect(canArm(running, entry(running, 'propagate'), new Set(['deploy']))).toBe(true);
   expect(decideAuto(running, 'propagate', new Set(['deploy'])).kind).toBe('wait');
   //? build done, deploy sent and running: propagate still waits
   const deploying = chain({ deploy: 'running', propagate: 'blocked' });

@@ -48,7 +48,7 @@ const SIDE_BY_SIDE_COLUMNS = 96;
 const GRAPH_SHARE = 0.5;
 /** Envs listed at once in the open environments panel; more scroll. */
 const ENV_ROWS = 10;
-/** Auto triggers listed at once in their panel; more scroll out of sight behind a count. */
+/** Rows of the auto-trigger panel's list, however many are armed; more scroll. */
 const AUTO_ROWS = 4;
 
 export interface ChainViewProps {
@@ -244,6 +244,8 @@ export const ChainView = ({
   const [selectedId, setSelectedId] = useState(session.selected.chain);
   const [picking, setPicking] = useState<number | undefined>(undefined);
   const [confirming, setConfirming] = useState<PlannedTrigger>();
+  //? The step whose Auto trigger is asking "Yes / No" in place of its button
+  const [askingAuto, setAskingAuto] = useState<string>();
   //? A fix being confirmed: the red popover describing exactly what it changes
   const [fixing, setFixing] = useState<{ entry: ChainStep; fix: PlanFix }>();
   //? Logs per step: what the user chose with [l], else open while the step is running
@@ -282,7 +284,8 @@ export const ChainView = ({
   //? Frame and padding (4), and the scrollbar's column
   const graphWidth = graphPaneWidth - 5;
   //? The auto-trigger panel takes its rows (frame, title, list) from the two above it
-  const autoPanelRows = data.autos.length ? Math.min(data.autos.length, AUTO_ROWS) + 3 : 0;
+  //? Its full height whenever anything is armed — one trigger or many, the panel never shrinks
+  const autoPanelRows = data.autos.length ? AUTO_ROWS + 3 : 0;
   //? Open, the environments panel stands above both panels and never shrinks: its frame (2) and
   //? title, the list's own frame (2) and column names, the legend — 7 rows around the envs. On a
   //? short terminal it lists fewer envs (and scrolls) rather than lose its bottom border
@@ -557,9 +560,33 @@ export const ChainView = ({
           armed_(typed.trim());
         },
       );
-    else
-      prompt.confirm(`Auto-trigger ${what} once, when the steps before it finish?`, () => armed_());
+    //? Asked right where the button is, not in the prompt line far above the graph
+    else setAskingAuto(entry.step.id);
   };
+  /** The inline question's answer: y arms the step it was asked for, anything else does not. */
+  const answerAuto = (yes: boolean) => {
+    const entry = data.chain.find((item) => item.step.id === askingAuto);
+    setAskingAuto(undefined);
+    if (!yes || !entry) return;
+    data.arm(entry);
+    notify(
+      `Armed: ${fill(entry.step.label)} for ${data.branch} → ${data.targetEnv} — sent once, when the steps before it finish`,
+      'ok',
+    );
+  };
+  useInput((input) => answerAuto(input === 'y' || input === 'Y'), {
+    isActive: askingAuto !== undefined,
+  });
+  //? The question owns the keyboard while it is up — the app's own keys (B) included
+  useEffect(() => {
+    if (askingAuto !== undefined) onCaptureInput(true);
+    return () => {
+      if (askingAuto !== undefined) onCaptureInput(false);
+    };
+  }, [askingAuto, onCaptureInput]);
+  //? Another step selected: the question was about the old one
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the selection is the trigger
+  useEffect(() => setAskingAuto(undefined), [selected?.step.id, data.branch, data.targetEnv]);
 
   /** The run a Stop acts on: the one shown when it is running, else the step's running one. */
   const runningRun = (entry: ChainStep) =>
@@ -679,7 +706,7 @@ export const ChainView = ({
         if (fix) startFix(selected, fix);
       }
     },
-    { isActive: !prompt.isOpen },
+    { isActive: !prompt.isOpen && askingAuto === undefined },
   );
 
   const renderPlan = (planned: PlannedTrigger | string | undefined, shown: boolean) => {
@@ -927,6 +954,29 @@ export const ChainView = ({
                       : 'checking…';
                   })()}
                 </Text>
+              </>
+            ) : askingAuto === entry.step.id ? (
+              <>
+                <Text color={colors.warn} bold wrap="wrap">
+                  Auto-trigger {fill(entry.step.label)} for {data.branch} → {data.targetEnv} once,
+                  when the steps before it finish?
+                </Text>
+                <Box flexDirection="row">
+                  <ActionButton
+                    hotkey="y"
+                    label="Yes"
+                    color={colors.warn}
+                    bordered
+                    onPress={() => answerAuto(true)}
+                  />
+                  <ActionButton
+                    hotkey="N"
+                    label="No"
+                    color={colors.text}
+                    bordered
+                    onPress={() => answerAuto(false)}
+                  />
+                </Box>
               </>
             ) : (
               <>
@@ -1253,7 +1303,7 @@ export const ChainView = ({
         >
           {/* The rows it was priced at; more scroll under the wheel and scrollbar, buttons and all */}
           <Box
-            height={Math.min(data.autos.length, AUTO_ROWS)}
+            height={AUTO_ROWS}
             flexShrink={0}
             flexDirection="column"
           >

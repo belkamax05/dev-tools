@@ -6,11 +6,12 @@ import {
   ancestorsOf,
   autoKey,
   decideAuto,
+  disarmWithTail,
   inChainOrder,
   launchState,
 } from '../../core/auto';
 import { currentBranch, pickRecentBranches } from '../../core/branch';
-import { type ChainStep, evaluateChain } from '../../core/chain';
+import { type ChainStep, evaluateChain, stepsFor } from '../../core/chain';
 import { connectAll, probeChoice } from '../../core/connection';
 import { type History, readHistory } from '../../core/history';
 import { type EnvRow, evaluateEnvs } from '../../core/matrix';
@@ -136,7 +137,11 @@ export interface DepliData {
   armedIds: ReadonlySet<string>;
   /** Arm a step for the branch and env shown; `protectedEnv` is the typed confirmation. */
   arm: (entry: ChainStep, protectedEnv?: string) => void;
-  disarm: (key: string) => void;
+  /**
+   * Disarm one, and every trigger armed after it on its branch and env — they wait on its result.
+   * Returns every one removed, the asked-for one first.
+   */
+  disarm: (key: string) => AutoTrigger[];
 }
 
 /** Which transport each provider uses — the chain is re-read when this, not a timestamp, moves. */
@@ -661,7 +666,14 @@ export const useDepli = (
         was.some((item) => autoKey(item) === autoKey(auto)) ? was : [...was, auto],
       );
     },
-    disarm: (key) => setAutos((was) => was.filter((item) => autoKey(item) !== key)),
+    disarm: (key) => {
+      const { kept, removed } = disarmWithTail(autosRef.current, key, (id) =>
+        stepsFor(project, id),
+      );
+      autosRef.current = kept;
+      setAutos(kept);
+      return removed.sort((a, b) => Number(autoKey(b) === key) - Number(autoKey(a) === key));
+    },
   };
 };
 
