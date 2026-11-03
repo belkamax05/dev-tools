@@ -130,8 +130,8 @@ export const RefsView = ({
   };
 
   //? Deleting asks where: the side the ref is on, or that side and what the other side holds of
-  //? it — looked up first (`ls-remote` for a local ref), so the choice names real refs. `d`
-  //? deletes the side it is on, Shift (`D`) both — letters nothing else in the view uses
+  //? it — looked up first (`ls-remote` for a local ref), so the choice names real refs. `x`
+  //? again deletes the side it is on, Shift+X both — the suite's delete and its bigger variant
   const [pending, setPending] = useState<{
     ref: RefEntry;
     counterparts?: RefCounterpart[];
@@ -221,8 +221,8 @@ export const RefsView = ({
     (input, key) => {
       if (!pending) return;
       if (key.escape || input === 'N' || input === 'n') return closeDelete();
-      if (input === 'd') return deleteOneSide();
-      if (input === 'D') return deleteBothSides();
+      if (input === 'x') return deleteOneSide();
+      if (input === 'X') return deleteBothSides();
       const count = pending.counterparts?.length ?? 0;
       if (key.upArrow || key.downArrow)
         return setPending({
@@ -282,14 +282,14 @@ export const RefsView = ({
       ) : null}
       <Box flexDirection="row">
         <ActionButton
-          hotkey="d"
+          hotkey="x"
           label={`${thisSide} only`}
           color={colors.warn}
           bordered
           onPress={deleteOneSide}
         />
         <ActionButton
-          hotkey="D"
+          hotkey="Shift+X"
           label={`${thisSide} + ${otherSide}${tickedRefs.length ? ` (${tickedRefs.length})` : ''}`}
           color={colors.warn}
           bordered

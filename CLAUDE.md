@@ -104,3 +104,12 @@ bun --hot ./index.ts
 ```
 
 For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+
+## TUI hotkeys across the apps
+
+- Delete / remove / drop one item is `x`; its bigger variant is Shift+X — the remote side as well
+  (giti's remote branch, a ref with its remote counterpart), or everything (Settings' clear all,
+  `ClearDataDialog`). Never `d`: across the apps it already means description, disable, discard
+  hunk and more.
+- A question that follows a delete answers with the same keys: `x` for the smaller choice,
+  Shift+X for the bigger one.

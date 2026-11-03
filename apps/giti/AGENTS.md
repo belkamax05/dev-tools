@@ -153,7 +153,8 @@ detail lines (HEAD, identity, refs) between the two, and the choice is kept in g
 `state.json`. Opening the dashboard fetches once in the background (`useRemoteSync`), so ↑/↓
 describe the remote as it is now. Every tab works with **both mouse and keyboard**. Each toolbar button, hint,
 tab and row checkbox is clickable and also has a hotkey, and the hotkey is always printed on it.
-If you add an action, add both.
+If you add an action, add both. Delete is `x` and its bigger variant Shift+X (a remote branch, a ref
+with its remote counterpart; `X` alone is Settings' clear all) — the same keys in every dev-tools app.
 
 - **Views get `GitViewProps`** (`src/ui/dashboard/types`): `refreshKey` / `reload` to re-read,
   `notify` for the footer message, `onCaptureInput` while a prompt owns the keyboard, `handoff`

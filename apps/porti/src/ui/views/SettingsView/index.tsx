@@ -144,7 +144,7 @@ export const SettingsView = ({
       else if (input === 'a') addPort();
       else if (input === 'e') onEditConfig(current?.kind === 'state' ? stateStore.path : undefined);
       else if (input === 'X') setClearing(true);
-      else if (current?.kind === 'port' && (input === 'x' || input === 'd')) remove(current.entry);
+      else if (current?.kind === 'port' && input === 'x') remove(current.entry);
       else if (current?.kind === 'port' && input === 'n') rename(current.entry);
     },
     { isActive: !prompt.isOpen && !clearing },

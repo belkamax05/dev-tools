@@ -81,7 +81,7 @@ test('a filtered custom ref shows its info, raw object, reflog and preview, and 
     await until(() => output.includes('[x] origin: refs/custom/probe'), 'the remote counterpart');
     expect(output).toContain('Local + remote (1)');
     expect(last()).toMatch(/Delete refs\/custom\/probe[\s\S]*\[x\] origin: refs\/custom\/probe/);
-    stdin.write('D');
+    stdin.write('X');
     await until(() => Boolean(undo), 'the undo offer');
     expect(repo.sh(['for-each-ref', 'refs/custom']).trim()).toBe('');
     expect(onRemote()).toBe('');

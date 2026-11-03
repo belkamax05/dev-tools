@@ -182,7 +182,7 @@ export const SettingsView = ({
       if (input === ' ') apply(current);
       else if (input === 'e') onEdit(current?.kind === 'state' ? stateStore.path : configPath);
       else if (input === 'X') setClearing(true);
-      else if (current?.kind === 'pattern' && (input === 'x' || input === 'd'))
+      else if (current?.kind === 'pattern' && input === 'x')
         removePattern(current.pattern);
       else if (current?.kind === 'hook' && input === 'c') copyHook(current.shell);
     },
