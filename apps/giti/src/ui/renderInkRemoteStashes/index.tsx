@@ -181,7 +181,7 @@ export const RemoteStashPicker = ({
   const viewport = useViewport();
   const height = Math.max(1, viewport.rows - useTuiTheme().sizes.app.heldBackRows);
   const [captured, setCaptured] = useState(false);
-  const prompt = usePrompt(setCaptured);
+  const prompt = usePrompt(setCaptured, { inlineConfirm: true });
   const [index, setIndex] = useState(initialIndex);
   const [currentName, setCurrentName] = useState(initialName);
 
@@ -275,6 +275,7 @@ export const RemoteStashPicker = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         detailScroll={false}
         title={`Stashes on ${remote} (${stashes.length})`}
         items={items}

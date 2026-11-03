@@ -38,7 +38,7 @@ export const StashView = ({
   reservedChrome,
 }: GitViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
 
   const { data: stashes = [], isLoading } = useLoader(() => getStashes(root), [root, refreshKey]);
@@ -101,6 +101,7 @@ export const StashView = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         detailScroll={false}
         title={`Stash (${stashes.length})`}
         items={items}

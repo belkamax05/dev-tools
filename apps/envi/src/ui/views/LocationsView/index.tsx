@@ -94,7 +94,7 @@ export const LocationsView = ({
   onJump,
 }: ViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const picker = useLocationPicker(onCaptureInput);
   const write = useWrite({ onConfigChange, notify, reload });
   const { search, open, clear, hints: searchHints } = useSearch(session, 'locations', prompt);
@@ -725,6 +725,7 @@ export const LocationsView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         key={items.map((item) => `${item.id}${item.hint ?? ''}`).join(',')}
         title={`Locations (${allPlaces.length})`}
         items={items}

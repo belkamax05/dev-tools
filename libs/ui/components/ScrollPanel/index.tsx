@@ -18,6 +18,8 @@ export interface ScrollPanelProps {
   /** Controlled position for linked previews; each panel clamps it to its own content. */
   scrollOffset?: number;
   onScroll?: (offset: number) => void;
+  /** Visible and content rows, as measured — lets a parent size the panel to its content. */
+  onSize?: (size: { rows: number; total: number }) => void;
 }
 
 /** Scroll complete content with wheel, page keys and a draggable scrollbar. */
@@ -29,6 +31,7 @@ export const ScrollPanel = ({
   scrollTo = 0,
   scrollOffset,
   onScroll,
+  onSize,
 }: ScrollPanelProps) => {
   const viewport = useRef<DOMElement>(null);
   const content = useRef<DOMElement>(null);
@@ -52,6 +55,9 @@ export const ScrollPanel = ({
     setOffset((was) => Math.min(was, Math.max(0, total - rows)));
   }, []);
   useLayoutEffect(measure);
+  const onSizeRef = useRef(onSize);
+  onSizeRef.current = onSize;
+  useEffect(() => onSizeRef.current?.(size), [size]);
   // Timings load inside a child, so the scroll container may not itself re-render.
   useEffect(() => onFrame(measure), [measure]);
 

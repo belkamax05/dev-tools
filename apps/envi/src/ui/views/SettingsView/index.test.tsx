@@ -87,7 +87,15 @@ test('a click on a secret pattern only selects it; removing it is the panel\'s b
 
     click('Remove');
     await Bun.sleep(100);
-    expect(output).toMatch(/Stop masking names containing TOKEN\? \(\d+ values? here would show in full\)/);
+    //? Asked in the pattern's own pane, above its Remove button — wrapped to the pane's width
+    const pane = output
+      .split('\n')
+      .map((line) => line.split('││')[1] ?? '')
+      .join(' ')
+      .replace(/[│╭╮╰╯─]/g, ' ')
+      .replace(/\s+/g, ' ');
+    expect(pane).toMatch(/Stop masking names containing TOKEN\? \(\d+ values? here would show in full\)/);
+    expect(pane).toContain('[y] Yes');
     expect(changes).toEqual([]);
     stdin.write('n');
     await Bun.sleep(100);

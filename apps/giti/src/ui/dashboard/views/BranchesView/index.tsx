@@ -112,7 +112,7 @@ export const BranchesView = ({
 }: BranchesViewProps) => {
   const colors = useColors();
   const viewport = useViewport();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
   const [compare, setCompare] = useState(false);
   const [sort, setSort] = useState<BranchSort>('time');
@@ -473,6 +473,7 @@ export const BranchesView = ({
         </Box>
       ) : (
         <ListDetail
+          question={prompt.question}
           detailScroll={false}
           key={`${root}:${checkedOut?.name ?? ''}`}
           initialSelectedId={checkedOut ? `l:${checkedOut.name}` : undefined}

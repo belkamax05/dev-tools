@@ -51,7 +51,7 @@ export const LogView = ({
 }: GitViewProps) => {
   const colors = useColors();
   const viewport = useViewport();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [pages, setPages] = useState(1);
   const [graph, setGraph] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
@@ -169,6 +169,7 @@ export const LogView = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         detailScroll={false}
         title={`Log (${commits.length})`}
         items={items}

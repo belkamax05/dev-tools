@@ -33,7 +33,7 @@ export const HealthView = ({
   refreshKey,
 }: ViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.health);
   const [busy, setBusy] = useState(false);
   const ideIds = ides.map((ide) => ide.id).join(',');
@@ -113,6 +113,7 @@ export const HealthView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         title={`Health (${issues.length})`}
         items={items}
         emptyText={isLoading ? 'Checking…' : 'All clear.'}

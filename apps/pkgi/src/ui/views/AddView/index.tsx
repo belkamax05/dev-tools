@@ -34,7 +34,7 @@ export const AddView = ({
 }: ViewProps) => {
   const colors = useColors();
   const { settings } = context;
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [query, setQuery] = useState(session.search ?? '');
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.add);
   const [picker, setPicker] = useState(session.picker?.mode === 'add' ? session.picker : undefined);
@@ -165,6 +165,7 @@ export const AddView = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         key={`${query}|${visible.length}`}
         title={`Registry (${visible.length})`}
         items={items}

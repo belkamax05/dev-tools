@@ -278,7 +278,7 @@ export const CompareView = ({
   refreshKey,
 }: ViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const configPaths = context.project.config.comparePaths ?? [];
   //? Scans the parent folder and the workspace, so only when the lists it starts from change
   // biome-ignore lint/correctness/useExhaustiveDependencies: the joined lists are the identity
@@ -534,6 +534,7 @@ export const CompareView = ({
           )}
         </Box>
         <ListDetail
+          question={prompt.question}
           title="Folders"
           items={items}
           emptyText="Nothing found nearby — [a] adds a folder by path."
@@ -654,6 +655,7 @@ export const CompareView = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         key={`${onlyDifferent}|${filter}|${selectionKey}|${rows.length}`}
         //? The column headings, drawn by the list from the cell its rows' cursor marker starts in
         title={`  ${table.header}`}

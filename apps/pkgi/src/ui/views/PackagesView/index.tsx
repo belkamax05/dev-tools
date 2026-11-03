@@ -145,7 +145,7 @@ export const PackagesView = ({
 }: ViewProps) => {
   const colors = useColors();
   const { settings } = context;
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [filter, setFilter] = useState(session.filter);
   const [onlyOutdated, setOnlyOutdated] = useState(session.onlyOutdated);
   const [supportMode, setSupportMode] = useState(session.supportMode ?? false);
@@ -643,6 +643,7 @@ export const PackagesView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         //? Remounted when the rows change (a filter, the outdated toggle), restoring the cursor by
         //? package name instead of leaving it on whatever slid into its old position
         key={`${filter}|${onlyOutdated}|${supportMode}|${visible.length}|${suggestions.length}`}

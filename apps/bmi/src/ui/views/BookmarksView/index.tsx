@@ -168,7 +168,7 @@ export const BookmarksView = ({
   //? Esc hands them to the hotkeys; `/` or a click on the search line takes them back
   const [searching, setSearching] = useState(true);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
-  const prompt = usePrompt(useCallback((open: boolean) => setIsPromptOpen(open), []));
+  const prompt = usePrompt(useCallback((open: boolean) => setIsPromptOpen(open), []), { inlineConfirm: true });
   //? Captured while either has the keyboard, so the app's digits, `q` and Tab type into it
   useEffect(() => {
     onCaptureInput(searching || isPromptOpen);
@@ -589,6 +589,7 @@ export const BookmarksView = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         //? Remount when the set of rows changes, restoring the cursor by id
         key={items.map((item) => item.id).join(',')}
         title={scope ? scope.key : query ? 'Results' : 'Bookmarks'}

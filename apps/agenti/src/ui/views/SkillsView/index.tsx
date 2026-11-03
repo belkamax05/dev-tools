@@ -69,7 +69,7 @@ export const SkillsView = ({
   refreshKey,
 }: ViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.skills);
   const [busy, setBusy] = useState<string | undefined>(undefined);
   const [search, setSearch] = useState<{ query: string; results: SkillSearchResult[] } | undefined>(
@@ -342,6 +342,7 @@ export const SkillsView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         title={search ? `Registry (${items.length})` : `Skills (${items.length})`}
         items={items}
         emptyText={

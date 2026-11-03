@@ -1,5 +1,5 @@
-import { Text, useApp, useInput } from 'ink';
-import { useEffect, useMemo, useState } from 'react';
+import { type DOMElement, measureElement, Text, useApp, useInput } from 'ink';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import HintBar from '@/dev-tools/ui/components/HintBar';
@@ -7,6 +7,7 @@ import PickList from '@/dev-tools/ui/components/PickList';
 import StatusNote, { type StatusMessage } from '@/dev-tools/ui/components/StatusNote';
 import useTerminalSize from '@/dev-tools/ui/hooks/useTerminalSize';
 import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import { onFrame } from '@/dev-tools/ui/terminal/frames';
 import openUrl from '@/dev-tools/utils/system/openUrl';
 
 import { stepsFor } from '../../../core/chain';
@@ -28,7 +29,7 @@ import {
   stepPageLines,
 } from './pages';
 import PathBar from './PathBar';
-import RunPanels from './RunPanels';
+import { RunLog, RunStages } from './RunPanels';
 import useFolds from './useFolds';
 import useKeptOffsets from './useKeptOffsets';
 import useLinesNav from './useLinesNav';
@@ -88,6 +89,14 @@ export const EnvironmentsView = ({
   const page = path.at(-1);
   const [focus, setFocus] = useState<Focus>('page');
   const [logOpen, setLogOpen] = useState(false);
+  //? The rows the page and a run's stages share — the stages take at most half
+  const shared = useRef<DOMElement>(null);
+  const [sharedRows, setSharedRows] = useState(0);
+  const measureShared = useCallback(() => {
+    if (shared.current) setSharedRows(Math.floor(measureElement(shared.current).height));
+  }, []);
+  useLayoutEffect(measureShared);
+  useEffect(() => onFrame(measureShared), [measureShared]);
 
   //? Read once the providers are connected, and again when the branch shown changes
   const connected = connectionsKey(data);
@@ -97,7 +106,13 @@ export const EnvironmentsView = ({
     data.loadHistory();
   }, [connected, data.branch]);
 
-  const { items, header } = envTable({ envIds, protectedEnvs, data, colors, configs });
+  const { items, header } = envTable({
+    envIds,
+    protectedEnvs,
+    data,
+    colors,
+    configs,
+  });
   const folds = useFolds();
   const input = useMemo(
     (): DetailInput => ({
@@ -303,40 +318,52 @@ export const EnvironmentsView = ({
             {`${envLegend()} · off-track = on a branch it is not meant for`}
           </Text>
         </Box>
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          borderStyle="round"
-          borderColor={frame('page')}
-          paddingX={1}
-          overflow="hidden"
-        >
-          <PathBar
-            hint={path.length ? 'Esc back' : 'a step’s title opens it'}
-            crumbs={[
-              {
-                label: `◂ ${env}${config?.protected ? ' (protected)' : ''}`,
-                onPress: () => go([]),
-              },
-              ...names.map((label, index) => ({
-                label,
-                onPress: () => go(path.slice(0, index + 1)),
-              })),
-            ]}
-          />
-          <LinesPanel
-            lines={lines}
-            offset={nav.offset}
-            onOffset={nav.setOffset}
-            onRows={nav.setRows}
-            focused={focus === 'page' ? nav.focused : undefined}
-            onOpen={(url) => open(url, 'that link')}
-            onAction={folds.toggle}
-            onGo={goTo}
-          />
+        <Box ref={shared} flexDirection="column" flexGrow={1} minHeight={0} overflow="hidden">
+          <Box
+            flexDirection="column"
+            flexGrow={1}
+            minHeight={3}
+            borderStyle="round"
+            borderColor={frame('page')}
+            paddingX={1}
+            overflow="hidden"
+          >
+            <PathBar
+              hint={path.length ? 'Esc back' : 'a step’s title opens it'}
+              crumbs={[
+                {
+                  label: `◂ ${env}${config?.protected ? ' (protected)' : ''}`,
+                  onPress: () => go([]),
+                },
+                ...names.map((label, index) => ({
+                  label,
+                  onPress: () => go(path.slice(0, index + 1)),
+                })),
+              ]}
+            />
+            <LinesPanel
+              lines={lines}
+              offset={nav.offset}
+              onOffset={nav.setOffset}
+              onRows={nav.setRows}
+              focused={focus === 'page' ? nav.focused : undefined}
+              onOpen={(url) => open(url, 'that link')}
+              onAction={folds.toggle}
+              onGo={goTo}
+            />
+          </Box>
+          {run && resolved?.step && resolved.job && (
+            <RunStages
+              data={data}
+              step={resolved.step}
+              job={resolved.job}
+              run={run}
+              maxRows={Math.floor(sharedRows / 2)}
+            />
+          )}
         </Box>
         {run && resolved?.step && resolved.job && (
-          <RunPanels
+          <RunLog
             data={data}
             step={resolved.step}
             job={resolved.job}
@@ -363,10 +390,20 @@ export const EnvironmentsView = ({
             },
             { key: '[/]', label: 'env' },
             ...(focus === 'envs'
-              ? [{ key: 'Enter', label: 'show in chain', onPress: () => pick() }]
+              ? [
+                  {
+                    key: 'Enter',
+                    label: 'show in chain',
+                    onPress: () => pick(),
+                  },
+                ]
               : [
                   { key: '←↑↓→', label: 'move' },
-                  { key: 'n/p', label: 'next / prev item', onPress: () => nav.stepLink(1) },
+                  {
+                    key: 'n/p',
+                    label: 'next / prev item',
+                    onPress: () => nav.stepLink(1),
+                  },
                   { key: 'Enter', label: enterLabel, onPress: activate },
                   {
                     key: 'o',
@@ -381,11 +418,21 @@ export const EnvironmentsView = ({
                   },
                 ]),
             ...(foldKeys.length
-              ? [{ key: 'x', label: anyClosed ? 'open all days' : 'close all days', onPress: foldAll }]
+              ? [
+                  {
+                    key: 'x',
+                    label: anyClosed ? 'open all days' : 'close all days',
+                    onPress: foldAll,
+                  },
+                ]
               : []),
             ...(run
               ? [
-                  { key: ',/.', label: 'older / newer run', onPress: () => otherRun(1) },
+                  {
+                    key: ',/.',
+                    label: 'older / newer run',
+                    onPress: () => otherRun(1),
+                  },
                   ...(reads?.logs
                     ? [
                         {
@@ -399,7 +446,11 @@ export const EnvironmentsView = ({
               : []),
             { key: 'w', label: 'open site', onPress: openSite },
             { key: 'r', label: 'read again', onPress: reread },
-            { key: 'Esc', label: path.length ? 'back' : 'close', onPress: back },
+            {
+              key: 'Esc',
+              label: path.length ? 'back' : 'close',
+              onPress: back,
+            },
           ]}
         />
       </Box>

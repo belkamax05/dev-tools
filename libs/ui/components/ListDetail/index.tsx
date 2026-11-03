@@ -128,6 +128,11 @@ export interface ListDetailProps<T> {
    */
   confirmClick?: boolean;
   /**
+   * A question about the selected item (`usePrompt`'s `question`, with `inlineConfirm`): pinned
+   * at the top of its pane, above what scrolls — beside the item and its actions, not far above.
+   */
+  question?: ReactNode;
+  /**
    * Chrome parts the caller draws around this, by name in the theme's
    * `chrome` table — a search line, a status row — so the list is sized to
    * what is really left rather than running past the bottom of the terminal.
@@ -213,6 +218,7 @@ export const ListDetail = <T,>({
   onSelectionChange,
   isInputActive = true,
   confirmClick = false,
+  question,
   reservedChrome = [],
   initialSelectedId,
   selectRequest,
@@ -449,6 +455,7 @@ export const ListDetail = <T,>({
           grow
           width={sideBySide ? undefined : appWidth}
         >
+          {question}
           {items.length === 0 ? (
             <Text color={colors.muted} wrap="truncate">
               Nothing selected.

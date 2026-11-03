@@ -118,7 +118,7 @@ export const PortsView = ({
   onCaptureInput,
 }: PortsViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState(session.filter);
 
@@ -323,6 +323,7 @@ export const PortsView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         //? Remount when the set of rows changes, restoring the cursor by id — see above
         key={items.map((item) => item.id).join(',')}
         title={mode === 'watched' ? `Watched (${rows.length})` : `Listening (${rows.length})`}

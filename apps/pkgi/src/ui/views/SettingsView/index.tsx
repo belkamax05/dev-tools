@@ -79,7 +79,7 @@ export const SettingsView = ({
 }: SettingsViewProps) => {
   const colors = useColors();
   const themes = useThemeSettings();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const { settings, project, state } = context;
   const [current, setCurrent] = useState<Setting | undefined>(undefined);
   const [clearing, setClearing] = useState(false);
@@ -403,6 +403,7 @@ export const SettingsView = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         key={`${folders.length}|${state.comparePaths.length}`}
         title="Settings"
         items={items}

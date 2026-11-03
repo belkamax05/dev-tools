@@ -208,7 +208,7 @@ export const AgentsView = ({
   refreshKey,
 }: ViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   //? The id, not the node: the node object is replaced on every reload, and a
   //? kept reference would go on describing the file as it was before the action
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.agents);
@@ -794,6 +794,7 @@ export const AgentsView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         title={
           focused?.hasSource === false ? '.agents (not created yet)' : `.agents (${items.length})`
         }

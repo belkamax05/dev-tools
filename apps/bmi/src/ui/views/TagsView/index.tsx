@@ -57,7 +57,7 @@ export const TagsView = ({
   onShowTag,
 }: TagsViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.tags);
   const current = library.tags.find((tag) => tag.key === currentId) ?? library.tags[0];
   const list = userList(config);
@@ -214,6 +214,7 @@ export const TagsView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         key={items.map((item) => item.id).join(',')}
         title="Tags"
         items={items}

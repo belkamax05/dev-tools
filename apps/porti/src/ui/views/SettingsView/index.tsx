@@ -70,7 +70,7 @@ export const SettingsView = ({
 }: SettingsViewProps) => {
   const colors = useColors();
   const themes = useThemeSettings();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [current, setCurrent] = useState<Setting | undefined>(undefined);
   const [clearing, setClearing] = useState(false);
 
@@ -285,6 +285,7 @@ export const SettingsView = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         key={config.ports.map((entry) => entry.port).join(',')}
         title="Settings"
         items={items}

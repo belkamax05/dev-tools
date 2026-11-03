@@ -106,7 +106,7 @@ export const StatusView = ({
   fitToHost = false,
 }: StatusViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
   const [hunk, setHunk] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -535,6 +535,7 @@ export const StatusView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         detailScroll={false}
         title={`Status (${rows.length})`}
         items={items}

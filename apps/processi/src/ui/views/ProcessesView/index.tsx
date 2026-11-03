@@ -123,7 +123,7 @@ export const ProcessesView = ({
   const colors = useColors();
   const theme = useTuiTheme();
   const viewport = useViewport();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [scope, setScope] = useState<Scope>(session.scope);
   const [sort, setSort] = useState<SortKey>(session.sort);
   const [filter, setFilter] = useState(session.filter);
@@ -306,6 +306,7 @@ export const ProcessesView = ({
         />
       </Box>
       <ListDetail
+        question={prompt.question}
         key={items.map((item) => item.id).join(',')}
         //? Column headings, not a name: the tab already says which view this is, and the count is
         //? drawn at the right of this row by the list itself

@@ -62,7 +62,7 @@ export const RemotesView = ({
   onRunCommand,
 }: RemotesViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const viewport = useViewport();
   const [currentId, setCurrentId] = useState<string | undefined>(undefined);
   const [ownProgress, setProgress] = useState<string | undefined>(undefined);
@@ -243,6 +243,7 @@ export const RemotesView = ({
         )}
       </Box>
       <ListDetail
+        question={prompt.question}
         detailScroll={false}
         title={`Remotes (${remotes.length + vendored.length})`}
         items={items}

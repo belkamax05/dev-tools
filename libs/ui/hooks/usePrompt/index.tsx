@@ -39,8 +39,25 @@ export interface PromptApi {
     },
   ) => void;
   isOpen: boolean;
-  /** The prompt line to draw, or undefined when nothing is being asked. */
+  /**
+   * The prompt line to draw, or undefined when nothing is being asked. With `inlineConfirm`, a
+   * yes/no is not in it — it is `question`, drawn where the thing it acts on is.
+   */
   line: ReactNode | undefined;
+  /**
+   * With `inlineConfirm`: the yes/no being asked — the question and framed Yes / No buttons — for
+   * the caller to draw beside what it acts on (`ListDetail`'s `question`: the selected item's
+   * pane). Undefined otherwise.
+   */
+  question: ReactNode | undefined;
+}
+
+export interface PromptOptions {
+  /**
+   * Ask yes/no questions in place, not in the prompt line above the view: far from the row and
+   * the button that raised them, they were easy to miss. The caller draws `question`.
+   */
+  inlineConfirm?: boolean;
 }
 
 //? Ink hands over whatever arrived in one read, escape sequences included —
@@ -57,7 +74,10 @@ const printable = (input: string) => input.replace(/[\u0000-\u001F\u007F]/g, '')
  * keyboard (`onCaptureInput`), so the `x` that opened a delete prompt cannot
  * also reach the list, and the list's Enter cannot answer the question.
  */
-export const usePrompt = (onCaptureInput: (captured: boolean) => void): PromptApi => {
+export const usePrompt = (
+  onCaptureInput: (captured: boolean) => void,
+  { inlineConfirm = false }: PromptOptions = {},
+): PromptApi => {
   const colors = useColors();
   const [prompt, setPrompt] = useState<Prompt | undefined>(undefined);
 
@@ -116,8 +136,33 @@ export const usePrompt = (onCaptureInput: (captured: boolean) => void): PromptAp
     else prompt.onCancel?.();
   };
 
-  const line =
+  const question =
     prompt?.kind === 'confirm' ? (
+      <Box flexDirection="column" flexShrink={0} marginBottom={1}>
+        <Text color={colors.warn} bold wrap="wrap">
+          {prompt.message}
+        </Text>
+        <Box flexDirection="row">
+          <ActionButton
+            hotkey="y"
+            label="Yes"
+            color={colors.warn}
+            bordered
+            onPress={() => answer(true)}
+          />
+          <ActionButton
+            hotkey="N"
+            label="No"
+            color={colors.text}
+            bordered
+            onPress={() => answer(false)}
+          />
+        </Box>
+      </Box>
+    ) : undefined;
+
+  const line =
+    prompt?.kind === 'confirm' && inlineConfirm ? undefined : prompt?.kind === 'confirm' ? (
       //? Framed answers: a question that blocks the keyboard has to be seen at once
       <Box flexDirection="row" alignItems="center">
         <Box flexShrink={1} marginRight={1}>
@@ -182,6 +227,7 @@ export const usePrompt = (onCaptureInput: (captured: boolean) => void): PromptAp
       }),
     isOpen: Boolean(prompt),
     line,
+    question: inlineConfirm ? question : undefined,
   };
 };
 

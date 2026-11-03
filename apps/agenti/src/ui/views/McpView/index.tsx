@@ -84,7 +84,7 @@ export const McpView = ({
   refreshKey,
 }: ViewProps) => {
   const colors = useColors();
-  const prompt = usePrompt(onCaptureInput);
+  const prompt = usePrompt(onCaptureInput, { inlineConfirm: true });
   const [currentId, setCurrentId] = useState<string | undefined>(session.selected.mcp);
   const [tools, setTools] = useState<Record<string, McpToolsResult | 'loading'>>({});
 
@@ -526,6 +526,7 @@ export const McpView = ({
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <Box flexShrink={0}>{header}</Box>
       <ListDetail
+        question={prompt.question}
         title={`MCP · ${ide.name}`}
         items={items}
         emptyText="No servers in the reference or the IDE config."
