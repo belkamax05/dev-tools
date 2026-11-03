@@ -7,6 +7,7 @@ import formatCommand from '@/dev-tools/utils/format/formatCommand';
 import sysPaths from '../src/config/sysPaths';
 import type { CommandEntry } from '../src/types/CommandEntry';
 import getCommandEntries from '../src/utils/getCommandEntries';
+import getGitCommands from '../src/utils/getGitCommands';
 
 const outputPath = join(sysPaths.rootDir, '.gitconfig-commands');
 
@@ -53,8 +54,11 @@ const formatEntry = ({ name, alias, meta }: GitCommand) => {
 };
 
 /** One alias per command group folder so `git branches status` dispatches via `giti branches status`. */
-const getFolderAliases = (): GitCommand[] => {
+const getFolderAliases = async (): Promise<GitCommand[]> => {
   const { commandsDir } = sysPaths;
+  //? A folder named like git's own command (`stash`) gets no alias: git would run its own and
+  //? ignore it. Its commands still get theirs (`stash-list`), which git has no name for
+  const { main } = await getGitCommands(sysPaths.rootDir);
   const leafNames = new Set(
     readdirSync(commandsDir)
       .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
@@ -70,6 +74,7 @@ const getFolderAliases = (): GitCommand[] => {
       }
     })
     .filter((dir) => !leafNames.has(dir)) //? skip if a same-named leaf already covers it
+    .filter((dir) => !main.has(dir))
     .sort()
     .map((dir) => ({
       name: dir,
@@ -86,7 +91,7 @@ const run = async () => {
   const leafCommands = (await getCommandEntries())
     .filter((entry) => entry.meta?.gitAlias !== false)
     .map(toGitCommand);
-  const folderCommands = getFolderAliases();
+  const folderCommands = await getFolderAliases();
 
   //? Merge and sort so the output file reads alphabetically regardless of which kind each entry is
   const commands = [...leafCommands, ...folderCommands].sort((a, b) =>

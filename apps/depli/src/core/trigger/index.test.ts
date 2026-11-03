@@ -202,3 +202,75 @@ describe('fix gate', () => {
     expect(applied).toEqual([]);
   });
 });
+
+describe('fixes applied before sending', () => {
+  const setupBeforeSend = async () => {
+    const events: string[] = [];
+    const plugin = definePlugin({
+      id: 'listed',
+      label: 'Listed',
+      icon: '🧪',
+      transports: [
+        {
+          id: 'api',
+          label: 'api',
+          capabilities: ['trigger'],
+          probe: async () => ({ ok: true, detail: 'ok' }),
+        },
+      ],
+      steps: {
+        job: {
+          status: async () => ({ state: 'none', summary: 'never ran' }),
+          plan: async () => ({
+            target: 'build_x',
+            method: 'POST',
+            url: 'fake://build_x',
+            params: { BRANCH: 'fix/a' },
+            warnings: ['BRANCH=fix/a is not one of the choices yet'],
+            fixes: [
+              { id: 'add-choice:BRANCH', label: 'Add fix/a', detail: '', beforeSend: true },
+            ],
+          }),
+          fix: async (_, plan, fixId) => {
+            events.push(`fix ${plan.target}:${fixId}`);
+            return 'added fix/a';
+          },
+          send: async (_, plan) => {
+            events.push(`send ${plan.target}`);
+            return {};
+          },
+        },
+      },
+    });
+    const project = resolveProject('/tmp/depli-before-send', {
+      plugins: [plugin],
+      providers: { ci: { plugin: 'listed' } },
+      envs: [{ id: 'qa' }],
+      pipeline: [{ id: 'build', label: 'Build', provider: 'ci', kind: 'job', job: 'build_x' }],
+      triggers: { enabled: true },
+    });
+    const connections = await connectAll(project, {});
+    const chain = await evaluateChain(project, connections, {}, 'fix/a', 'qa');
+    const planned = await planTrigger(project, connections, {}, chain, 'build', 'fix/a', 'qa');
+    const send = () =>
+      sendTrigger(project, connections, {}, planned, { confirmed: true, targetEnv: 'qa' });
+    return { events, planned, send };
+  };
+
+  test('not a blocker: the plan is sendable', async () => {
+    const { planned } = await setupBeforeSend();
+    expect(planned.blockers).toEqual([]);
+  });
+
+  test('every send applies it first, then sends', async () => {
+    const { events, send } = await setupBeforeSend();
+    expect((await send()).fixed).toEqual(['added fix/a']);
+    await send();
+    expect(events).toEqual([
+      'fix build_x:add-choice:BRANCH',
+      'send build_x',
+      'fix build_x:add-choice:BRANCH',
+      'send build_x',
+    ]);
+  });
+});

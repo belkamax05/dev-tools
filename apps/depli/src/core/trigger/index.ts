@@ -70,7 +70,16 @@ export const sendTrigger = async (
   const provider = project.providers.find((item) => item.name === planned.step.provider);
   const kind = provider?.plugin.steps[planned.step.kind];
   if (!provider || !kind?.send) throw new Error(`${planned.step.label} cannot be triggered`);
-  return kind.send(contextFor(project, provider, env, connections[provider.name]), planned.plan);
+  const context = contextFor(project, provider, env, connections[provider.name]);
+  //? What the target would otherwise refuse (a branch missing from a job's choices): put right
+  //? first, every send — a click, an armed trigger, the CLI — read fresh by the fix itself
+  const fixed: string[] = [];
+  for (const fix of (planned.plan.fixes ?? []).filter((item) => item.beforeSend)) {
+    if (!kind.fix) throw new Error(`${planned.step.label} cannot be fixed before sending`);
+    fixed.push(await kind.fix(context, planned.plan, fix.id));
+  }
+  const sent = await kind.send(context, planned.plan);
+  return { ...sent, fixed };
 };
 
 /**

@@ -16,19 +16,19 @@ const BUILD_FE_NODEJS: ParamDefinition[] = [
 ];
 
 describe('checkParams', () => {
-  test('a branch outside the choice list blocks — Jenkins would answer 500', () => {
+  test('a branch outside the choice list warns, never blocks — it is added before sending', () => {
     const { blockers, warnings } = checkParams(
       { BUILD_AND_DEPLOY_BRANCH: 'develop-9115', CODE_BRANCH: 'fix/dfs2-36962/issue4' },
       BUILD_FE_NODEJS,
       'build_fe-nodejs',
     );
-    expect(blockers).toEqual([
-      "CODE_BRANCH=fix/dfs2-36962/issue4 is not one of build_fe-nodejs's choices (release-sprint-26.14, master) — Jenkins refuses it",
+    expect(blockers).toEqual([]);
+    expect(warnings).toEqual([
+      "CODE_BRANCH=fix/dfs2-36962/issue4 is not one of build_fe-nodejs's choices yet — it is added to build_fe-nodejs's CODE_BRANCH on Jenkins right before this run is sent",
     ]);
-    expect(warnings).toEqual([]);
   });
 
-  test('a refused choice offers a fix', () => {
+  test('a refused choice brings a fix applied before every send', () => {
     const { fixes } = checkParams(
       { CODE_BRANCH: 'fix/a' },
       BUILD_FE_NODEJS.slice(1),
@@ -38,6 +38,7 @@ describe('checkParams', () => {
       {
         id: 'add-choice:CODE_BRANCH',
         label: "Add fix/a to build_fe-nodejs's CODE_BRANCH",
+        beforeSend: true,
       },
     ]);
   });

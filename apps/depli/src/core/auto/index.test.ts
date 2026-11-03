@@ -2,7 +2,15 @@ import { expect, test } from 'bun:test';
 
 import type { ChainStep } from '../chain';
 import type { StepState } from '../plugin';
-import { ancestorsOf, canArm, decideAuto, estimateAutos, formatEstimate } from '.';
+import {
+  ancestorsOf,
+  canArm,
+  decideAuto,
+  estimateAutos,
+  formatEstimate,
+  inChainOrder,
+  launchState,
+} from '.';
 
 //? push → build → deploy → propagate, each step's state and recommendation from the table
 const chain = (states: Record<string, StepState>, next: string[] = []): ChainStep[] =>
@@ -177,4 +185,38 @@ test('a failed step armed for a retry does not drop the ones armed after it', ()
   const entries = chain({ build: 'running', deploy: 'failed', propagate: 'blocked' });
   expect(canArm(entries, entry(entries, 'deploy'))).toBe(true);
   expect(decideAuto(entries, 'propagate', new Set(['deploy'])).kind).toBe('wait');
+});
+
+test('a sent step stays on its way until a run since the send finishes — an old result never counts', () => {
+  const sentAt = 1_000_000_000;
+  const withRuns = (runs: Array<{ at: number; state: 'success' | 'running' | 'queued' }>) =>
+    ({
+      ...entry(chain({}), 'build'),
+      status: {
+        state: 'done',
+        summary: '',
+        runs: runs.map((run, index) => ({ id: String(index), label: `#${index}`, ...run })),
+      },
+    }) as ChainStep;
+  //? Only the old build: still queued on the server, as far as we can tell
+  expect(launchState(withRuns([{ at: sentAt - 3_600_000, state: 'success' }]), sentAt, sentAt + 5 * 60_000)).toBe(
+    'pending',
+  );
+  expect(launchState(withRuns([{ at: sentAt + 1_000, state: 'running' }]), sentAt, sentAt + 60_000)).toBe(
+    'pending',
+  );
+  expect(launchState(withRuns([{ at: sentAt + 1_000, state: 'success' }]), sentAt, sentAt + 60_000)).toBe(
+    'landed',
+  );
+  //? Nothing ever showed up
+  expect(launchState(withRuns([]), sentAt, sentAt + 21 * 60_000)).toBe('lost');
+});
+
+test('armed triggers fire in the chain’s order, not the order they were armed in', () => {
+  const armed = [{ stepId: 'propagate' }, { stepId: 'deploy' }, { stepId: 'build' }];
+  expect(inChainOrder(chain({}), armed).map((auto) => auto.stepId)).toEqual([
+    'build',
+    'deploy',
+    'propagate',
+  ]);
 });

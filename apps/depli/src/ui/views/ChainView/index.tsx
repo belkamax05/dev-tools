@@ -61,6 +61,8 @@ export interface ChainViewProps {
   onCaptureInput: (captured: boolean) => void;
   /** `b`: go and pick a branch, with the filter open. */
   onPickBranch: () => void;
+  /** `B` (or the button): back to the checkout's branch — the key itself is handled app-wide. */
+  onBackToCheckout?: () => void;
   /** Bumped from outside (the status row) to open the environments panel. */
   envOpenRequest?: number;
   /**
@@ -150,8 +152,27 @@ interface SelectorRowProps {
    * key again — `[key]` before the label and the ▾ after the value already say what it does.
    */
   note?: string;
+  /** Drawn between the value and the note — a button of its own, outside the row's click. */
+  action?: ReactNode;
   onPress: () => void;
 }
+
+/**
+ * "[B] Back to <checkout>" in bold warn, so a chain shown for another branch than the checkout's
+ * cannot be missed — and one click (or B) away from undoing.
+ */
+const BackToCheckout = ({ branch, onPress }: { branch: string; onPress: () => void }) => {
+  const colors = useColors();
+  const ref = useRef<DOMElement>(null);
+  const { isHovered } = useClickable(ref, { onClick: onPress });
+  return (
+    <Box ref={ref} flexShrink={0} marginLeft={2}>
+      <Text color={isHovered ? colors.highlight : colors.warn} bold>
+        {`[B] Back to ${branch}`}
+      </Text>
+    </Box>
+  );
+};
 
 /**
  * One "[key] Label  value ▾" row at the top of the tab — the label in the body colour, the value
@@ -164,6 +185,7 @@ const SelectorRow = ({
   valueColor,
   open,
   note,
+  action,
   onPress,
 }: SelectorRowProps) => {
   const colors = useColors();
@@ -178,6 +200,7 @@ const SelectorRow = ({
           {value} {open ? '▴' : '▾'}
         </Text>
       </Box>
+      {action}
       {note ? (
         <Text color={colors.muted} wrap="truncate">
           {'  '}
@@ -203,6 +226,7 @@ export const ChainView = ({
   notify,
   onCaptureInput,
   onPickBranch,
+  onBackToCheckout,
   envOpenRequest = 0,
   linked,
   onOpenFlow,
@@ -459,6 +483,10 @@ export const ChainView = ({
       .catch((error: Error) => notify(`Not changed: ${error.message}`, 'error'));
   };
 
+  /** What the gate puts right on the target before each send (a branch added to a job's list). */
+  const addedFirst = (planned: PlannedTrigger) =>
+    (planned.plan.fixes ?? []).filter((fix) => fix.beforeSend);
+
   /** The trigger: plan, show it in the popover, then confirm — by name for a protected env. */
   const startTrigger = async (entry: ChainStep | undefined) => {
     if (!entry) return;
@@ -471,7 +499,10 @@ export const ChainView = ({
       data
         .send(planned, typed)
         .then((sent) => {
-          notify(`Queued ${planned.plan.target}${sent.url ? ` — ${sent.url}` : ''}`, 'ok');
+          notify(
+            `Queued ${planned.plan.target}${sent.fixed.length ? ` (${sent.fixed.join('; ')})` : ''}${sent.url ? ` — ${sent.url}` : ''}`,
+            'ok',
+          );
           data.refresh();
         })
         .catch((error: Error) => notify(`Not sent: ${error.message}`, 'error'))
@@ -740,6 +771,14 @@ export const ChainView = ({
               />
             </Text>
           )}
+          {ready &&
+            typeof planned === 'object' &&
+            addedFirst(planned).map((fix) => (
+              <Text key={fix.id} color={colors.warn} wrap="wrap">
+                ! {fix.label} on Jenkins right before it is sent — every time it runs, clicked or
+                armed. Edits the job for everyone.
+              </Text>
+            ))}
           {!ready && !checking && entry.status.state === 'done' && (
             <Text color={colors.muted} wrap="wrap">
               Cannot run again, but its result is fresh — the steps after it can use it.
@@ -758,13 +797,15 @@ export const ChainView = ({
                 {warning}
               </Text>
             ))}
-          {refused && fixesOf(entry).length > 0 && (
+          {/* A fix the gate applies before sending stays a button: it can be done now, apart from a run */}
+          {fixesOf(entry).length > 0 && (
             <Box marginTop={1}>
-              <Text color={colors.heading}>Resolve before triggering:</Text>
+              <Text color={colors.heading}>
+                {refused ? 'Resolve before triggering:' : 'Optionally, now:'}
+              </Text>
             </Box>
           )}
-          {refused &&
-            fixesOf(entry).map((fix, index) => (
+          {fixesOf(entry).map((fix, index) => (
               <ActionButton
                 key={fix.id}
                 hotkey={index === 0 && triggersEnabled ? 'A' : undefined}
@@ -777,9 +818,11 @@ export const ChainView = ({
                 }}
               />
             ))}
-          {refused && fixesOf(entry).length > 0 && (
+          {fixesOf(entry).length > 0 && (
             <Text color={colors.muted} wrap="wrap">
-              Updates shared job configuration. Review and apply, then trigger separately.
+              {refused
+                ? 'Updates shared job configuration. Review and apply, then trigger separately.'
+                : 'Not needed to trigger — it is done anyway right before each run, unasked.'}
             </Text>
           )}
           {refused && help && (
@@ -1040,9 +1083,14 @@ export const ChainView = ({
               label="Branch"
               value={data.branch ?? '—'}
               valueColor={colors.accent}
+              action={
+                data.current && data.branch !== data.current && onBackToCheckout ? (
+                  <BackToCheckout branch={data.current} onPress={onBackToCheckout} />
+                ) : undefined
+              }
               note={
                 data.current && data.branch !== data.current
-                  ? `checkout is on ${data.current} · [B] back to it`
+                  ? 'not your checkout'
                   : data.current
                     ? "your checkout's branch"
                     : undefined

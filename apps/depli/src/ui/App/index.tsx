@@ -191,12 +191,14 @@ export const App = ({
   };
 
   //? Everywhere: B is "back to the branch I have checked out"
+  const backToCheckout = () => {
+    if (!data.current) return notify('No checkout branch to go back to', 'warn');
+    data.resetBranch();
+    notify(`Back on ${data.current}`, 'ok');
+  };
   useInput(
     (input) => {
-      if (input !== 'B') return;
-      if (!data.current) return notify('No checkout branch to go back to', 'warn');
-      data.resetBranch();
-      notify(`Back on ${data.current}`, 'ok');
+      if (input === 'B') backToCheckout();
     },
     { isActive: !isInputCaptured && envView === 'closed' },
   );
@@ -325,6 +327,7 @@ export const App = ({
           onCaptureInput={setIsInputCaptured}
           onPicked={closeBranchPicker}
           onClose={closeBranchPicker}
+          onBackToCheckout={backToCheckout}
         />
       )}
       {envView === 'closed' && tab === 'chain' && !branchPicker && (
@@ -337,6 +340,7 @@ export const App = ({
           notify={notify}
           onCaptureInput={setIsInputCaptured}
           onPickBranch={() => setBranchPicker(true)}
+          onBackToCheckout={backToCheckout}
           envOpenRequest={envOpenRequest}
           linked={Object.entries(project.linked ?? {}).map(([id, entry]) => ({ id, ...entry }))}
           onOpenFlow={(flow) => pickLinked(flow)}

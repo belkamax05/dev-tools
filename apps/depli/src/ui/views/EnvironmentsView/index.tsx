@@ -239,8 +239,13 @@ export const EnvironmentsView = ({
     else if (run && !logShown && typed === '.') otherRun(-1);
     //? With the log open, the log takes the scrolling keys
     else if (logShown) return;
-    else if (key.downArrow || typed === 'j') nav.scrollBy(1);
-    else if (key.upArrow || typed === 'k') nav.scrollBy(-1);
+    //? Arrows walk the links as drawn (the graph's boxes); j/k only scroll
+    else if (key.upArrow) nav.move('up');
+    else if (key.downArrow) nav.move('down');
+    else if (key.leftArrow) nav.move('left');
+    else if (key.rightArrow) nav.move('right');
+    else if (typed === 'j') nav.scrollBy(1);
+    else if (typed === 'k') nav.scrollBy(-1);
     else if (key.pageDown || typed === ' ' || (key.ctrl && typed === 'd')) nav.page(1);
     else if (key.pageUp || (key.ctrl && typed === 'u')) nav.page(-1);
     else if (typed === 'g' || key.home) nav.top();
@@ -360,6 +365,7 @@ export const EnvironmentsView = ({
             ...(focus === 'envs'
               ? [{ key: 'Enter', label: 'show in chain', onPress: () => pick() }]
               : [
+                  { key: '←↑↓→', label: 'move' },
                   { key: 'n/p', label: 'next / prev item', onPress: () => nav.stepLink(1) },
                   { key: 'Enter', label: enterLabel, onPress: activate },
                   {

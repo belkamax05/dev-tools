@@ -28,7 +28,8 @@ export const jobParameters = async (
 
 /**
  * What Jenkins would do with these parameters, before sending them: a choice parameter refuses
- * a value outside its list (Jenkins answers 500 and starts nothing) — a blocker; a parameter
+ * a value outside its list (Jenkins answers 500 and starts nothing) — a warning with a fix the
+ * gate applies right before sending (`beforeSend`), adding the value to the list; a parameter
  * the job does not have is ignored, and one not sent takes the job's default — warnings, since
  * a default is not what the plan says.
  */
@@ -47,14 +48,16 @@ export const checkParams = (
       warnings.push(`${name} is not a parameter of ${job} — Jenkins ignores it`);
       continue;
     }
+    //? Not a blocker: the gate adds it to the list right before each send (`beforeSend`)
     if (definition.choices?.length && !definition.choices.includes(value)) {
-      blockers.push(
-        `${name}=${value} is not one of ${job}'s choices (${definition.choices.join(', ')}) — Jenkins refuses it`,
+      warnings.push(
+        `${name}=${value} is not one of ${job}'s choices yet — it is added to ${job}'s ${name} on Jenkins right before this run is sent`,
       );
       fixes.push({
         id: `add-choice:${name}`,
         label: `Add ${value} to ${job}'s ${name}`,
-        detail: `Edits ${job} on Jenkins, for everyone: ${name} gets ${value} beside ${definition.choices.join(', ')}. A pipeline that defines its own parameters rewrites the list when it next runs, so the addition may last one build.`,
+        detail: `Edits ${job} on Jenkins, for everyone: ${name} gets ${value} beside ${definition.choices.join(', ')}. A pipeline that defines its own parameters rewrites the list when it next runs, so it is added again before every run that needs it.`,
+        beforeSend: true,
       });
     }
   }

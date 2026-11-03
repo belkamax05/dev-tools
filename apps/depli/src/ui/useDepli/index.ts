@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { type AutoDecision, type AutoTrigger, autoKey, decideAuto } from '../../core/auto';
+import {
+  type AutoDecision,
+  type AutoTrigger,
+  ancestorsOf,
+  autoKey,
+  decideAuto,
+  inChainOrder,
+  launchState,
+} from '../../core/auto';
 import { currentBranch, pickRecentBranches } from '../../core/branch';
 import { type ChainStep, evaluateChain } from '../../core/chain';
 import { connectAll, probeChoice } from '../../core/connection';
@@ -32,11 +40,6 @@ import {
 
 /** How often the checkout's branch is re-read — cheap, local, so often. */
 const BRANCH_POLL_MS = 3_000;
-/**
- * How long a step an auto trigger just sent still counts as on its way: a queued build is not
- * `running` yet, and the steps armed behind it must keep waiting rather than be dropped.
- */
-const LAUNCH_GRACE_MS = 3 * 60_000;
 
 type Tone = 'ok' | 'warn' | 'error' | 'info';
 
@@ -116,7 +119,11 @@ export interface DepliData {
   /** A plan's fix (an edit on the target), through the core's gate — call it once the user confirmed. */
   applyFix: (planned: PlannedTrigger, fixId: string) => Promise<string>;
   /** Through the core's gate — refused unless triggers are on and the confirmation holds. */
-  send: (planned: PlannedTrigger, protectedEnv?: string) => Promise<{ url?: string }>;
+  /** `fixed`: what was put right on the target first (a branch added to a job's choices). */
+  send: (
+    planned: PlannedTrigger,
+    protectedEnv?: string,
+  ) => Promise<{ url?: string; fixed: string[] }>;
   /** Whether the step's plugin can stop its runs (and the connection may write). */
   stoppable: (entry: ChainStep) => boolean;
   /** Stop a running run, through the core's gate — call it once the user confirmed. */
@@ -174,7 +181,7 @@ export const useDepli = (
   const [autos, setAutos] = useState<AutoTrigger[]>([]);
   const autosRef = useRef(autos);
   autosRef.current = autos;
-  //? Steps an auto trigger sent, by autoKey, and when — still "on their way" for a while
+  //? Steps sent (armed or clicked), by autoKey, and when — on their way until their run lands
   const launched = useRef(new Map<string, number>());
   const firing = useRef(new Set<string>());
   //? Which branch and env `chain` was fully evaluated for — never decide on a chain in between
@@ -326,27 +333,39 @@ export const useDepli = (
   const shown = evaluated && evaluated.branch === branch && evaluated.env === targetEnv;
   const here = (auto: AutoTrigger) => auto.branch === branch && auto.env === targetEnv;
   const now = Date.now();
+  //? Sent steps of this branch and env: on their way until their new run shows up and finishes
+  const prefix = autoKey({ branch: branch ?? '', env: targetEnv, stepId: '' });
+  const launchedHere = [...launched.current]
+    .filter(([launchKey]) => launchKey.startsWith(prefix))
+    .map(([launchKey, at]) => {
+      const stepId = launchKey.slice(prefix.length);
+      const entry = chain.find((item) => item.step.id === stepId);
+      return { stepId, state: shown ? launchState(entry, at, now) : ('pending' as const) };
+    });
+  const lostIds = new Set(
+    launchedHere.filter((item) => item.state === 'lost').map((item) => item.stepId),
+  );
   const armedIds = new Set([
     ...autos.filter(here).map((auto) => auto.stepId),
-    ...[...launched.current]
-      .filter(
-        ([launchKey, at]) =>
-          now - at < LAUNCH_GRACE_MS &&
-          launchKey.startsWith(autoKey({ branch: branch ?? '', env: targetEnv, stepId: '' })),
-      )
-      .map(([launchKey]) => launchKey.split('\u0000')[2] as string),
+    ...launchedHere.filter((item) => item.state === 'pending').map((item) => item.stepId),
   ]);
+  const decide = (stepId: string): AutoDecision => {
+    //? Sent but never seen to run: what it left behind is the old result — nothing builds on it
+    const lost = ancestorsOf(chain, stepId).find((item) => lostIds.has(item.step.id));
+    if (lost) return { kind: 'drop', reason: `${lost.step.label} was sent but never showed a run` };
+    return decideAuto(chain, stepId, armedIds);
+  };
   const autoStatus: Record<string, AutoDecision> = shown
-    ? Object.fromEntries(
-        autos.filter(here).map((auto) => [autoKey(auto), decideAuto(chain, auto.stepId, armedIds)]),
-      )
+    ? Object.fromEntries(autos.filter(here).map((auto) => [autoKey(auto), decide(auto.stepId)]))
     : {};
 
-  //? Fire what is due, drop what can no longer happen — each exactly once
+  //? Fire what is due, drop what can no longer happen — each exactly once, upstream first
   // biome-ignore lint/correctness/useExhaustiveDependencies: a fully read chain is the trigger
   useEffect(() => {
     if (!shown) return;
-    for (const auto of autosRef.current.filter(here)) {
+    for (const item of launchedHere)
+      if (item.state !== 'pending') launched.current.delete(prefix + item.stepId);
+    for (const auto of inChainOrder(chain, autosRef.current.filter(here))) {
       const autoId = autoKey(auto);
       const decision = autoStatus[autoId];
       if (!decision || decision.kind === 'wait' || firing.current.has(autoId)) continue;
@@ -366,7 +385,7 @@ export const useDepli = (
             targetEnv: auto.env,
           }).then((sent) => {
             notify(
-              `Auto-triggered ${planned.plan.target}${sent.url ? ` — ${sent.url}` : ''}`,
+              `Auto-triggered ${planned.plan.target}${sent.fixed.length ? ` (${sent.fixed.join('; ')})` : ''}${sent.url ? ` — ${sent.url}` : ''}`,
               'ok',
             );
             setTick((value) => value + 1);
@@ -595,12 +614,19 @@ export const useDepli = (
       readLog(project, connectionsRef.current, env, entry, run, branch ?? '', targetEnv, start),
     applyFix: (planned, fixId) =>
       applyFix(project, connectionsRef.current, env, planned, fixId, true),
-    send: (planned, protectedEnv) =>
-      sendTrigger(project, connectionsRef.current, env, planned, {
+    send: (planned, protectedEnv) => {
+      //? A click counts as on its way too: steps armed behind it wait for its run, not an old one
+      const sentKey = autoKey({ branch: branch ?? '', env: targetEnv, stepId: planned.step.id });
+      launched.current.set(sentKey, Date.now());
+      return sendTrigger(project, connectionsRef.current, env, planned, {
         confirmed: true,
         protectedEnv,
         targetEnv,
-      }),
+      }).catch((error: Error) => {
+        launched.current.delete(sentKey);
+        throw error;
+      });
+    },
     stoppable: (entry) => {
       const provider = project.providers.find((item) => item.name === entry.step.provider);
       return Boolean(

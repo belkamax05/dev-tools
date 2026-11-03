@@ -4,6 +4,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import sysPaths from './config/sysPaths';
 import type { CommandRun } from './types/CommandRun';
+import getGitCommands from './utils/getGitCommands';
 
 /**
  * Ask the user which command to run, optionally pre-navigated into a group.
@@ -58,15 +59,21 @@ const run = async (...[firstArg, ...args]: string[]): Promise<void> => {
   if (!existsSync(modulePath)) {
     if (existsSync(folderPath)) {
       const [nextArg, ...rest] = args;
+      //? `stash` is giti's folder (remote stashes) and git's command (local ones): what giti does
+      //? not have — `giti stash pop`, `giti stash -m wip` — is git's, as for any other name
+      const gitOwnsTheRest = async () =>
+        !command.includes('/') && (await getGitCommands(sysPaths.rootDir)).main.has(command);
       if (nextArg !== undefined && !nextArg.startsWith('-')) {
         const sub = join(sysPaths.commandsDir, command, nextArg);
         if (existsSync(`${sub}.ts`) || existsSync(sub)) return run(`${command}/${nextArg}`, ...rest);
+        if (await gitOwnsTheRest()) return run('git', command, ...args);
         //? A giti folder means nothing to git, so an unknown sub-command is giti's to report
         const known = readdirSync(folderPath)
           .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
           .map((file) => file.slice(0, -3));
         return notFound(`No ${formatArg(`${command}/${nextArg}`)} — ${command}/ has ${known.join(', ')}`);
       }
+      if (nextArg !== undefined && (await gitOwnsTheRest())) return run('git', command, ...args);
       const subCommand = await pickCommand([command]);
       if (!subCommand) return;
       return run(subCommand, ...args);

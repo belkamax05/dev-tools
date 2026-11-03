@@ -342,6 +342,11 @@ export interface PlanFix {
   label: string;
   /** What exactly changes, for whom, and for how long. */
   detail: string;
+  /**
+   * Applied by the trigger gate itself, right before every send of the plan — a click, an armed
+   * trigger firing, the CLI — so what it lifts is a warning, never a blocker.
+   */
+  beforeSend?: boolean;
 }
 
 /** The request a trigger would send — shown as the dry run, sent only when triggers are on. */

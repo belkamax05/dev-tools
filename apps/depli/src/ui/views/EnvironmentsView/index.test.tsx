@@ -218,3 +218,14 @@ test('Tab to the envs and ↓ shows the next env, keeping the step open that it 
   expect(view.screen()).toContain('develop · 1 run · 1 ✓');
   view.app.unmount();
 });
+
+test('the arrows walk the page’s links as drawn: ↓ takes the first in view, → the next one', async () => {
+  const view = mount();
+  await view.settle();
+  //? The site, then the build's title beside the push — as `n` would, but by arrow
+  await view.press('\u001b[B');
+  await view.press('\u001b[C');
+  await view.press('\r', '◂ qa › Build');
+  expect(view.screen()).toContain('◂ qa › Build');
+  view.app.unmount();
+});

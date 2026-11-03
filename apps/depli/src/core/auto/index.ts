@@ -103,6 +103,38 @@ export const decideAuto = (
   return { kind: 'drop', reason: 'the steps before it finished, but it is not next to run' };
 };
 
+/** How long a sent step may take to show a run at all before it counts as lost. */
+export const LAUNCH_WAIT_MS = 20 * 60_000;
+/** Runs this much older than the send still count as its run — the server's clock may lag ours. */
+const CLOCK_SKEW_MS = 60_000;
+
+/**
+ * Where a step an auto trigger sent at `sentAt` stands: `pending` until a run started since then
+ * shows up and finishes — a queued build is not running yet, and its old result must never be
+ * taken for the new one — `landed` once it has, `lost` when none showed up in `LAUNCH_WAIT_MS`.
+ */
+export const launchState = (
+  entry: ChainStep | undefined,
+  sentAt: number,
+  now: number = Date.now(),
+): 'pending' | 'landed' | 'lost' => {
+  const run = entry?.status.runs?.find((item) => (item.at ?? 0) >= sentAt - CLOCK_SKEW_MS);
+  if (run) return run.state === 'running' || run.state === 'queued' ? 'pending' : 'landed';
+  if (entry?.status.state === 'running') return 'pending';
+  return now - sentAt < LAUNCH_WAIT_MS ? 'pending' : 'lost';
+};
+
+/** Armed triggers in the chain's order — upstream first — whatever order they were armed in. */
+export const inChainOrder = <Auto extends Pick<AutoTrigger, 'stepId'>>(
+  chain: readonly ChainStep[],
+  autos: readonly Auto[],
+): Auto[] => {
+  const order = new Map(chain.map((entry, index) => [entry.step.id, index]));
+  return [...autos].sort(
+    (a, b) => (order.get(a.stepId) ?? Infinity) - (order.get(b.stepId) ?? Infinity),
+  );
+};
+
 // --- time left ---------------------------------------------------------------------------------
 
 /** How long the step usually takes: the median of its recent successful runs. */

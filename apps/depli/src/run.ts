@@ -228,7 +228,11 @@ export const run = async (...input: string[]) => {
     if (planned.protected) console.log(`  ! ${targetEnv} is protected — confirm it by name`);
     for (const blocker of planned.blockers) console.log(`  ✗ ${blocker}`);
     for (const fix of planned.plan.fixes ?? [])
-      console.log(`  ↳ fix in the dashboard: ${fix.label} — [A] or its button, then Apply`);
+      console.log(
+        fix.beforeSend
+          ? `  ↳ before sending: ${fix.label}`
+          : `  ↳ fix in the dashboard: ${fix.label} — [A] or its button, then Apply`,
+      );
     if (first === 'plan') {
       console.log('\n(dry run — nothing was sent)');
       return;
@@ -239,6 +243,7 @@ export const run = async (...input: string[]) => {
         protectedEnv: flagValue(argv, 'confirm-env'),
         targetEnv,
       });
+      for (const done of sent.fixed) console.log(`✓ ${done}`);
       console.log(`✓ queued${sent.url ? ` — ${sent.url}` : ''}`);
     } catch (error) {
       console.error(`✗ not sent: ${(error as Error).message}`);

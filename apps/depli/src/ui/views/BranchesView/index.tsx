@@ -2,11 +2,14 @@ import { Text, useInput } from 'ink';
 import { useEffect, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
+import HintBar, { type Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import SpinnerGlyph from '@/dev-tools/ui/components/SpinnerGlyph';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
-import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import useViewport from '@/dev-tools/ui/hooks/useViewport';
+import { useColors, useTuiTheme } from '@/dev-tools/ui/providers/TuiThemeProvider';
+import { barInnerWidth } from '@/dev-tools/ui/theme';
 
 import { fuzzyFilter } from '../../../core/fuzzy';
 import type { BranchHead } from '../../../core/plugin';
@@ -40,6 +43,8 @@ export interface BranchesViewProps {
   onPicked: () => void;
   /** Esc with nothing to clear: back to the chain, the branch unchanged. */
   onClose?: () => void;
+  /** [B] clicked: back to the checkout's branch — the key itself is handled app-wide. */
+  onBackToCheckout?: () => void;
 }
 
 /**
@@ -59,8 +64,11 @@ export const BranchesView = ({
   onCaptureInput,
   onPicked,
   onClose,
+  onBackToCheckout,
 }: BranchesViewProps) => {
   const colors = useColors();
+  const theme = useTuiTheme();
+  const viewport = useViewport();
   const prompt = usePrompt(onCaptureInput);
   const [filter, setFilter] = useState(session.branchFilter ?? '');
   const { branches, loadBranches, allBranches } = data;
@@ -127,18 +135,40 @@ export const BranchesView = ({
       ? `Most recent on ${source} (${branches?.length ?? '…'})`
       : `Watched: ${watch.join(' ')}`;
 
+  //? The header's keys are buttons too: a click does exactly what the key does
+  const title = 'Pick a branch ';
+  const matching = filter ? `matching "${filter}" — ${items.length} · ` : '';
+  const headerHints: Hint[] = filter
+    ? [{ key: 'Esc', label: 'clear', onPress: () => changeFilter('') }]
+    : [
+        { key: '/', label: 'filter', onPress: askFilter },
+        {
+          key: 'a',
+          label: `all / ${recent ? 'recent' : 'watched'}`,
+          onPress: () => loadBranches(!allBranches),
+        },
+        ...(data.current && data.branch !== data.current
+          ? [{ key: 'B', label: `back to ${data.current}`, onPress: onBackToCheckout }]
+          : []),
+        ...(onClose ? [{ key: 'Esc', label: 'back to the chain', onPress: onClose }] : []),
+      ];
+  const hintsWidth = Math.max(
+    0,
+    barInnerWidth(viewport.columns, viewport.shows.barBorders !== false, theme.sizes.app) -
+      Bun.stringWidth(title + matching),
+  );
+
   return (
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
-      <Box flexShrink={0}>
+      <Box flexShrink={0} flexDirection="row">
         {prompt.line ?? (
-          <Text color={colors.muted} wrap="truncate">
+          <>
             <Text color={colors.heading} bold>
-              Pick a branch{' '}
+              {title}
             </Text>
-            {filter
-              ? `matching "${filter}" — ${items.length} · [Esc] clear`
-              : `[/] filter · [a] all / ${recent ? 'recent' : 'watched'} · [B] the checkout's branch${onClose ? ' · [Esc] back to the chain' : ''}`}
-          </Text>
+            {matching && <Text color={colors.muted}>{matching}</Text>}
+            <HintBar hints={headerHints} width={hintsWidth} isActive={!prompt.isOpen} />
+          </>
         )}
       </Box>
       <ListDetail
