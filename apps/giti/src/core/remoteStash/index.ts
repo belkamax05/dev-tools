@@ -2,7 +2,7 @@ import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import git, { failure } from '../run';
-import type { OperationResult } from '../status';
+import { getChanges, type OperationResult } from '../status';
 
 /**
  * Stashes shared through a remote, for handing work in progress to a teammate.
@@ -129,41 +129,183 @@ export const getRemoteStashes = async (root: string, remote: string) => {
   return listFetchedStashes(root, remote);
 };
 
-/** One `git status`-style line per file a stash carries: `M\tsrc/a.ts`, `A\tnew.txt`. */
-export const getRemoteStashFiles = async (root: string, hash: string) => {
-  const result = await git(
-    ['stash', 'show', '--name-status', '--include-untracked', '--no-renames', hash],
-    root,
-  );
-  return result.stdout
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const [status = '', ...path] = line.split('\t');
-      return { status, path: path.join('\t') };
-    });
+/** One file a stash carries, and which of its three parts hold a change to it. */
+export interface StashFile {
+  path: string;
+  /** git's letter for the file across the whole stash: `M`, `A`, `D` (`A` for untracked). */
+  status: string;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+}
+
+/** A stash commit's parts: what it was taken on, its index, its work tree, its untracked files. */
+const stashParts = async (root: string, hash: string) => {
+  const [, base = '', index = '', untracked = ''] = (
+    await git(['rev-list', '--parents', '-n', '1', hash], root)
+  ).stdout
+    .trim()
+    .split(' ');
+  return { base, index, work: hash, untracked };
+};
+
+/** `diff-tree --name-status -z` between two commits, as path → status letter. */
+const changedBetween = async (root: string, from: string, to: string) => {
+  const fields = (
+    await git(['diff-tree', '-r', '-z', '--no-renames', '--name-status', from, to], root)
+  ).stdout.split('\0');
+  const changed = new Map<string, string>();
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const [status = '', path = ''] = [fields[i], fields[i + 1]];
+    if (path) changed.set(path, status);
+  }
+  return changed;
+};
+
+/** Every file a stash carries, by path, with what each part of it holds. */
+export const getRemoteStashFiles = async (root: string, hash: string): Promise<StashFile[]> => {
+  const parts = await stashParts(root, hash);
+  const [overall, staged, unstaged] = await Promise.all([
+    changedBetween(root, parts.base, parts.work),
+    changedBetween(root, parts.base, parts.index),
+    changedBetween(root, parts.index, parts.work),
+  ]);
+  const untracked = parts.untracked
+    ? (await git(['ls-tree', '-r', '-z', '--name-only', parts.untracked], root)).stdout
+        .split('\0')
+        .filter(Boolean)
+    : [];
+  const paths = [...new Set([...overall.keys(), ...staged.keys(), ...unstaged.keys(), ...untracked])];
+  return paths.sort().map((path) => ({
+    path,
+    status: overall.get(path) ?? staged.get(path) ?? (untracked.includes(path) ? 'A' : 'M'),
+    staged: staged.has(path),
+    unstaged: unstaged.has(path),
+    untracked: untracked.includes(path),
+  }));
 };
 
 /** A stash's whole patch, untracked files included, for the preview. */
 export const getRemoteStashDiff = async (root: string, hash: string) =>
   (await git(['stash', 'show', '-p', '--include-untracked', '--no-color', hash], root)).stdout;
 
+//? Paths as they are, never globs: a file named `*.ts` must not pull in every other one
+const LITERAL = { GIT_LITERAL_PATHSPECS: '1' };
+
 /**
- * Build a `git stash -u` commit of the work tree **without touching it**.
+ * One file of a stash: its staged diff and its unstaged one, each under a line saying which —
+ * the split it arrives in — or the whole of it when it is untracked.
+ */
+export const getRemoteStashFileDiff = async (root: string, hash: string, file: StashFile) => {
+  const parts = await stashParts(root, hash);
+  const diff = async (from: string, to: string) =>
+    (await git(['diff', '--no-color', from, to, '--', file.path], root, { env: LITERAL })).stdout;
+  if (file.untracked) {
+    const empty = (await git(['hash-object', '-t', 'tree', '--stdin'], root, { input: '' })).stdout;
+    return diff(empty.trim(), parts.untracked);
+  }
+  const [staged, unstaged] = await Promise.all([
+    file.staged ? diff(parts.base, parts.index) : '',
+    file.unstaged ? diff(parts.index, parts.work) : '',
+  ]);
+  return [staged && `### staged — arrives staged\n${staged}`, unstaged && `### unstaged\n${unstaged}`]
+    .filter(Boolean)
+    .join('\n');
+};
+
+/**
+ * The files that typed paths name — a file itself, or everything under a folder (`.` for all).
+ * Paths are repository-relative, as `resolveRepoPaths` returns them.
+ */
+export const matchChangedPaths = <T extends { path: string }>(files: T[], typed: string[]) =>
+  files.filter((file) =>
+    typed.some(
+      (path) =>
+        path === '.' || file.path === path || file.path.startsWith(`${path.replace(/\/$/, '')}/`),
+    ),
+  );
+
+/**
+ * Scratch index files inside .git, so a crash leaves nothing in the work tree to commit. `run`
+ * gets the base path and they are removed after it, however it ends.
+ */
+const withScratch = async <T>(root: string, run: (scratch: string) => Promise<T>) => {
+  const scratch = resolve(
+    root,
+    (await git(['rev-parse', '--git-path', `giti-stash-${process.pid}`], root)).stdout.trim(),
+  );
+  try {
+    return await run(scratch);
+  } finally {
+    for (const part of ['index', 'work', 'untracked']) rmSync(`${scratch}-${part}`, { force: true });
+  }
+};
+
+/**
+ * `from` read into the scratch index `file`, with `diffArgs`' patch of `paths` applied on top —
+ * as a tree. The diff is git's own (real index, work tree or two commits, as `diffArgs` say); only
+ * the apply goes to the scratch index.
+ */
+const layer = async (
+  root: string,
+  file: string,
+  from: string,
+  diffArgs: string[],
+  paths: string[],
+) => {
+  const scratch = { GIT_INDEX_FILE: file };
+  await git(['read-tree', from], root, { env: scratch });
+  if (paths.length) {
+    //? --binary/--full-index carry binary files; --no-renames keeps both sides of a rename
+    const patch = await git(
+      ['diff', ...diffArgs, '--binary', '--full-index', '--no-renames', '--no-color', '--', ...paths],
+      root,
+      { env: LITERAL },
+    );
+    if (!patch.ok) throw new Error(failure(patch, 'could not read the changes'));
+    if (patch.stdout) {
+      const applied = await git(['apply', '--cached', '-'], root, {
+        input: patch.stdout,
+        env: scratch,
+      });
+      if (!applied.ok) throw new Error(failure(applied, 'could not write the stash'));
+    }
+  }
+  const tree = await git(['write-tree'], root, { env: scratch });
+  if (!tree.ok) throw new Error(failure(tree, 'could not write the stash'));
+  return tree.stdout.trim();
+};
+
+const commitTree = async (root: string, tree: string, message: string, parents: string[]) => {
+  const result = await git(
+    ['commit-tree', tree, ...parents.flatMap((parent) => ['-p', parent]), '-m', message],
+    root,
+  );
+  if (!result.ok) throw new Error(failure(result, 'could not write the stash'));
+  return result.stdout.trim();
+};
+
+/**
+ * Build a `git stash -u` commit of the chosen files **without touching the work tree or the
+ * index**.
  *
- * `git stash create` would do this for tracked files but has no `--include-untracked`, and
- * `git stash push -u` empties the work tree, which sharing has no reason to do. So the three trees
- * are written by hand into scratch index files, the real index left as it is:
+ * `git stash push -u -- <paths>` would empty those files from the work tree, which sharing has no
+ * reason to do, and `git stash create` takes neither paths nor untracked files. So the three trees
+ * are written by hand into scratch index files, and only the chosen paths ever reach them:
  *
- * - index: the index as it stands (`write-tree`);
- * - work tree: that index with every tracked file brought up to its work-tree content (`add -u`);
- * - untracked: the files `git status` calls untracked, `.gitignore`d ones left out — on their own.
+ * - index: HEAD, plus what is staged for those paths (`diff --cached | apply --cached`);
+ * - work tree: that, plus their unstaged changes (`diff | apply --cached`);
+ * - untracked: the chosen untracked files, on their own — as `git stash -u` keeps them.
+ *
+ * Every other file is HEAD's in all three, so applying the stash brings in the chosen files only,
+ * staged where they were staged. `paths` are repository-relative, as `git status` prints them;
+ * leaving them out stashes every change.
  *
  * Returns the stash commit's hash, or nothing when there is nothing to stash.
  *
- * @throws on a conflicted index (git cannot write it as a tree) or a repository with no commit yet
+ * @throws on a chosen file in conflict, or a repository with no commit yet
  */
-export const createStashCommit = async (root: string, name: string) => {
+export const createStashCommit = async (root: string, name: string, paths?: string[]) => {
   const head = await git(['rev-parse', '--verify', '--quiet', 'HEAD'], root);
   if (!head.ok) throw new Error('Nothing committed yet — a stash is taken against a commit');
   const branch =
@@ -171,65 +313,106 @@ export const createStashCommit = async (root: string, name: string) => {
     '(no branch)';
   const headLine = (await git(['log', '-1', '--format=%h %s', 'HEAD'], root)).stdout.trim();
 
-  const indexTree = await git(['write-tree'], root);
-  if (!indexTree.ok) throw new Error('Resolve the conflicts first — the index cannot be stashed');
+  const wanted = paths && new Set(paths);
+  const chosen = (await getChanges(root)).filter((change) => !wanted || wanted.has(change.path));
+  if (!chosen.length) return;
+  const conflicted = chosen.filter((change) => change.conflicted).map((change) => change.path);
+  if (conflicted.length) throw new Error(`Resolve the conflicts first: ${conflicted.join(', ')}`);
+  //? A rename's old path goes too, or the stash would add the new file and keep the old one
+  const tracked = chosen
+    .filter((change) => !change.untracked)
+    .flatMap((change) => (change.origPath ? [change.path, change.origPath] : [change.path]));
+  const untracked = chosen.filter((change) => change.untracked).map((change) => change.path);
 
-  //? Scratch index files inside .git, so a crash leaves nothing in the work tree to commit
-  const scratch = resolve(
-    root,
-    (await git(['rev-parse', '--git-path', `giti-stash-${process.pid}`], root)).stdout.trim(),
-  );
-  const withIndex = (file: string) => ({ env: { GIT_INDEX_FILE: file } });
-  try {
-    const workIndex = `${scratch}-work`;
-    await git(['read-tree', indexTree.stdout.trim()], root, withIndex(workIndex));
-    const added = await git(['add', '-u', '--', ':/'], root, withIndex(workIndex));
-    if (!added.ok) throw new Error(failure(added, 'could not read the work tree'));
-    const workTree = (await git(['write-tree'], root, withIndex(workIndex))).stdout.trim();
+  return withScratch(root, async (scratch) => {
+    const indexTree = await layer(root, `${scratch}-index`, 'HEAD', ['--cached', 'HEAD'], tracked);
+    const workTree = await layer(root, `${scratch}-work`, indexTree, [], tracked);
 
-    const untracked = (
-      await git(['ls-files', '-z', '--others', '--exclude-standard', '--full-name', ':/'], root)
-    ).stdout;
     let untrackedTree = '';
-    if (untracked) {
-      const untrackedIndex = `${scratch}-untracked`;
+    if (untracked.length) {
+      const env = { GIT_INDEX_FILE: `${scratch}-untracked`, ...LITERAL };
       const add = await git(
         ['add', '--force', '--pathspec-from-file=-', '--pathspec-file-nul'],
         root,
-        { input: untracked, ...withIndex(untrackedIndex) },
+        { input: `${untracked.join('\0')}\0`, env },
       );
       if (!add.ok) throw new Error(failure(add, 'could not read the untracked files'));
-      untrackedTree = (await git(['write-tree'], root, withIndex(untrackedIndex))).stdout.trim();
+      untrackedTree = (await git(['write-tree'], root, { env })).stdout.trim();
     }
 
-    const headTree = (await git(['rev-parse', 'HEAD^{tree}'], root)).stdout.trim();
-    if (!untrackedTree && workTree === headTree && indexTree.stdout.trim() === headTree) return;
-
-    const commitTree = async (tree: string, message: string, parents: string[]) => {
-      const result = await git(
-        ['commit-tree', tree, ...parents.flatMap((parent) => ['-p', parent]), '-m', message],
-        root,
-      );
-      if (!result.ok) throw new Error(failure(result, 'could not write the stash'));
-      return result.stdout.trim();
-    };
     const headHash = head.stdout.trim();
-    const indexCommit = await commitTree(indexTree.stdout.trim(), `index on ${branch}: ${headLine}`, [
+    const indexCommit = await commitTree(root, indexTree, `index on ${branch}: ${headLine}`, [
       headHash,
     ]);
     const parents = [headHash, indexCommit];
     if (untrackedTree)
-      parents.push(await commitTree(untrackedTree, `untracked files on ${branch}: ${headLine}`, []));
+      parents.push(
+        await commitTree(root, untrackedTree, `untracked files on ${branch}: ${headLine}`, []),
+      );
     //? git's own subject, so `git stash show` and the listing's branch column both read it
-    return commitTree(workTree, `On ${branch}: ${name}`, parents);
-  } finally {
-    rmSync(`${scratch}-work`, { force: true });
-    rmSync(`${scratch}-untracked`, { force: true });
-  }
+    return commitTree(root, workTree, `On ${branch}: ${name}`, parents);
+  });
 };
 
 /**
- * Stash the work tree and push it to `remote` as `name`. The work tree is left as it was.
+ * A copy of stash `hash` holding only `paths` — what a partial apply applies. Built the way
+ * `createStashCommit` builds one, from the stash's own parts instead of the work tree: the base
+ * plus the chosen paths' staged diff, then their unstaged diff, then the chosen untracked files.
+ * Every other file is the base's, so `git stash apply` of the copy leaves it alone, and staged
+ * still arrives staged. Local only — nothing is pushed.
+ *
+ * @throws when none of `paths` is in the stash
+ */
+export const narrowStashCommit = async (root: string, hash: string, paths: string[]) => {
+  const parts = await stashParts(root, hash);
+  const files = await getRemoteStashFiles(root, hash);
+  const chosen = files.filter((file) => paths.includes(file.path));
+  if (!chosen.length) throw new Error('None of those files is in the stash');
+  const tracked = chosen.filter((file) => !file.untracked).map((file) => file.path);
+  const untracked = chosen.filter((file) => file.untracked).map((file) => file.path);
+  const subject = (await git(['log', '-1', '--format=%s', hash], root)).stdout.trim();
+
+  return withScratch(root, async (scratch) => {
+    const indexTree = await layer(
+      root,
+      `${scratch}-index`,
+      parts.base,
+      [parts.base, parts.index],
+      tracked,
+    );
+    const workTree = await layer(
+      root,
+      `${scratch}-work`,
+      indexTree,
+      [parts.index, parts.work],
+      tracked,
+    );
+    const indexCommit = await commitTree(root, indexTree, 'index (narrowed)', [parts.base]);
+    const parentList = [parts.base, indexCommit];
+    if (untracked.length) {
+      //? `ls-tree` lines are `update-index --index-info` lines: the chosen entries, copied over
+      const env = { GIT_INDEX_FILE: `${scratch}-untracked` };
+      const entries = (
+        await git(['ls-tree', '-r', '-z', parts.untracked, '--', ...untracked], root, {
+          env: LITERAL,
+        })
+      ).stdout;
+      await git(['read-tree', '--empty'], root, { env });
+      const copied = await git(['update-index', '-z', '--index-info'], root, {
+        input: entries,
+        env,
+      });
+      if (!copied.ok) throw new Error(failure(copied, 'could not read the untracked files'));
+      const tree = (await git(['write-tree'], root, { env })).stdout.trim();
+      parentList.push(await commitTree(root, tree, 'untracked files (narrowed)', []));
+    }
+    return commitTree(root, workTree, subject, parentList);
+  });
+};
+
+/**
+ * Stash the chosen files (every change when `paths` is left out) and push them to `remote` as
+ * `name`. The work tree and the index are left as they were.
  *
  * Without `force` an existing stash of that name is not replaced: the new commit is unrelated to
  * it, so the push is a non-fast-forward and the remote refuses it.
@@ -238,12 +421,17 @@ export const saveRemoteStash = async (
   root: string,
   remote: string,
   name: string,
-  { force = false } = {},
+  { force = false, paths }: { force?: boolean; paths?: string[] } = {},
 ): Promise<OperationResult & { hash?: string }> => {
   const invalid = await checkStashName(root, name);
   if (invalid) return { ok: false, message: invalid };
-  const hash = await createStashCommit(root, name);
-  if (!hash) return { ok: false, message: 'Nothing to stash — the working tree is clean' };
+  if (paths && !paths.length) return { ok: false, message: 'No files chosen to stash' };
+  const hash = await createStashCommit(root, name, paths);
+  if (!hash)
+    return {
+      ok: false,
+      message: paths ? 'None of those files has changes' : 'Nothing to stash — the working tree is clean',
+    };
   const result = await git(
     ['push', '--quiet', remote, `${force ? '+' : ''}${hash}:${REMOTE_PREFIX}${name}`],
     root,
@@ -266,13 +454,16 @@ export const saveRemoteStash = async (
  * `index` puts staged changes back as staged; when git cannot (the index has moved too far for
  * them to apply cleanly) it says so before changing anything, and the stash is applied again with
  * everything unstaged rather than not at all.
+ *
+ * `paths` applies only those of its files (`narrowStashCommit`); the rest of the stash is left out.
  */
 export const applyRemoteStash = async (
   root: string,
   remote: string,
   name: string,
-  { index = true } = {},
+  { index = true, paths }: { index?: boolean; paths?: string[] } = {},
 ): Promise<OperationResult> => {
+  if (paths && !paths.length) return { ok: false, message: 'No files chosen to apply' };
   const local = `${localPrefix(remote)}${name}`;
   const fetched = await git(
     ['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', remote, `+${REMOTE_PREFIX}${name}:${local}`],
@@ -286,10 +477,19 @@ export const applyRemoteStash = async (
         : failure(fetched, 'could not fetch the stash'),
     };
   }
-  const hash = (await git(['rev-parse', local], root)).stdout.trim();
+  const fetchedHash = (await git(['rev-parse', local], root)).stdout.trim();
+  let hash = fetchedHash;
+  if (paths) {
+    try {
+      hash = await narrowStashCommit(root, fetchedHash, paths);
+    } catch (error) {
+      return { ok: false, message: (error as Error).message };
+    }
+  }
+  const what = paths ? `${paths.length} file(s) of stash ${name}` : `stash ${name}`;
   if (index) {
     const withIndex = await git(['stash', 'apply', '--index', hash], root);
-    if (withIndex.ok) return { ok: true, message: `Applied stash ${name}` };
+    if (withIndex.ok) return { ok: true, message: `Applied ${what}` };
     //? git checks this before writing anything, so a plain apply starts from the same tree
     if (!/Conflicts in index|try without --index/i.test(withIndex.stderr + withIndex.stdout))
       return { ok: false, message: failure(withIndex, 'apply stopped') };
@@ -299,8 +499,8 @@ export const applyRemoteStash = async (
     ? {
         ok: true,
         message: index
-          ? `Applied stash ${name} — staged changes could not be restored, so all are unstaged`
-          : `Applied stash ${name}`,
+          ? `Applied ${what} — staged changes could not be restored, so all are unstaged`
+          : `Applied ${what}`,
       }
     : { ok: false, message: failure(plain, 'apply stopped') };
 };

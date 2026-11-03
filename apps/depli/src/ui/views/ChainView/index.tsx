@@ -101,45 +101,22 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => {
   );
 };
 
-/**
- * A framed button — for the one action that must not be mistaken for text: stopping a run. The
- * whole frame is clickable and lights up under the pointer; the key does the same.
- */
-const FramedButton = ({
-  hotkey,
-  label,
-  color,
-  disabled = false,
-  onPress,
-}: {
-  hotkey: string;
-  label: string;
-  color: string;
-  disabled?: boolean;
-  onPress: () => void;
-}) => {
-  const colors = useColors();
-  const ref = useRef<DOMElement>(null);
-  const { isHovered } = useClickable(ref, {
-    onClick: () => {
-      if (!disabled) onPress();
-    },
-    isActive: !disabled,
-  });
-  const tone = disabled ? colors.muted : color;
-  return (
-    <Box ref={ref} flexShrink={0} alignSelf="flex-start">
-      <Box borderStyle={isHovered ? 'bold' : 'round'} borderColor={tone} paddingX={1}>
-        <Text color={tone} bold inverse={isHovered}>
-          [{hotkey}] {label}
-        </Text>
-      </Box>
-    </Box>
-  );
-};
-
 const minutes = (ms?: number) =>
   !ms || ms <= 0 ? '' : ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
+
+/** A yes/no asked in place of the button that raised it. */
+interface InlineAsk {
+  /** Which button it replaces: `auto:<step>`, `trigger:<step>`, `stop:<step>`, `fix:<step>:<fix>`. */
+  at: string;
+  question: string;
+  detail?: ReactNode;
+  /** `y` (anything else is no), or `Enter` (Esc — anything else — cancels). */
+  yesKey?: 'y' | 'Enter';
+  yesLabel?: string;
+  tone: string;
+  onYes: () => void;
+  onNo?: () => void;
+}
 
 interface SelectorRowProps {
   hotkey: string;
@@ -244,10 +221,10 @@ export const ChainView = ({
   const [selectedId, setSelectedId] = useState(session.selected.chain);
   const [picking, setPicking] = useState<number | undefined>(undefined);
   const [confirming, setConfirming] = useState<PlannedTrigger>();
-  //? The step whose Auto trigger is asking "Yes / No" in place of its button
-  const [askingAuto, setAskingAuto] = useState<string>();
-  //? A fix being confirmed: the red popover describing exactly what it changes
-  const [fixing, setFixing] = useState<{ entry: ChainStep; fix: PlanFix }>();
+  //? A question asked in place of the button that raised it (auto trigger, trigger, stop, fix)
+  const [asking, setAsking] = useState<InlineAsk>();
+  const askingRef = useRef(asking);
+  askingRef.current = asking;
   //? Logs per step: what the user chose with [l], else open while the step is running
   const [logChoice, setLogChoice] = useState<Record<string, boolean>>({});
   const [runPick, setRunPick] = useState<Record<string, number>>({});
@@ -460,21 +437,26 @@ export const ChainView = ({
   };
 
   /**
-   * A fix (an edit on the target, shared by everyone): the red popover says exactly what changes,
-   * and nothing is written until Apply (or Enter) is pressed. The step is planned
-   * again afterwards, so the Trigger button shows whether it can now be sent.
+   * A fix (an edit on the target, shared by everyone): asked in place of its button, saying exactly
+   * what changes, and nothing is written until Apply (or Enter). The step is planned again
+   * afterwards, so the Trigger button shows whether it can now be sent.
    */
   const startFix = (entry: ChainStep, fix: PlanFix) => {
     if (typeof plans[entry.step.id] !== 'object') return;
-    setFixing({ entry, fix });
+    setAsking({
+      at: `fix:${entry.step.id}:${fix.id}`,
+      question: `${fix.label} — edits shared config, for everyone`,
+      detail: fix.detail,
+      yesKey: 'Enter',
+      yesLabel: 'Apply',
+      tone: colors.error,
+      onYes: () => applyFix(entry, fix),
+    });
   };
 
-  /** The popover's Apply (or Enter): the change is made, the step planned again. */
-  const applyFixing = () => {
-    if (!fixing) return;
-    const { entry, fix } = fixing;
+  /** Apply (or Enter): the change is made, the step planned again. */
+  const applyFix = (entry: ChainStep, fix: PlanFix) => {
     const planned = plans[entry.step.id];
-    setFixing(undefined);
     if (typeof planned !== 'object') return;
     notify(`${fix.label}…`, 'info');
     data
@@ -485,6 +467,26 @@ export const ChainView = ({
       })
       .catch((error: Error) => notify(`Not changed: ${error.message}`, 'error'));
   };
+
+  /** The request a confirmation sends: its URL, every parameter, every warning. */
+  const aboutToSend = (planned: PlannedTrigger) => (
+    <Box flexDirection="column">
+      <Text color={colors.text} wrap="truncate-middle">
+        {planned.plan.method} {planned.plan.url}
+      </Text>
+      {Object.entries(planned.plan.params).map(([key, value]) => (
+        <Text key={key} color={colors.muted} wrap="truncate-end">
+          {' '}
+          {key}={value}
+        </Text>
+      ))}
+      {(planned.plan.warnings ?? []).map((warning) => (
+        <Text key={warning} color={colors.warn} wrap="wrap">
+          ! {warning}
+        </Text>
+      ))}
+    </Box>
+  );
 
   /** What the gate puts right on the target before each send (a branch added to a job's list). */
   const addedFirst = (planned: PlannedTrigger) =>
@@ -516,7 +518,15 @@ export const ChainView = ({
         (typed) => send(typed.trim()),
         { onCancel: () => setConfirming(undefined) },
       );
-    else prompt.confirm(`Send ${planned.plan.target} for ${data.branch}?`, () => send());
+    else
+      setAsking({
+        at: `trigger:${entry.step.id}`,
+        question: `Send ${planned.plan.target} for ${data.branch}?`,
+        detail: aboutToSend(planned),
+        tone: colors.warn,
+        onYes: () => send(),
+        onNo: () => setConfirming(undefined),
+      });
   };
 
   /** The armed trigger for a step on the branch and env shown, if any. */
@@ -570,32 +580,73 @@ export const ChainView = ({
         },
       );
     //? Asked right where the button is, not in the prompt line far above the graph
-    else setAskingAuto(entry.step.id);
+    else
+      setAsking({
+        at: `auto:${entry.step.id}`,
+        question: `Auto-trigger ${what} once, when the steps before it finish?`,
+        tone: colors.warn,
+        onYes: () => armed_(),
+      });
   };
-  /** The inline question's answer: y arms the step it was asked for, anything else does not. */
-  const answerAuto = (yes: boolean) => {
-    const entry = data.chain.find((item) => item.step.id === askingAuto);
-    setAskingAuto(undefined);
-    if (!yes || !entry) return;
-    data.arm(entry);
-    notify(
-      `Armed: ${fill(entry.step.label)} for ${data.branch} → ${data.targetEnv} — sent once, when the steps before it finish`,
-      'ok',
-    );
+
+  /** The inline question's answer: its yes, or — for anything else — its no. */
+  const answer = (yes: boolean) => {
+    const was = askingRef.current;
+    setAsking(undefined);
+    if (yes) was?.onYes();
+    else was?.onNo?.();
   };
-  useInput((input) => answerAuto(input === 'y' || input === 'Y'), {
-    isActive: askingAuto !== undefined,
-  });
+  useInput(
+    (input, key) =>
+      answer(asking?.yesKey === 'Enter' ? key.return : input === 'y' || input === 'Y'),
+    { isActive: asking !== undefined },
+  );
   //? The question owns the keyboard while it is up — the app's own keys (B) included
+  const askingOpen = asking !== undefined;
   useEffect(() => {
-    if (askingAuto !== undefined) onCaptureInput(true);
+    if (askingOpen) onCaptureInput(true);
     return () => {
-      if (askingAuto !== undefined) onCaptureInput(false);
+      if (askingOpen) onCaptureInput(false);
     };
-  }, [askingAuto, onCaptureInput]);
-  //? Another step selected: the question was about the old one
+  }, [askingOpen, onCaptureInput]);
+  //? Another step selected: the question was about the old one — answered no
   // biome-ignore lint/correctness/useExhaustiveDependencies: the selection is the trigger
-  useEffect(() => setAskingAuto(undefined), [selected?.step.id, data.branch, data.targetEnv]);
+  useEffect(() => {
+    if (askingRef.current) answer(false);
+  }, [selected?.step.id, data.branch, data.targetEnv]);
+
+  /** The question, drawn where the button asking it was — or undefined when it is not asking. */
+  const askedHere = (at: string) =>
+    asking?.at === at ? (
+      <Box flexDirection="column" flexShrink={0}>
+        <Text color={asking.tone} bold wrap="wrap">
+          {asking.question}
+        </Text>
+        {typeof asking.detail === 'string' ? (
+          <Text color={colors.text} wrap="wrap">
+            {asking.detail}
+          </Text>
+        ) : (
+          asking.detail
+        )}
+        <Box flexDirection="row">
+          <ActionButton
+            hotkey={asking.yesKey ?? 'y'}
+            label={asking.yesLabel ?? 'Yes'}
+            color={asking.tone}
+            bordered
+            onPress={() => answer(true)}
+          />
+          <ActionButton
+            hotkey={asking.yesKey === 'Enter' ? 'Esc' : 'N'}
+            label={asking.yesKey === 'Enter' ? 'Cancel' : 'No'}
+            color={colors.text}
+            bordered
+            onPress={() => answer(false)}
+          />
+        </Box>
+      </Box>
+    ) : undefined;
 
   /** The run a Stop acts on: the one shown when it is running, else the step's running one. */
   const runningRun = (entry: ChainStep) =>
@@ -626,7 +677,13 @@ export const ChainView = ({
         `${data.targetEnv} is protected — type "${data.targetEnv}" to stop ${what}:`,
         (typed) => stop(typed.trim()),
       );
-    else prompt.confirm(`Stop ${what}? It is aborted, not paused.`, () => stop());
+    else
+      setAsking({
+        at: `stop:${entry.step.id}`,
+        question: `Stop ${what}? It is aborted, not paused.`,
+        tone: colors.error,
+        onYes: () => stop(),
+      });
   };
 
   /** Show an armed trigger's step and its dry run — on its own branch and env. */
@@ -671,12 +728,6 @@ export const ChainView = ({
   const pickerOpen = picking !== undefined;
   useInput(
     (input, key) => {
-      //? The fix popover owns the keyboard while open: Enter applies, Esc cancels, nothing else
-      if (fixing) {
-        if (key.return) applyFixing();
-        else if (key.escape) setFixing(undefined);
-        return;
-      }
       if (pickerOpen) {
         if (key.return) closePicker();
         else if (key.escape) setPicking(undefined);
@@ -715,7 +766,7 @@ export const ChainView = ({
         if (fix) startFix(selected, fix);
       }
     },
-    { isActive: !prompt.isOpen && askingAuto === undefined },
+    { isActive: !prompt.isOpen && !askingOpen },
   );
 
   const renderPlan = (planned: PlannedTrigger | string | undefined, shown: boolean) => {
@@ -788,13 +839,15 @@ export const ChainView = ({
           flexShrink={0}
         >
           {ready ? (
-            <ActionButton
-              hotkey="T"
-              label="Trigger…"
-              color={entry.protected ? colors.error : colors.accent}
-              bordered
-              onPress={() => startTrigger(entry)}
-            />
+            (askedHere(`trigger:${entry.step.id}`) ?? (
+              <ActionButton
+                hotkey="T"
+                label="Trigger…"
+                color={entry.protected ? colors.error : colors.accent}
+                bordered
+                onPress={() => startTrigger(entry)}
+              />
+            ))
           ) : (
             <Text color={checking ? colors.muted : colors.warn} bold wrap="wrap">
               <StatusText
@@ -843,8 +896,9 @@ export const ChainView = ({
             </Box>
           )}
           {fixesOf(entry).map((fix, index) => (
+            <Box key={fix.id} flexDirection="column" flexShrink={0}>
+              {askedHere(`fix:${entry.step.id}:${fix.id}`) ?? (
               <ActionButton
-                key={fix.id}
                 hotkey={index === 0 && triggersEnabled ? 'A' : undefined}
                 label={`${fix.label}…`}
                 color={colors.accent}
@@ -854,7 +908,9 @@ export const ChainView = ({
                   if (hovered) notify(fix.detail, 'warn');
                 }}
               />
-            ))}
+              )}
+            </Box>
+          ))}
           {fixesOf(entry).length > 0 && (
             <Text color={colors.muted} wrap="wrap">
               {refused
@@ -928,13 +984,16 @@ export const ChainView = ({
         )}
         {canStop(entry) && (
           <Box flexDirection="column" marginBottom={1} flexShrink={0}>
-            <FramedButton
-              hotkey="X"
-              label={`■ Stop ${runningRun(entry)?.label ?? 'build'}`}
-              color={colors.error}
-              disabled={!runningRun(entry)}
-              onPress={() => startStop(entry)}
-            />
+            {askedHere(`stop:${entry.step.id}`) ?? (
+              <ActionButton
+                hotkey="X"
+                label={`■ Stop ${runningRun(entry)?.label ?? 'build'}`}
+                color={colors.error}
+                disabled={!runningRun(entry)}
+                bordered
+                onPress={() => startStop(entry)}
+              />
+            )}
             <Text color={colors.muted} wrap="wrap">
               Aborts the running build
               {entry.protected ? ` — ${data.targetEnv} is protected, confirmed by its name` : ''}.
@@ -964,29 +1023,8 @@ export const ChainView = ({
                   })()}
                 </Text>
               </>
-            ) : askingAuto === entry.step.id ? (
-              <>
-                <Text color={colors.warn} bold wrap="wrap">
-                  Auto-trigger {fill(entry.step.label)} for {data.branch} → {data.targetEnv} once,
-                  when the steps before it finish?
-                </Text>
-                <Box flexDirection="row">
-                  <ActionButton
-                    hotkey="y"
-                    label="Yes"
-                    color={colors.warn}
-                    bordered
-                    onPress={() => answerAuto(true)}
-                  />
-                  <ActionButton
-                    hotkey="N"
-                    label="No"
-                    color={colors.text}
-                    bordered
-                    onPress={() => answerAuto(false)}
-                  />
-                </Box>
-              </>
+            ) : asking?.at === `auto:${entry.step.id}` ? (
+              askedHere(`auto:${entry.step.id}`)
             ) : (
               <>
                 <ActionButton
@@ -1013,7 +1051,7 @@ export const ChainView = ({
             scope={`${entry.step.id}:${data.targetEnv}`}
             expanded={data.otherRunsExpanded}
             onExpandedChange={data.setOtherRunExpanded}
-            isActive={!prompt.isOpen && !pickerOpen && !fixing}
+            isActive={!prompt.isOpen && !pickerOpen && !askingOpen}
           />
         )}
         {data.hasTimings(entry) && logRun && (!logRun.branch || logRun.branch === data.branch) && (
@@ -1024,7 +1062,7 @@ export const ChainView = ({
             stale={status.state === 'stale' || entry.recommended}
             expanded={data.timingsExpanded}
             onExpandedChange={data.setTimingsExpanded}
-            isActive={!prompt.isOpen && !pickerOpen && !fixing}
+            isActive={!prompt.isOpen && !pickerOpen && !askingOpen}
           />
         )}
         <Toolbar actions={actions(entry)} />
@@ -1272,11 +1310,18 @@ export const ChainView = ({
           width={sideBySide ? undefined : appWidth}
         >
           {selected && logsOpen && logRun ? (
+            <>
+            {/* The Stop button is not in sight under the logs: its question is, on top of them */}
+            {askedHere(`stop:${selected.step.id}`)}
             <LogPanel
               run={logRun}
               runKey={`${selected.step.id}:${logRun.id}`}
               read={readSelectedLog}
-              rows={sideBySide ? contentRows - 1 : Math.max(4, contentRows - graphRows - 3)}
+              rows={Math.max(
+                3,
+                (sideBySide ? contentRows - 1 : Math.max(4, contentRows - graphRows - 3)) -
+                  (asking?.at === `stop:${selected.step.id}` ? 4 : 0),
+              )}
               width={detailWidth}
               runIndex={runIndex}
               runCount={runs.length}
@@ -1286,12 +1331,13 @@ export const ChainView = ({
                   [selected.step.id]: Math.max(0, Math.min(runs.length - 1, runIndex + delta)),
                 }))
               }
-              isActive={!prompt.isOpen && !pickerOpen}
+              isActive={!prompt.isOpen && !pickerOpen && !askingOpen}
             />
+            </>
           ) : selected ? (
             <ScrollPanel
               key={`${selected.step.id}:${data.branch}:${data.targetEnv}`}
-              isActive={!prompt.isOpen && !pickerOpen && !fixing}
+              isActive={!prompt.isOpen && !pickerOpen && !askingOpen}
             >
               {detail(selected)}
             </ScrollPanel>
@@ -1416,28 +1462,8 @@ export const ChainView = ({
           ]}
         />
       </Box>
-      {fixing && (
-        <Popover anchorRef={chipsRef} containerRef={rootRef} width="container">
-          <Box flexDirection="column" borderStyle="round" borderColor={colors.error} paddingX={1}>
-            <Text color={colors.error} bold>
-              {fixing.fix.label} — edits shared config, for everyone
-            </Text>
-            <Text color={colors.text} wrap="wrap">
-              {fixing.fix.detail}
-            </Text>
-            <Box flexDirection="row" marginTop={1}>
-              <ActionButton
-                hotkey="Enter"
-                label="Apply"
-                color={colors.error}
-                onPress={applyFixing}
-              />
-              <ActionButton hotkey="Esc" label="Cancel" onPress={() => setFixing(undefined)} />
-            </Box>
-          </Box>
-        </Popover>
-      )}
-      {confirming && (
+      {/* Typed at the top (a protected env): what is about to be sent, beside where it is typed */}
+      {confirming && !asking && (
         <Popover anchorRef={chipsRef} containerRef={rootRef} width="container">
           <Box
             flexDirection="column"
@@ -1446,20 +1472,7 @@ export const ChainView = ({
             paddingX={1}
           >
             <Text color={colors.heading}>About to send — read it</Text>
-            <Text color={colors.text} wrap="truncate-middle">
-              {confirming.plan.method} {confirming.plan.url}
-            </Text>
-            {Object.entries(confirming.plan.params).map(([key, value]) => (
-              <Text key={key} color={colors.muted} wrap="truncate-end">
-                {' '}
-                {key}={value}
-              </Text>
-            ))}
-            {(confirming.plan.warnings ?? []).map((warning) => (
-              <Text key={warning} color={colors.warn} wrap="wrap">
-                ! {warning}
-              </Text>
-            ))}
+            {aboutToSend(confirming)}
           </Box>
         </Popover>
       )}

@@ -9,7 +9,9 @@ import {
   createStashCommit,
   getRemoteStashDiff,
   getRemoteStashes,
+  getRemoteStashFileDiff,
   getRemoteStashFiles,
+  matchChangedPaths,
   removeRemoteStash,
   resolveStashRemote,
   saveRemoteStash,
@@ -63,6 +65,123 @@ describe('remote stash', () => {
     const lines = status(mate).split('\n').filter(Boolean).sort();
     expect(lines).toEqual([' M a.txt', '?? new.txt', 'A  staged.txt']);
     expect((await getRemoteStashes(mate, 'origin')).map((s) => s.name)).toEqual(['handover']);
+  });
+
+  test('stashes only the chosen files, and the author’s index and work tree stay exactly as they were', async () => {
+    repo = makeRepo({ remote: true });
+    repo.write('b.txt', 'b\n');
+    repo.write('c.txt', 'c\n');
+    repo.sh(['add', 'b.txt', 'c.txt']);
+    repo.sh(['commit', '-q', '-m', 'b and c']);
+    repo.sh(['push', '-q']);
+    repo.write('a.txt', 'left out\n');
+    repo.write('b.txt', 'staged\n');
+    repo.sh(['add', 'b.txt']);
+    repo.write('b.txt', 'staged\nthen edited\n');
+    repo.write('c.txt', 'left out too\n');
+    repo.sh(['add', 'c.txt']);
+    repo.write('keep.txt', 'chosen untracked\n');
+    repo.write('skip.txt', 'other untracked\n');
+    const before = [status(repo.root), repo.sh(['diff', '--cached']), repo.sh(['diff'])];
+
+    const saved = await saveRemoteStash(repo.root, 'origin', 'part', {
+      paths: ['b.txt', 'keep.txt'],
+    });
+    expect(saved.ok).toBe(true);
+    expect([status(repo.root), repo.sh(['diff', '--cached']), repo.sh(['diff'])]).toEqual(before);
+    expect((await getRemoteStashFiles(repo.root, saved.hash!)).map((f) => f.path).sort()).toEqual([
+      'b.txt',
+      'keep.txt',
+    ]);
+
+    const mate = cloneOf(repo);
+    expect((await applyRemoteStash(mate, 'origin', 'part')).ok).toBe(true);
+    expect(status(mate).split('\n').filter(Boolean).sort()).toEqual(['?? keep.txt', 'MM b.txt']);
+    expect(await Bun.file(join(mate, 'b.txt')).text()).toBe('staged\nthen edited\n');
+    expect(
+      Bun.spawnSync(['git', 'show', ':b.txt'], { cwd: mate }).stdout.toString(),
+    ).toBe('staged\n');
+  });
+
+  test('a chosen rename carries the old path’s removal, and binary files survive', async () => {
+    repo = makeRepo({ remote: true });
+    repo.sh(['mv', 'a.txt', 'moved.txt']);
+    const bytes = new Uint8Array([0, 1, 2, 255, 0, 10, 13]);
+    await Bun.write(join(repo.root, 'blob.bin'), bytes);
+    repo.sh(['add', 'blob.bin']);
+    const saved = await saveRemoteStash(repo.root, 'origin', 'mv', {
+      paths: ['moved.txt', 'blob.bin'],
+    });
+    expect(saved.ok).toBe(true);
+
+    const mate = cloneOf(repo);
+    expect((await applyRemoteStash(mate, 'origin', 'mv')).ok).toBe(true);
+    expect(existsSync(join(mate, 'a.txt'))).toBe(false);
+    expect(existsSync(join(mate, 'moved.txt'))).toBe(true);
+    expect(new Uint8Array(await Bun.file(join(mate, 'blob.bin')).arrayBuffer())).toEqual(bytes);
+  });
+
+  test('refuses an empty choice, and files with nothing to stash', async () => {
+    repo = makeRepo({ remote: true });
+    repo.write('a.txt', 'changed\n');
+    expect((await saveRemoteStash(repo.root, 'origin', 'x', { paths: [] })).message).toContain(
+      'No files chosen',
+    );
+    expect(
+      (await saveRemoteStash(repo.root, 'origin', 'x', { paths: ['clean.txt'] })).message,
+    ).toContain('None of those files');
+  });
+
+  test('says, per file, which parts of the stash hold it, and shows each part', async () => {
+    repo = makeRepo({ remote: true });
+    repo.write('a.txt', 'staged\n');
+    repo.sh(['add', 'a.txt']);
+    repo.write('a.txt', 'staged\nthen edited\n');
+    repo.write('new.txt', 'untracked\n');
+    const saved = await saveRemoteStash(repo.root, 'origin', 'parts');
+    const files = await getRemoteStashFiles(repo.root, saved.hash!);
+    expect(files).toEqual([
+      { path: 'a.txt', status: 'M', staged: true, unstaged: true, untracked: false },
+      { path: 'new.txt', status: 'A', staged: false, unstaged: false, untracked: true },
+    ]);
+    const aDiff = await getRemoteStashFileDiff(repo.root, saved.hash!, files[0]!);
+    expect(aDiff).toContain('### staged — arrives staged');
+    expect(aDiff).toContain('### unstaged');
+    expect(aDiff).toContain('+then edited');
+    expect(await getRemoteStashFileDiff(repo.root, saved.hash!, files[1]!)).toContain('+untracked');
+  });
+
+  test('applies only the chosen files of a stash, staged ones still staged', async () => {
+    repo = makeRepo({ remote: true });
+    repo.write('b.txt', 'b\n');
+    repo.sh(['add', 'b.txt']);
+    repo.sh(['commit', '-q', '-m', 'b']);
+    repo.sh(['push', '-q']);
+    repo.write('a.txt', 'staged a\n');
+    repo.sh(['add', 'a.txt']);
+    repo.write('b.txt', 'left behind\n');
+    repo.write('keep.txt', 'chosen untracked\n');
+    repo.write('skip.txt', 'other untracked\n');
+    await saveRemoteStash(repo.root, 'origin', 'whole');
+
+    const mate = cloneOf(repo);
+    const applied = await applyRemoteStash(mate, 'origin', 'whole', {
+      paths: ['a.txt', 'keep.txt'],
+    });
+    expect(applied).toEqual({ ok: true, message: 'Applied 2 file(s) of stash whole' });
+    expect(status(mate).split('\n').filter(Boolean).sort()).toEqual(['?? keep.txt', 'M  a.txt']);
+    expect(await Bun.file(join(mate, 'b.txt')).text()).toBe('b\n');
+    //? Narrowing is local: the stash on the remote still has every file
+    const [entry] = await getRemoteStashes(mate, 'origin');
+    expect((await getRemoteStashFiles(mate, entry!.hash)).map((f) => f.path)).toEqual([
+      'a.txt',
+      'b.txt',
+      'keep.txt',
+      'skip.txt',
+    ]);
+    expect(
+      (await applyRemoteStash(mate, 'origin', 'whole', { paths: ['ghost.txt'] })).message,
+    ).toContain('None of those files');
   });
 
   test('applies everything unstaged when asked to', async () => {
@@ -132,8 +251,19 @@ describe('remote stash', () => {
     repo = makeRepo({ remote: true });
     repo.write('new.txt', 'n\n');
     await createStashCommit(repo.root, 'x');
-    expect(existsSync(join(repo.root, '.git', `giti-stash-${process.pid}-work`))).toBe(false);
-    expect(existsSync(join(repo.root, '.git', `giti-stash-${process.pid}-untracked`))).toBe(false);
+    for (const part of ['index', 'work', 'untracked'])
+      expect(existsSync(join(repo.root, '.git', `giti-stash-${process.pid}-${part}`))).toBe(false);
+  });
+
+  test('typed paths pick a file, or every change under a folder', () => {
+    const change = (path: string) =>
+      ({ path, index: 'M', work: ' ', staged: true, unstaged: false, untracked: false, conflicted: false });
+    const changes = ['src/a.ts', 'src/deep/b.ts', 'srcx/c.ts', 'd.ts'].map(change);
+    const names = (typed: string[]) => matchChangedPaths(changes, typed).map((c) => c.path);
+    expect(names(['src'])).toEqual(['src/a.ts', 'src/deep/b.ts']);
+    expect(names(['src/'])).toEqual(['src/a.ts', 'src/deep/b.ts']);
+    expect(names(['d.ts', 'nothing.ts'])).toEqual(['d.ts']);
+    expect(names(['.'])).toHaveLength(4);
   });
 
   test('rejects names git cannot hold as a ref', async () => {

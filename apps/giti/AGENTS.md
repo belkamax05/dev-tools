@@ -374,15 +374,21 @@ the patch it is meant to enable restoring from.
 
 `giti stash list | save | apply | remove` share work in progress with the team through the remote.
 They are never local stashes — those stay `git stash`'s. Bodies live in `src/core/remoteStash`;
-the commands parse with `parseStashArgs` (`[<name>] [--remote=] [--yes] [--force] [--unstaged]`,
-strict: nothing is forwarded to git).
+the commands parse with `parseStashArgs`
+(`[<name>] [--remote=] [--yes] [--force] [--unstaged] [-- <paths>…]`, strict: nothing is
+forwarded to git).
 
 - **Storage.** Each stash is a real `git stash -u` commit (parents: HEAD, the index, the untracked
   files) pushed to `refs/stashes/<name>` on the remote — not a branch, so hosting UIs, branch lists
   and CI branch discovery never see it. `list` fetches `refs/stashes/*` into
   `refs/giti/stashes/<remote>/*` with `--prune`, sorted by committer date.
-- **`save` leaves the work tree alone.** `createStashCommit` writes the three trees through
-  scratch `GIT_INDEX_FILE`s under `.git` rather than `git stash push`, which would empty the tree.
+- **`save` is partial and leaves the work tree and index alone.** It stashes the chosen files
+  only — ticked on the screen, or named after `--` (a folder takes every change under it,
+  `matchChangedPaths`). `createStashCommit` builds the three trees in scratch `GIT_INDEX_FILE`s
+  under `.git`: HEAD plus the chosen paths' staged diff, then their unstaged diff, then the chosen
+  untracked files — never `git stash push`, which would empty the files from the work tree. A
+  chosen rename takes its old path along. Every unchosen file is HEAD's in the stash, so applying
+  it touches nothing else.
   Names go through `git check-ref-format`; slashes are fine (`me/feature`). An existing name is
   refused by the remote itself (the new commit is unrelated, so the push is non-fast-forward);
   `--force` replaces it.
@@ -391,10 +397,21 @@ strict: nothing is forwarded to git).
   the picker) skips it. It merges against the commit the stash was taken on, so it applies across
   branches. The stash stays on the remote; `remove` deletes it for everyone and always asks
   (`--yes` skips).
-- **Previews.** On a terminal without `--yes`: `save` opens `renderInkStashSave` (`giti save`'s
-  `StatusView`, with a name field for the message); `apply`/`remove` open
-  `renderInkRemoteStashes` (stashes on the left, files and diff on the right). Off a terminal they
-  print the file list and need a name.
+- **`apply` is partial too.** Ticked on the picker's second step, or named after `--` (a name is
+  then required). `narrowStashCommit` rebuilds the stash locally from its own parts — base plus
+  the chosen paths' staged diff, then their unstaged diff, then the chosen untracked entries — and
+  that copy is what `git stash apply` gets, so staged still arrives staged and nothing outside the
+  choice is touched. The copy is never pushed. `getRemoteStashFiles` says per file which parts
+  hold it, and `getRemoteStashFileDiff` shows them under the same headings as `save`.
+- **Previews.** On a terminal without `--yes`: `save` opens `renderInkStashSave`, laid out like
+  `giti save` but with `ui/dashboard/FileChecklist` in place of `StatusView`. Its checkboxes mean
+  "in the stash" / "to apply", **not** staged: Space / `a` / a click on the box only change the
+  selection, and the diff pane shows the file's staged and unstaged parts under their own
+  headings. Do not swap `StatusView` back in — its Space stages for real. `apply`/`remove` open
+  `renderInkRemoteStashes`: stashes on the left, files and diff on the right; for `apply`, Enter
+  opens `StashFilesStep` (the same `FileChecklist` over the stash's files; Esc goes back), and a
+  name on the command line opens there directly. Off a terminal they print the file list and need
+  a name.
 - **`stash` is also git's command.** The folder gets no git alias (the generator skips folder
   names in `git --list-cmds=main`; its leaves still get `stash-list` etc.), and `run.ts` hands
   anything that is not one of the folder's commands to git: `giti stash pop` is `git stash pop`.

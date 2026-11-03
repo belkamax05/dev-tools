@@ -25,6 +25,17 @@ describe('parseStashArgs', () => {
     expect(parseStashArgs(['login', 'fix']).name).toBe('login-fix');
   });
 
+  test('takes files after --, so a name is never read as a file or a file as a flag', () => {
+    expect(parseStashArgs(['wip', '--', 'src/a.ts', '--odd-name.ts'])).toEqual({
+      name: 'wip',
+      yes: false,
+      force: false,
+      unstaged: false,
+      paths: ['src/a.ts', '--odd-name.ts'],
+    });
+    expect(parseStashArgs(['wip', '--']).paths).toBeUndefined();
+  });
+
   test('rejects a flag no stash command takes instead of ignoring it', () => {
     expect(() => parseStashArgs(['--keep-index'])).toThrow();
   });
