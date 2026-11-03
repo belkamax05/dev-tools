@@ -1,11 +1,12 @@
 import { render, Text, useApp, useInput } from 'ink';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 import runTuiApp from '@/dev-tools/ui/app/runTuiApp';
 import Box from '@/dev-tools/ui/components/Box';
+import type { Hint } from '@/dev-tools/ui/components/HintBar';
 import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
-import Toolbar from '@/dev-tools/ui/components/Toolbar';
+import Toolbar, { type ToolbarAction } from '@/dev-tools/ui/components/Toolbar';
 import useLoader from '@/dev-tools/ui/hooks/useLoader';
 import usePrompt from '@/dev-tools/ui/hooks/usePrompt';
 import useViewport from '@/dev-tools/ui/hooks/useViewport';
@@ -55,7 +56,7 @@ export interface RemoteStashChoice {
 }
 
 /** How a file arrives when the stash is applied. */
-const describeStashFile = (file: StashFile) =>
+export const describeStashFile = (file: StashFile) =>
   file.untracked
     ? 'new, untracked'
     : file.status === 'D'
@@ -71,7 +72,7 @@ const describeStashFile = (file: StashFile) =>
  * to start with (or the ones named on the command line). Enter applies the ticked ones, Esc goes
  * back to the stashes.
  */
-const StashFilesStep = ({
+export const StashFilesStep = ({
   cwd,
   stash,
   index,
@@ -161,6 +162,116 @@ const StashFilesStep = ({
   );
 };
 
+export interface RemoteStashListProps {
+  cwd: string;
+  remote: string;
+  stashes: RemoteStash[];
+  isLoading: boolean;
+  initialName?: string;
+  isInputActive: boolean;
+  /** `usePrompt`'s inline yes/no, drawn under the selected stash. */
+  question?: ReactNode;
+  /** What Enter does, in the hints. */
+  activateLabel: string;
+  onActivate: (stash: RemoteStash) => void;
+  /** The buttons over the selected stash's files and diff. */
+  actionsFor: (stash: RemoteStash) => ToolbarAction[];
+  hints: Hint[];
+  /** Told which stash the cursor is on, for keys the caller binds itself. */
+  onCurrentChange?: (stash: RemoteStash | undefined) => void;
+}
+
+/**
+ * The remote's stashes on the left; on the right the selected one's buttons, who took it and
+ * where, the files it carries and its whole diff. The pane both the apply/remove picker and the
+ * `giti stash` dashboard are built around — they differ only in what the buttons do.
+ */
+export const RemoteStashList = ({
+  cwd,
+  remote,
+  stashes,
+  isLoading,
+  initialName,
+  isInputActive,
+  question,
+  activateLabel,
+  onActivate,
+  actionsFor,
+  hints,
+  onCurrentChange,
+}: RemoteStashListProps) => {
+  const colors = useColors();
+  const [currentName, setCurrentName] = useState(initialName);
+  const current = stashes.find((stash) => stash.name === currentName);
+  //? On `current` alone: a caller's inline callback is new every render and would re-fire this
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => onCurrentChange?.(current), [current]);
+  const { data: preview } = useLoader(
+    async () =>
+      current
+        ? {
+            files: await getRemoteStashFiles(cwd, current.hash),
+            diff: await getRemoteStashDiff(cwd, current.hash),
+          }
+        : undefined,
+    [current?.hash],
+  );
+
+  const items: PickItem<RemoteStash>[] = stashes.map((stash) => ({
+    id: stash.name,
+    label: stash.name,
+    hint: `${stash.author} · ${stash.when}`,
+    value: stash,
+  }));
+
+  return (
+    <ListDetail
+      question={question}
+      detailScroll={false}
+      title={`Stashes on ${remote} (${stashes.length})`}
+      items={items}
+      initialSelectedId={initialName}
+      emptyText={isLoading ? '' : `No stashes on ${remote} yet.`}
+      detailTitle={current ? `${current.name} · ${current.branch || 'no branch'}` : 'Stash'}
+      reservedChrome={['viewHeader']}
+      activateLabel={activateLabel}
+      activateOnClick={false}
+      isInputActive={isInputActive}
+      fitToHost
+      hints={[PATCH_SCROLL_HINT, ...hints]}
+      onActivate={(item) => item.value && onActivate(item.value)}
+      onSelectionChange={(item) => setCurrentName(item?.id)}
+      renderDetail={(item) => {
+        const stash = item?.value;
+        if (!stash) return null;
+        return (
+          <Box flexDirection="column" flexGrow={1} minHeight={0}>
+            <Toolbar actions={actionsFor(stash)} />
+            <Text color={colors.muted} wrap="truncate">
+              {stash.author} · {stash.when} · taken on {stash.branch || 'no branch'} ·{' '}
+              {preview?.files.length ?? '…'} file(s)
+            </Text>
+            {preview?.files.slice(0, MAX_FILES).map((file) => (
+              <Text key={file.path} wrap="truncate">
+                <Text color={file.status === 'D' ? colors.error : colors.accent}>
+                  {file.status.padEnd(2)}
+                </Text>
+                {file.path}
+              </Text>
+            ))}
+            {(preview?.files.length ?? 0) > MAX_FILES && (
+              <Text color={colors.muted}>
+                …and {(preview?.files.length ?? 0) - MAX_FILES} more in the diff below
+              </Text>
+            )}
+            <PatchLines text={preview?.diff ?? ''} isActive={isInputActive} />
+          </Box>
+        );
+      }}
+    />
+  );
+};
+
 /**
  * The remote's stashes, each with the files it carries and its diff — what `apply` would bring in
  * or `remove` would throw away, seen before it happens. For `apply`, Enter opens the stash's files
@@ -183,24 +294,12 @@ export const RemoteStashPicker = ({
   const [captured, setCaptured] = useState(false);
   const prompt = usePrompt(setCaptured, { inlineConfirm: true });
   const [index, setIndex] = useState(initialIndex);
-  const [currentName, setCurrentName] = useState(initialName);
 
   const {
     data: stashes = [],
     isLoading,
     error,
   } = useLoader(() => getRemoteStashes(cwd, remote), [cwd, remote]);
-  const current = stashes.find((stash) => stash.name === currentName);
-  const { data: preview } = useLoader(
-    async () =>
-      current
-        ? {
-            files: await getRemoteStashFiles(cwd, current.hash),
-            diff: await getRemoteStashDiff(cwd, current.hash),
-          }
-        : undefined,
-    [current?.hash],
-  );
 
   //? The stash whose files are open (apply's second step); a typed name skips straight to it
   const [opened, setOpened] = useState<RemoteStash>();
@@ -252,14 +351,6 @@ export const RemoteStashPicker = ({
     );
   }
 
-  const items: PickItem<RemoteStash>[] = stashes.map((stash) => ({
-    id: stash.name,
-    label: stash.name,
-    hint: `${stash.author} · ${stash.when}`,
-    value: stash,
-  }));
-  const verb = mode === 'apply' ? 'Choose files…' : 'Remove';
-
   return (
     <Box flexDirection="column" height={height} paddingX={1}>
       <Box flexShrink={0}>
@@ -274,64 +365,30 @@ export const RemoteStashPicker = ({
           </Text>
         )}
       </Box>
-      <ListDetail
-        question={prompt.question}
-        detailScroll={false}
-        title={`Stashes on ${remote} (${stashes.length})`}
-        items={items}
-        initialSelectedId={initialName}
-        emptyText={isLoading ? '' : `No stashes on ${remote} — giti stash save shares one.`}
-        detailTitle={current ? `${current.name} · ${current.branch || 'no branch'}` : 'Stash'}
-        reservedChrome={['viewHeader']}
-        activateLabel={mode === 'apply' ? 'choose files' : 'remove'}
-        activateOnClick={false}
+      <RemoteStashList
+        cwd={cwd}
+        remote={remote}
+        stashes={stashes}
+        isLoading={isLoading}
+        initialName={initialName}
         isInputActive={!captured}
-        fitToHost
+        question={prompt.question}
+        activateLabel={mode === 'apply' ? 'choose files' : 'remove'}
+        onActivate={pick}
+        actionsFor={(stash) => [
+          {
+            hotkey: 'Enter',
+            label: mode === 'apply' ? 'Choose files…' : 'Remove',
+            onPress: () => pick(stash),
+            tone: mode === 'apply' ? 'primary' : 'danger',
+          },
+        ]}
         hints={[
-          PATCH_SCROLL_HINT,
           ...(mode === 'apply'
             ? [{ key: 'i', label: 'keep staged', onPress: () => setIndex((on) => !on) }]
             : []),
           { key: 'Esc/q', label: 'cancel', onPress: exit },
         ]}
-        onActivate={(item) => item.value && pick(item.value)}
-        onSelectionChange={(item) => setCurrentName(item?.id)}
-        renderDetail={(item) => {
-          const stash = item?.value;
-          if (!stash) return null;
-          return (
-            <Box flexDirection="column" flexGrow={1} minHeight={0}>
-              <Toolbar
-                actions={[
-                  {
-                    hotkey: 'Enter',
-                    label: verb,
-                    onPress: () => pick(stash),
-                    tone: mode === 'apply' ? 'primary' : 'danger',
-                  },
-                ]}
-              />
-              <Text color={colors.muted} wrap="truncate">
-                {stash.author} · {stash.when} · taken on {stash.branch || 'no branch'} ·{' '}
-                {preview?.files.length ?? '…'} file(s)
-              </Text>
-              {preview?.files.slice(0, MAX_FILES).map((file) => (
-                <Text key={file.path} wrap="truncate">
-                  <Text color={file.status === 'D' ? colors.error : colors.accent}>
-                    {file.status.padEnd(2)}
-                  </Text>
-                  {file.path}
-                </Text>
-              ))}
-              {(preview?.files.length ?? 0) > MAX_FILES && (
-                <Text color={colors.muted}>
-                  …and {(preview?.files.length ?? 0) - MAX_FILES} more in the diff below
-                </Text>
-              )}
-              <PatchLines text={preview?.diff ?? ''} isActive={!captured} />
-            </Box>
-          );
-        }}
       />
     </Box>
   );

@@ -69,11 +69,18 @@ const run = async (...[firstArg, ...args]: string[]): Promise<void> => {
         if (await gitOwnsTheRest()) return run('git', command, ...args);
         //? A giti folder means nothing to git, so an unknown sub-command is giti's to report
         const known = readdirSync(folderPath)
-          .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
+          .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts') && !file.startsWith('_'))
           .map((file) => file.slice(0, -3));
         return notFound(`No ${formatArg(`${command}/${nextArg}`)} — ${command}/ has ${known.join(', ')}`);
       }
       if (nextArg !== undefined && (await gitOwnsTheRest())) return run('git', command, ...args);
+      //? A folder with a screen of its own (`stash/_index.ts`, its dashboard) opens that instead
+      //? of the picker; `_` keeps it out of the command list and the git aliases
+      const folderIndex = join(folderPath, '_index.ts');
+      if (nextArg === undefined && existsSync(folderIndex)) {
+        const { default: runIndex } = (await import(folderIndex)) as { default: CommandRun };
+        return runIndex(args);
+      }
       const subCommand = await pickCommand([command]);
       if (!subCommand) return;
       return run(subCommand, ...args);

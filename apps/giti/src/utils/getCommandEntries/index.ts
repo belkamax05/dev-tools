@@ -20,6 +20,8 @@ const getCommandEntries = async (
 
   const names = files
     .filter((file) => !file.endsWith('.test.ts'))
+    //? `_index.ts` is what a bare folder name opens (`giti stash`'s dashboard), not a command
+    .filter((file) => !file.slice(file.lastIndexOf('/') + 1).startsWith('_'))
     .map((file) => file.slice(0, -'.ts'.length))
     .sort();
 

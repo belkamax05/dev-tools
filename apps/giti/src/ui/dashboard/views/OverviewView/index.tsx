@@ -28,6 +28,7 @@ export interface OverviewViewProps extends GitViewProps {
   onOpenLog: () => void;
   onOpenStash: () => void;
   onOpenRemotes: () => void;
+  onOpenRefs: () => void;
   /** The branch picker just switched branches: say so under the branch name, for a moment. */
   switched?: { text: string; id: number };
 }
@@ -127,6 +128,7 @@ export const OverviewView = ({
   onOpenLog,
   onOpenStash,
   onOpenRemotes,
+  onOpenRefs,
   switched,
   ...viewProps
 }: OverviewViewProps) => {
@@ -160,6 +162,7 @@ export const OverviewView = ({
       else if (input === 'l') onOpenLog();
       else if (input === 'S') onOpenStash();
       else if (input === 'R') onOpenRemotes();
+      else if (input === 'F') onOpenRefs();
       else if (input === 'H' && details) copyHead();
       else if (input === 'f') sync.fetch();
       else if (input === 'p') sync.pull();
@@ -199,6 +202,8 @@ export const OverviewView = ({
             <ActionButton hotkey="S" label="Stashes" onPress={onOpenStash} />
             <Text> </Text>
             <ActionButton hotkey="R" label="Remotes" onPress={onOpenRemotes} />
+            <Text> </Text>
+            <ActionButton hotkey="F" label="Refs" onPress={onOpenRefs} />
           </Box>
           {details && <Details snapshot={snapshot} headRef={headRef} onCopy={copyHead} />}
         </>

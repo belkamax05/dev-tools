@@ -53,6 +53,11 @@ semicolons.
 commands always win. Only a name inside one of giti's folders (`giti remotes foo`) is giti's to
 report, with the folder's commands listed.
 
+A bare folder name (`giti remotes`) opens the command picker inside it — unless the folder has an
+`_index.ts`, which runs instead (`giti stash` → `stash/_index.ts`, the remote stash dashboard).
+Files starting with `_` are not commands: `getCommandEntries` skips them, so they get no picker
+row and no git alias.
+
 Running bare `giti` opens the command picker instead of failing. The picker hands back a name in
 exactly the form the dispatcher below it resolves, so there is still only one dispatch path;
 backing out with Ctrl+C returns nothing and the CLI exits quietly.
@@ -373,6 +378,13 @@ the patch it is meant to enable restoring from.
 ## Remote stashes (`stash/*`)
 
 `giti stash list | save | apply | remove` share work in progress with the team through the remote.
+Bare `giti stash` is their dashboard (`renderInkStashDashboard`, via `stash/_index.ts`): the
+stashes with each one's files and diff, Apply (Enter → the file checklist) and Remove (`x`, asked
+in place) on the selected one, Save new (`s`, `stash save`'s screen over the list, Esc back) and
+Refresh (`r`). Actions run in place and report in the status line; only Esc/q leaves. Off a
+terminal it prints `stash list`. The list pane (`RemoteStashList`) and the file step
+(`StashFilesStep`) are the ones `renderInkRemoteStashes` uses, so the picker and the dashboard
+cannot drift apart.
 They are never local stashes — those stay `git stash`'s. Bodies live in `src/core/remoteStash`;
 the commands parse with `parseStashArgs`
 (`[<name>] [--remote=] [--yes] [--force] [--unstaged] [-- <paths>…]`, strict: nothing is

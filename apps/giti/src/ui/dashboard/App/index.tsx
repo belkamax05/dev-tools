@@ -32,12 +32,13 @@ import BranchesView from '../views/BranchesView';
 import CommandsView from '../views/CommandsView';
 import LogView from '../views/LogView';
 import OverviewView from '../views/OverviewView';
+import RefsView from '../views/RefsView';
 import RemotesView from '../views/RemotesView';
 import SettingsView, { DEFAULT_REFRESH_SECONDS } from '../views/SettingsView';
 import StashView from '../views/StashView';
 
 export type TabId = 'overview' | 'settings';
-type OverviewPanel = 'branches' | 'log' | 'stash' | 'remotes';
+type OverviewPanel = 'branches' | 'log' | 'stash' | 'remotes' | 'refs';
 
 /**
  * The tab strip.
@@ -444,6 +445,8 @@ export const App = ({
             <LogView {...viewProps} />
           ) : overviewPanel === 'stash' ? (
             <StashView {...viewProps} />
+          ) : overviewPanel === 'refs' ? (
+            <RefsView {...viewProps} />
           ) : overviewPanel === 'remotes' ? (
             <RemotesView {...viewProps} sync={sync} snapshot={snapshot} onRunCommand={runCommand} />
           ) : activeTab === 'overview' ? (
@@ -458,6 +461,7 @@ export const App = ({
               onOpenLog={() => setOverviewPanel('log')}
               onOpenStash={() => setOverviewPanel('stash')}
               onOpenRemotes={() => setOverviewPanel('remotes')}
+              onOpenRefs={() => setOverviewPanel('refs')}
               switched={switched}
             />
           ) : null}

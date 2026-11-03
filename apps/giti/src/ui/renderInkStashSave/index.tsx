@@ -92,8 +92,15 @@ export const StashSaveForm = ({
   initialForce = false,
   initialPaths,
   onSave,
-}: RenderInkStashSaveOptions & { onSave: (choice: StashSaveChoice) => void }) => {
+  onCancel,
+}: RenderInkStashSaveOptions & {
+  onSave: (choice: StashSaveChoice) => void;
+  /** Hosted in another screen (the `giti stash` dashboard): Esc hands back to it, and a save does
+   *  not end the app — the host runs it. Standalone, both exit. */
+  onCancel?: () => void;
+}) => {
   const { exit } = useApp();
+  const cancel = onCancel ?? exit;
   const colors = useColors();
   const viewport = useViewport();
   const { app } = useTuiTheme().sizes;
@@ -137,13 +144,13 @@ export const StashSaveForm = ({
       return setNotice(invalid);
     }
     onSave({ name: trimmed, force: flags.has('--force'), paths: picked.map((c) => c.path) });
-    exit();
+    if (!onCancel) exit();
   };
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') return exit();
-    if (key.escape) return exit();
-    if (input === 'q' && !key.ctrl && !key.meta && section !== 'name') return exit();
+    if (key.escape) return cancel();
+    if (input === 'q' && !key.ctrl && !key.meta && section !== 'name') return cancel();
     if (key.tab) {
       const sections: Section[] = ['files', 'name', 'flags'];
       setSection(sections[(sections.indexOf(section) + (key.shift ? 2 : 1)) % 3] ?? 'files');
@@ -167,7 +174,11 @@ export const StashSaveForm = ({
               onPress: () =>
                 setSection(section === 'files' ? 'name' : section === 'name' ? 'flags' : 'files'),
             },
-            { hotkey: section === 'name' ? 'Esc' : 'Esc/q', label: 'Cancel', onPress: exit },
+            {
+              hotkey: section === 'name' ? 'Esc' : 'Esc/q',
+              label: onCancel ? 'Back to stashes' : 'Cancel',
+              onPress: cancel,
+            },
             { hotkey: 'Enter', label: `Save to ${remote}`, onPress: () => void submit() },
           ]}
         />
