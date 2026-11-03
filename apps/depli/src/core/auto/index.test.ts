@@ -4,6 +4,9 @@ import type { ChainStep } from '../chain';
 import type { StepState } from '../plugin';
 import {
   ancestorsOf,
+  type AutoTrigger,
+  autoKey,
+  disarmWithTail,
   canArm,
   decideAuto,
   estimateAutos,
@@ -242,4 +245,24 @@ test('armed triggers fire in the chain’s order, not the order they were armed 
     'deploy',
     'propagate',
   ]);
+});
+
+test('disarming a step disarms the ones armed after it on its branch and env, nothing else', () => {
+  const steps = chain({}).map((item) => item.step);
+  const auto = (stepId: string, branch = 'main', env = 'qa') => ({
+    stepId,
+    label: stepId,
+    branch,
+    env,
+    armedAt: 0,
+  });
+  const autos = [auto('deploy'), auto('propagate'), auto('propagate', 'other'), auto('build', 'main', 'ci')];
+  const { kept, removed } = disarmWithTail(autos, autoKey(autos[0] as AutoTrigger), () => steps);
+  expect(removed.map((item) => `${item.stepId}@${item.branch}`)).toEqual(['deploy@main', 'propagate@main']);
+  expect(kept.map((item) => `${item.stepId}@${item.branch}/${item.env}`)).toEqual([
+    'propagate@other/qa',
+    'build@main/ci',
+  ]);
+  //? The last of a tail goes alone
+  expect(disarmWithTail(autos, autoKey(autos[1] as AutoTrigger), () => steps).removed).toHaveLength(1);
 });

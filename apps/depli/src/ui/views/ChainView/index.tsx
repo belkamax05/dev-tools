@@ -532,13 +532,22 @@ export const ChainView = ({
    * Arm a one-shot auto trigger for the branch and env shown — confirmed like a trigger: by
    * typing the env's name when it is protected, that typed name being what it is later sent with.
    */
+  /** Remove an armed trigger — and the ones armed after it, which wait on its result. */
+  const disarm = (key: string) => {
+    const [removed, ...after] = data.disarm(key);
+    if (!removed) return;
+    notify(
+      after.length
+        ? `Auto triggers removed: ${removed.label}, and after it ${after.map((auto) => auto.label).join(', ')} — they wait on its result`
+        : `Auto trigger for ${removed.label} removed`,
+      'info',
+    );
+  };
+
   const startAuto = (entry: ChainStep | undefined) => {
     if (!entry) return;
     const armed = autoOf(entry);
-    if (armed) {
-      data.disarm(autoKey(armed));
-      return notify(`Auto trigger for ${fill(entry.step.label)} removed`, 'info');
-    }
+    if (armed) return disarm(autoKey(armed));
     if (!armable(entry))
       return notify(
         triggersEnabled
@@ -1353,10 +1362,7 @@ export const ChainView = ({
                     <ActionButton
                       label="remove"
                       color={colors.error}
-                      onPress={() => {
-                        data.disarm(id);
-                        notify(`Auto trigger for ${auto.label} removed`, 'info');
-                      }}
+                      onPress={() => disarm(id)}
                     />
                   </Box>
                 );
