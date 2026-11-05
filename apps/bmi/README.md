@@ -9,6 +9,7 @@ bmi                              # dashboard
 bmi bookmarks|settings          # open it on a tab
 bmi list [query] [--tag=name] [--json]
 bmi open <query>                 # the best match, in the browser
+bmi <query> [--tag=name]         # not a command or tab: one match opens, several ask, none errors
 bmi add <url> [--title=..] [--description=..] [--tags=a,b]
 bmi remove <url>
 bmi tags [--json]                # the categories as a tree, then the other tags, with counts

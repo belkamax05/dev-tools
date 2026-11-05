@@ -18,6 +18,7 @@ import {
   coerceBookmark,
   coerceTags,
   displayTitle,
+  type Entry,
   entriesTagged,
   findBookmark,
   hasBookmark,
@@ -41,6 +42,8 @@ usage:
                                   categories, URL, description); #tag keeps only pages with
                                   that tag; --tag keeps the pages tagged with it or below it
   bmi open <query>                open the best match in the browser
+  bmi <query> [--tag=name]        anything else is a search: one match is opened, several are
+                                  offered to pick from, none is an error
   bmi add <url> [--title=..] [--description=..] [--tags=a,b]
                                   add to your own list (or add to the page there)
   bmi remove <url>                remove from your own list
@@ -76,6 +79,60 @@ const loadEverything = async () => {
 const scopeOf = (library: Library, flags: string[]) => {
   const tag = normalizeTag(flagValue(flags, 'tag') ?? flagValue(flags, 'group'));
   return tag ? entriesTagged(library, tag) : library.entries;
+};
+
+/** One line per page: its categories, title, URL and tags, as `bmi list` prints them. */
+const entryLine = (entry: Entry, library: Library) => {
+  const placed = placementOf(entry, library);
+  const where = placed.length ? `[${placed.join(', ')}] ` : '';
+  const tags = entry.tags.length ? `  #${entry.tags.join(' #')}` : '';
+  return `${where}${displayTitle(entry)}  ${entry.url}${tags}`;
+};
+
+/**
+ * `bmi <query>`, for a first word that is no command or tab: the pages the query finds. One is
+ * printed and opened; several are offered in a prompt (listed, without a terminal to ask in);
+ * none is an error, printed after the usage so it is the last thing on screen.
+ */
+const openSearch = async (query: string, flags: string[]) => {
+  const { library } = await loadEverything();
+  const hits = search(scopeOf(library, flags), library.tags, query);
+  const [best] = hits;
+  if (!best) {
+    process.stderr.write(HELP);
+    console.error(`\nUnknown command, and no bookmark matches "${query}".`);
+    process.exitCode = 1;
+    return;
+  }
+
+  let { entry } = best;
+  if (hits.length > 1) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      for (const hit of hits) console.log(entryLine(hit.entry, library));
+      console.error(`\n${hits.length} bookmarks match "${query}" — narrow it down to open one.`);
+      process.exitCode = 1;
+      return;
+    }
+    //? Loaded only here, so every other scripted command starts without it
+    const { isCancel, select } = await import('@clack/prompts');
+    const choice = await select({
+      message: `${hits.length} bookmarks match "${query}" — open which?`,
+      options: hits.map((hit) => ({
+        value: hit.entry,
+        label: displayTitle(hit.entry),
+        hint: hit.entry.url,
+      })),
+    });
+    if (isCancel(choice)) {
+      console.log('Cancelled.');
+      return;
+    }
+    entry = choice;
+  }
+
+  console.log(entryLine(entry, library));
+  if (entry.description) console.log(`  ${entry.description}`);
+  openUrl(entry.url);
 };
 
 /** Run `work` over `items`, `limit` at a time. */
@@ -122,10 +179,7 @@ export const run = async (...argv: string[]) => {
     }
     const width = process.stdout.isTTY ? process.stdout.columns : 0;
     for (const { entry } of hits) {
-      const placed = placementOf(entry, library);
-      const where = placed.length ? `[${placed.join(', ')}] ` : '';
-      const tags = entry.tags.length ? `  #${entry.tags.join(' #')}` : '';
-      const line = `${where}${displayTitle(entry)}  ${entry.url}${tags}`;
+      const line = entryLine(entry, library);
       console.log(width ? line.slice(0, width) : line);
     }
     if (!hits.length) process.exitCode = 1;
@@ -267,9 +321,7 @@ export const run = async (...argv: string[]) => {
   }
 
   if (first !== undefined && !TAB_IDS.includes(first as TabId)) {
-    console.error(`Unknown command "${first}".\n`);
-    process.stderr.write(HELP);
-    process.exitCode = 1;
+    await openSearch([first, ...rest].join(' '), flagList);
     return;
   }
 
