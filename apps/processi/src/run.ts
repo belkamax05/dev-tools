@@ -1,3 +1,5 @@
+import { flagValue } from '@/dev-tools/utils/cli/parseFlags';
+
 import { TAB_IDS, type TabId } from './config/settings';
 import {
   formatRss,
@@ -23,9 +25,6 @@ usage:
                                   SIGTERM, then SIGKILL after 2s; --force sends SIGKILL at
                                   once, --tree stops each one's child processes too
 `;
-
-const flagValue = (flags: string[], name: string) =>
-  flags.find((flag) => flag.startsWith(`--${name}=`))?.slice(name.length + 3);
 
 /**
  * `processi [tab | list | kill] [flags]`.

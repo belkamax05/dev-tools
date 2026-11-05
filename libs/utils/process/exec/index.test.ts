@@ -21,6 +21,12 @@ test('reports a binary that is not on PATH as exit code 127 instead of throwing'
   expect(result.exitCode).toBe(127);
 });
 
+test('kills a command that outlives its timeout, keeping what it printed', async () => {
+  const result = await exec(['sh', '-c', 'echo started; sleep 5'], { timeout: 200 });
+
+  expect(result).toEqual({ stdout: 'started', stderr: '', exitCode: 143 });
+});
+
 test('runs the command in the directory it was given', async () => {
   const result = await exec(['pwd'], { cwd: '/' });
 

@@ -1,3 +1,5 @@
+import { escapeXml } from '@/dev-tools/utils/format/escapeHtml';
+
 import type { Env, PlanFix } from '../../core/plugin';
 import { type JenkinsOptions, jenkinsGet, jobPath } from './api';
 
@@ -94,14 +96,6 @@ export const jenkinsErrorText = (body: string): string | undefined => {
     ) ?? lines.find((line) => /\b\w+(Exception|Error):\s*\S/.test(line));
   return reason?.replace(/^[\w.$]+(Exception|Error):\s*/, '').slice(0, 300);
 };
-
-const escapeXml = (text: string) =>
-  text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 
 /** Add a choice in either Jenkins XML list format, preserving the rest of the job. */
 export const addChoice = (xml: string, param: string, value: string): string | undefined => {

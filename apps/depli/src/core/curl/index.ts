@@ -1,6 +1,6 @@
-import type { TriggerPlan } from '../plugin';
+import { singleQuote as quote } from '@/dev-tools/utils/process/shellQuote';
 
-const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
+import type { TriggerPlan } from '../plugin';
 
 /**
  * A plan as a curl command to run by hand — auth as variable names (`shellAuth`), never values,

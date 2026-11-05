@@ -18,7 +18,6 @@ import {
   removeCommand,
   runScriptCommand,
   setVersionCommand,
-  shellQuote,
 } from './index';
 
 let root: string;
@@ -169,11 +168,6 @@ describe('commands', () => {
       'install',
       '--immutable',
     ]);
-  });
-
-  test('shellQuote leaves plain words alone and quotes the rest', () => {
-    expect(shellQuote(['bun', 'add', 'react@^19.3.0'])).toBe('bun add react@^19.3.0');
-    expect(shellQuote(['cd', "/tmp/it's here"])).toBe(`cd '/tmp/it'\\''s here'`);
   });
 });
 

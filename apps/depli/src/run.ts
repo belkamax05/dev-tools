@@ -1,3 +1,5 @@
+import { flagValue } from '@/dev-tools/utils/cli/parseFlags';
+
 import { loadProjectConfig } from './config/project';
 import { TAB_IDS, type TabId } from './config/settings';
 import { pickRecentBranches } from './core/branch';
@@ -42,9 +44,6 @@ lists (branches.recent) — never the checkout's;
 the env to the saved one, else the config's defaultEnv. Secrets come from the environment —
 run it under \`envi use\` (or \`dfs deploy\`) to have them there.
 `;
-
-const flagValue = (argv: string[], name: string) =>
-  argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
 
 const printChain = (chain: ChainStep[]) => {
   //? Level number first; steps sharing one run in parallel and say so

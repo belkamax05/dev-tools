@@ -1,6 +1,6 @@
 {
   "name": "convi",
-  "description": "File format converter — markdown to PDF, more to come",
+  "description": "File format converter — markdown to PDF, terminal output to PNG, and command screenshots",
   "module": "src/run.ts",
   "type": "module",
   "private": true,

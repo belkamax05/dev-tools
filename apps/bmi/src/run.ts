@@ -3,6 +3,7 @@ import {
   probeGraphicsSupport,
   setPreferredTechnique,
 } from '@/dev-tools/terminal-canvas';
+import { flagValue } from '@/dev-tools/utils/cli/parseFlags';
 import openUrl from '@/dev-tools/utils/system/openUrl';
 
 import {
@@ -59,9 +60,6 @@ own in the config file. Both are { tags: { name: { description?, order? } }, boo
 a bookmark is a URL or { url, title?, description?, tags? }, and a tag declared under "tags" is
 a category. Tags nest with "/" — "repositories/gitlab" is under "repositories".
 `;
-
-const flagValue = (flags: string[], name: string) =>
-  flags.find((flag) => flag.startsWith(`--${name}=`))?.slice(name.length + 3);
 
 const loadEverything = async () => {
   const [config, workspace] = await Promise.all([configStore.load(), loadWorkspaceList()]);

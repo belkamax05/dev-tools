@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import exec from '@/dev-tools/utils/process/exec';
+import { singleQuote as quote } from '@/dev-tools/utils/process/shellQuote';
 
 import { expandHome } from '../../config/project';
 import type {
@@ -252,8 +253,6 @@ export const sshSetup = async ({ cwd, options, env }: PluginContext<GithubOption
   setup.keys = [...keys.values()];
   return setup;
 };
-
-const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /**
  * The ssh command for git: never prompting, with only the picked key when there is one. ssh

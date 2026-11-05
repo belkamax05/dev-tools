@@ -468,8 +468,5 @@ export const installCommand = (
   }
 };
 
-/** Quote a command for display, and for `sh -c` when several run in a row. */
-export const shellQuote = (argv: string[]): string =>
-  argv
-    .map((arg) => (/^[\w@%+=:,./^~-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`))
-    .join(' ');
+//? Quote a command for display, and for `sh -c` when several run in a row
+export { shellQuote } from '@/dev-tools/utils/process/shellQuote';

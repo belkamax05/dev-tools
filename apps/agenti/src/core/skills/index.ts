@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
+import { stripAnsi } from '@/dev-tools/ui/terminal/ansi/parse';
 import exec from '@/dev-tools/utils/process/exec';
 
 import { AGENTS_DIR } from '../repo';
@@ -38,10 +39,6 @@ export interface SkillActionResult {
 }
 
 const LOCK_FILE = 'skills-lock.json';
-
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes is the point
-const ANSI = /\u001B\[[0-9;?]*[A-Za-z]/g;
-const stripAnsi = (text: string) => text.replace(ANSI, '');
 
 /**
  * Run the `skills` CLI in `root`.

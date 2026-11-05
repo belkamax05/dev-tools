@@ -1,9 +1,11 @@
+import escapeHtml from '@/dev-tools/utils/format/escapeHtml';
+
 /**
  * Converts a raw git diff string into a self-contained HTML page using diff2html (via CDN).
  * The resulting HTML can be written to a file and opened in a browser.
  */
 const getDiffHtml = (diffString: string, title: string): string => {
-  const safeTitle = title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeTitle = escapeHtml(title);
 
   return `<!DOCTYPE html>
 <html lang="en">

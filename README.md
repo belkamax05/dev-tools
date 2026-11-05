@@ -16,7 +16,7 @@ built on them, whose executables live in `bin/` — one shim per app, calling it
 | `pkgi` | the current folder's npm packages — updates, versions, notes, compare ([README](apps/pkgi/README.md)) |
 | `bmi` | bookmarks, raindrop-style — groups, tags, fuzzy search, page previews ([README](apps/bmi/README.md)) |
 | `envi` | environment variables — the shell's, `.env` files and your own, layered like dotenv; shell hook and library ([README](apps/envi/README.md)) |
-| `convi` | file format converter — markdown to PDF, more to come ([README](apps/convi/README.md)) |
+| `convi` | file format converter — markdown to PDF, terminal output to PNG, and `convi shot` command screenshots ([README](apps/convi/README.md)) |
 | `depli` | deployments — Jenkins, GitHub or your own, each target a replaceable plugin ([README](apps/depli/README.md)) |
 | `proji` | a project's commands — package.json scripts plus aliases, in a dashboard; also a library ([README](apps/proji/README.md)) |
 
@@ -192,6 +192,9 @@ one app:
   falling back to `$EDITOR` then `vi`.
 - `utils/system/{revealPath,openUrl}`: open in the file manager or browser
   (`remoteWebUrl` turns a git remote into its web URL).
+- `utils/browser/screenshotHtml`: render a page's `<body>` to a PNG with what is installed: an
+  installed Chromium's own CLI, or the project's Playwright — never downloaded. `findBrowsers` and
+  `findPlaywright` say what is there.
 
 ### Theme
 

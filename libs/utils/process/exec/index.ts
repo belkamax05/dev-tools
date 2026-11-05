@@ -10,6 +10,11 @@ interface ExecOptions {
   cwd?: string;
   /** The child's whole environment — this process's when unset. */
   env?: Record<string, string | undefined>;
+  /**
+   * Milliseconds before the child is killed (SIGTERM). A killed child comes back as exit code
+   * `143` — the shell's 128 + signal — with whatever it had printed by then.
+   */
+  timeout?: number;
 }
 
 /**
@@ -21,13 +26,14 @@ interface ExecOptions {
  * is missing" is an answer callers branch on, not a failure of this function.
  */
 const exec = async (command: string[], options: ExecOptions = {}): Promise<ExecResult> => {
-  const { stream = false, cwd, env } = options;
+  const { stream = false, cwd, env, timeout } = options;
 
   try {
     if (stream) {
       const child = Bun.spawn(command, {
         cwd,
         env,
+        timeout,
         stdin: 'ignore',
         stdout: 'inherit',
         stderr: 'inherit',
@@ -38,6 +44,7 @@ const exec = async (command: string[], options: ExecOptions = {}): Promise<ExecR
     const child = Bun.spawn(command, {
       cwd,
       env,
+      timeout,
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
