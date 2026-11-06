@@ -6,6 +6,7 @@ import screenshotHtml, {
 } from '@/dev-tools/utils/browser/screenshotHtml';
 import parseAnsi from '@/dev-tools/ui/terminal/ansi/parse';
 
+import createKittyGraphics from '../kittyGraphics';
 import terminalHtml, { TERMINAL_PALETTE, type TerminalHtmlOptions } from '../terminalHtml';
 
 export interface TerminalRenderOptions extends TerminalHtmlOptions {
@@ -38,9 +39,12 @@ export const assertRenderer = (options: TerminalRenderOptions) => {
   pickRenderer(options.renderer ?? 'auto', detectRenderers());
 };
 
-/** Captured terminal output as a terminal-window page. */
+/** Captured terminal output as a terminal-window page; kitty graphics in it are drawn as images. */
 export const terminalPage = (ansi: string, options: TerminalRenderOptions = {}) =>
-  terminalHtml(parseAnsi(ansi, { palette: TERMINAL_PALETTE }), options);
+  terminalHtml(
+    parseAnsi(ansi, { palette: TERMINAL_PALETTE, onApc: createKittyGraphics() }),
+    options,
+  );
 
 /** Captured terminal output as a terminal-window PNG. */
 export const renderTerminalPng = (

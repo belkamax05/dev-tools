@@ -49,6 +49,32 @@ describe('parseAnsi', () => {
   });
 });
 
+describe('string sequences', () => {
+  const kitty = `${ESC}_Ga=T,f=100;iVBORw0KGgo=${ST}`;
+
+  test('APC, DCS and friends never show up as text', () => {
+    expect(text(`a${kitty}b${ESC}Pq#0;2;0;0;0~${ST}c`)).toEqual(['abc']);
+    expect(stripAnsi(`a${kitty}b`)).toBe('ab');
+  });
+
+  test('onApc gets the APC body; an image it returns becomes its own span at the cursor', () => {
+    const bodies: string[] = [];
+    const image = { src: 'data:x', width: 4, height: 2 };
+    const [line] = parseAnsi(`${ESC}[31mab${kitty}cd`, {
+      onApc: (body) => {
+        bodies.push(body);
+        return image;
+      },
+    });
+    expect(bodies).toEqual(['Ga=T,f=100;iVBORw0KGgo=']);
+    expect(line?.map((s) => [s.text, s.image])).toEqual([
+      ['ab', undefined],
+      ['', image],
+      ['cd', undefined],
+    ]);
+  });
+});
+
 describe('stripAnsi', () => {
   test('removes escapes but keeps the text and its line breaks', () => {
     expect(

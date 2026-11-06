@@ -34,6 +34,20 @@ describe('captureCommand', () => {
     expect(output).toBe('b\nc');
   });
 
+  test('a timeout stops a whole shell pipeline and keeps what it printed', async () => {
+    const { output, timedOut, ms } = await captureCommand(['echo early; sleep 5 | cat'], {
+      timeout: 0.3,
+    });
+    expect(output).toBe('early');
+    expect(timedOut).toBe(true);
+    expect(ms).toBeLessThan(2000);
+  });
+
+  test('a command done before its timeout is not marked as timed out', async () => {
+    const { output, exitCode, timedOut } = await captureCommand(['echo', 'quick'], { timeout: 5 });
+    expect([output, exitCode, timedOut]).toEqual(['quick', 0, false]);
+  });
+
   test('a command that is not there is captured as the shell reports it', async () => {
     const { output, exitCode } = await captureCommand(['definitely-not-a-command-9f3e', '--x']);
     expect(output).toContain('not found');

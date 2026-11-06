@@ -25,6 +25,17 @@ test('blank lines at either end are dropped; no prompt or title when not given',
   expect(html).not.toContain('class="t"');
 });
 
+test('an image is an <img>: in its asked-for cells, or at its own size, never wider than the terminal', () => {
+  const image = { src: 'data:image/png;base64,AA==', width: 300, height: 100 };
+  const line = (extra = {}) => [{ text: '', style: {}, image: { ...image, ...extra } }];
+  expect(preOf(terminalHtml([line({ cols: 10, rows: 3 })], { columns: 80 }))).toBe(
+    '<img src="data:image/png;base64,AA==" style="width:10ch;height:57px;max-width:80ch;vertical-align:top">',
+  );
+  expect(preOf(terminalHtml([line()]))).toContain(
+    'style="width:300px;height:auto;aspect-ratio:300/100;max-width:120ch;vertical-align:top"',
+  );
+});
+
 test('inverse swaps colours, falling back to the terminal defaults', () => {
   expect(preOf(terminalHtml(parse(`${ESC}[7mx`)))).toBe(
     '<span style="color:#1e1e2e;background:#cdd6f4">x</span>',

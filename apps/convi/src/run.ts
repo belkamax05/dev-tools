@@ -6,7 +6,7 @@ import { parseFlags, parseLeadingFlags } from '@/dev-tools/utils/cli/parseFlags'
 
 import converters from './converters';
 import type { Converter } from './converters/types';
-import captureCommand, { commandLine, slugOf } from './core/captureCommand';
+import captureCommand, { commandLine, slugOf, TERMS, type Term } from './core/captureCommand';
 import { replaceExtension, withExtension } from './core/paths';
 import { assertRenderer, renderOptionsFrom, renderTerminalPng } from './core/renderTerminal';
 import { resolveConverter } from './core/resolve';
@@ -23,7 +23,9 @@ const SHOT_FLAGS = `shot / ansi-to-png flags:
   --scale=<n>            pixels per CSS pixel, default 2
   --renderer=<name>      auto (default), chrome or playwright
   --columns=<n>          shot only; the terminal width the command is told, default 120
-  --keep-ansi            shot only; also keep the captured output next to the PNG, as .ansi`;
+  --timeout=<seconds>    shot only; stop the command after this long and draw what it printed
+  --term=<name>          shot only; xterm (default) or kitty - TERM=xterm-kitty, for tools that
+                         print kitty graphics; those images are drawn in the PNG either way  --keep-ansi            shot only; also keep the captured output next to the PNG, as .ansi`;
 
 const help = () => `convi — file format converter, and terminal screenshots
 
@@ -116,11 +118,19 @@ const runShot = async (argv: string[]) => {
   const cwd = process.cwd();
   const line = commandLine(command);
   const columns = flags.columns === undefined ? undefined : Number(flags.columns);
+  const timeout = flags.timeout === undefined ? undefined : Number(flags.timeout);
+  const term = flags.term as Term | undefined;
   let options: ReturnType<typeof renderOptionsFrom>;
   let output: string;
   try {
     options = renderOptionsFrom(flags);
     if (columns !== undefined && !(columns >= 20)) throw new Error('--columns must be 20 or more');
+    if (timeout !== undefined && !(timeout > 0)) {
+      throw new Error(`--timeout must be a number of seconds above 0 — not "${flags.timeout}"`);
+    }
+    if (term !== undefined && !Object.hasOwn(TERMS, term)) {
+      throw new Error(`--term must be ${Object.keys(TERMS).join(' or ')} — not "${term}"`);
+    }
     output = resolve(cwd, withExtension(flags.output ?? slugOf(line), '.png'));
     assertOutputDir(output);
     assertRenderer(options);
@@ -133,7 +143,7 @@ const runShot = async (argv: string[]) => {
   const s = p.spinner();
   s.start(`Running ${line}`);
   try {
-    const captured = await captureCommand(command, { cwd, columns });
+    const captured = await captureCommand(command, { cwd, columns, timeout, term });
     if (flags['keep-ansi'] === 'true')
       await Bun.write(replaceExtension(output, '.ansi'), captured.output);
     s.message(`Rendering ${basename(output)}`);
@@ -142,12 +152,14 @@ const runShot = async (argv: string[]) => {
       title: options.title ?? `${label} — ${line}`,
       prompt: options.prompt ?? line,
       promptLabel: label,
+      columns,
     });
     const scale = options.scale ?? 2;
     const via = result.browser ? `${result.renderer}: ${result.browser.name}` : result.renderer;
-    s.stop(
-      `${output}  ${result.width * scale}×${result.height * scale}px (${via}) — command exited ${captured.exitCode} in ${seconds(captured.ms)}`,
-    );
+    const ended = captured.timedOut
+      ? `command stopped after the ${timeout}s timeout`
+      : `command exited ${captured.exitCode} in ${seconds(captured.ms)}`;
+    s.stop(`${output}  ${result.width * scale}×${result.height * scale}px (${via}) — ${ended}`);
   } catch (error) {
     s.error('shot failed');
     fail(error);

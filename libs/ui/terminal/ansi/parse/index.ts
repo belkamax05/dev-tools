@@ -13,9 +13,23 @@ export interface Style {
   inverse?: boolean;
 }
 
+/** A picture a program put on screen (kitty graphics, say), at the cell where it was drawn. */
+export interface InlineImage {
+  /** Where it loads from, usually a `data:` URL. */
+  src: string;
+  /** Its own size in pixels. */
+  width: number;
+  height: number;
+  /** The cells it was asked to be scaled into, when it was. */
+  cols?: number;
+  rows?: number;
+}
+
 export interface Span {
   text: string;
   style: Style;
+  /** Set on a span that is a picture, not text; its `text` is then empty. */
+  image?: InlineImage;
 }
 
 /** One screen line, as runs of equally styled text. */
@@ -85,6 +99,7 @@ export const applySgr = (style: Style, params: number[], palette: AnsiPalette = 
 interface Cell {
   char: string;
   style: Style;
+  image?: InlineImage;
 }
 
 const sameStyle = (a: Style, b: Style) => {
@@ -95,17 +110,20 @@ const sameStyle = (a: Style, b: Style) => {
 
 const toSpans = (cells: Cell[]): Line => {
   const spans: Line = [];
-  for (const { char, style } of cells) {
+  for (const { char, style, image } of cells) {
     const last = spans[spans.length - 1];
-    if (last && sameStyle(last.style, style)) last.text += char;
+    if (image) spans.push({ text: '', style, image });
+    else if (last && !last.image && sameStyle(last.style, style)) last.text += char;
     else spans.push({ text: char, style });
   }
   return spans;
 };
 
 //? A CSI sequence (its parameters and final byte captured), an OSC ended by BEL or ST (or left
-//? open), or any other two-byte escape
-const ESCAPE = String.raw`${ESC}\[([0-9;?]*)([@-~])|${ESC}\][^\x07${ESC}]*(?:\x07|${ESC}\\)?|${ESC}[@-Z\\-_]`;
+//? open), a string sequence - APC `ESC _`, DCS `ESC P`, PM `ESC ^`, SOS `ESC X` - (its kind and
+//? body captured, so a kitty image's base64 never lands on screen as text), or any other
+//? two-byte escape
+const ESCAPE = String.raw`${ESC}\[([0-9;?]*)([@-~])|${ESC}\][^\x07${ESC}]*(?:\x07|${ESC}\\)?|${ESC}([_P^X])([^\x07${ESC}]*)(?:\x07|${ESC}\\)?|${ESC}[@-Z\\-_]`;
 const ESCAPES = new RegExp(ESCAPE, 'g');
 //? …or one of the controls a line is rewritten by
 const TOKENS = new RegExp(String.raw`${ESCAPE}|\r\n|[\r\n\t\b]`, 'g');
@@ -116,6 +134,12 @@ export const stripAnsi = (text: string) => text.replace(ESCAPES, '');
 export interface ParseAnsiOptions {
   /** What the 16 base colours (and so 256-colour indexes 0–15) are drawn as; xterm's by default. */
   palette?: AnsiPalette;
+  /**
+   * Each APC string's body (`ESC _ <body> ESC \`), e.g. kitty graphics' `G…`. An image it
+   * returns is placed at the cursor; without the hook, or when it returns nothing, the string is
+   * dropped like every other escape.
+   */
+  onApc?: (body: string) => InlineImage | undefined;
 }
 
 /**
@@ -125,7 +149,10 @@ export interface ParseAnsiOptions {
  * of one endless line. Colours and attributes (16, 256 and true colour) carry across lines, as
  * they do in a terminal. Other escapes (cursor hiding, titles, links) are dropped.
  */
-export const parseAnsi = (input: string, { palette = XTERM_PALETTE }: ParseAnsiOptions = {}) => {
+export const parseAnsi = (
+  input: string,
+  { palette = XTERM_PALETTE, onApc }: ParseAnsiOptions = {},
+) => {
   const lines: Line[] = [];
   let cells: Cell[] = [];
   let cursor = 0;
@@ -151,8 +178,14 @@ export const parseAnsi = (input: string, { palette = XTERM_PALETTE }: ParseAnsiO
   for (const match of input.matchAll(TOKENS)) {
     write(input.slice(last, match.index));
     last = match.index + match[0].length;
-    const [token, params, final] = match;
-    if (token === '\n' || token === '\r\n') newline();
+    const [token, params, final, stringKind, stringBody] = match;
+    if (stringKind === '_') {
+      const image = onApc?.(stringBody ?? '');
+      if (image) {
+        cells[cursor] = { char: '', style, image };
+        cursor++;
+      }
+    } else if (token === '\n' || token === '\r\n') newline();
     else if (token === '\r') cursor = 0;
     else if (token === '\b') cursor = Math.max(0, cursor - 1);
     else if (token === '\t') write(' '.repeat(8 - (cursor % 8)));

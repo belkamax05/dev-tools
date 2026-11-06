@@ -48,6 +48,8 @@ is reported, not passed on.
 | `--scale=<n>` | `2` — pixels per CSS pixel |
 | `--renderer=<name>` | `auto`, `chrome` or `playwright` |
 | `--columns=<n>` | `120` — the width the command is told (`COLUMNS`) |
+| `--timeout=<seconds>` | none — stop the command (its whole process group, pipelines included) after this long; what it printed by then is still drawn |
+| `--term=<name>` | `xterm` (`TERM=xterm-256color`); `kitty` sets `TERM=xterm-kitty`, for tools that only print kitty graphics in kitty |
 | `--keep-ansi` | off — also save the raw capture as `.ansi`, to re-render later |
 
 `--title`, `--prompt`, `--label`, `--scale` and `--renderer` work for `ansi-to-png` too (and the
@@ -57,6 +59,18 @@ What a terminal leaves on screen is what gets drawn: carriage returns, `ESC[G` a
 sequences are applied per line, so a spinner's redraws collapse into its last frame. 16, 256 and
 true colours, bold, dim, italic, underline, strike-through and inverse are kept; cursor hiding,
 window titles and links are dropped.
+
+Pictures sent with the kitty graphics protocol (`ESC _G … ESC \`) are drawn where they were placed:
+RGB, RGBA or PNG data, zlib-compressed or not, sent inline or as a file path, in chunks, and shown
+straight away (`a=T`) or stored and put later (`a=p`). Asked-for cells (`c=`, `r=`) set the size;
+otherwise it is the picture's own pixel size, never wider than `--columns`. This works in
+`ansi-to-png` too, whatever `--term` was. A tool that asks the terminal about itself first has
+no terminal to ask, as its output is piped; `kitten icat` needs to be told instead:
+
+```sh
+convi shot --term=kitty -- kitten icat --stdin=no --transfer-mode=stream \
+  --use-window-size=120,40,940,760 picture.png
+```
 
 ### Rendering: whatever browser is already installed
 
