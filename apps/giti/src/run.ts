@@ -38,10 +38,22 @@ const notFound = (message: string) => {
   process.exitCode = 1;
 };
 
+/**
+ * Other names for a top-level command or group, resolved before anything else.
+ *
+ * `branch` is git's own command, so without this `giti branch` would fall through to git; giti
+ * means its `branches` group instead — `giti branch` / `giti branch list` never reach git.
+ * Raw `git branch` is still there as `giti git branch …`.
+ */
+const COMMAND_ALIASES: Record<string, string> = {
+  branch: 'branches',
+};
+
 const run = async (...[firstArg, ...args]: string[]): Promise<void> => {
   //? No command means the interactive path: the dashboard hands back a name in exactly the form
   //? this function resolves, so a pick goes through the dispatch below like any typed command
-  const command = firstArg ?? (await openDashboard());
+  const picked = firstArg ?? (await openDashboard());
+  const command = (picked && COMMAND_ALIASES[picked]) ?? picked;
 
   //? Backing out of the picker is not a failure — there is simply nothing left to run
   if (!command) return;
