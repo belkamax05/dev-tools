@@ -93,9 +93,20 @@ interface AppProps {
   preview?: Preview;
 }
 
+const SET_UPSTREAM = '--set-upstream';
+
+//? git's own `warning` orange (libs/config/color: dark_orange)
+const WARNING_ORANGE = '#ffa500';
+
 const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview }: AppProps) => {
   const { exit } = useApp();
-  const [enabledFlags, setEnabledFlags] = useState<Set<string>>(new Set(initialFlags));
+  //? No tracking branch is the one case git refuses a plain `git push` with "has no upstream
+  //? branch": --set-upstream is then required, so it starts on and cannot be turned off. Once the
+  //? first push has set it, `@{u}` resolves and this screen never forces it again
+  const needsUpstream = !branchInfo.upstreamBranch;
+  const [enabledFlags, setEnabledFlags] = useState<Set<string>>(
+    new Set(needsUpstream ? [...initialFlags, SET_UPSTREAM] : initialFlags),
+  );
   const [flagIndex, setFlagIndex] = useState(0);
   //? Toggle showing all pending commits vs just first few
   const [expandedCommits, setExpandedCommits] = useState(false);
@@ -145,7 +156,7 @@ const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview }: Ap
     }
     if (input === ' ') {
       const f = PUSH_FLAGS[flagIndex];
-      if (f) {
+      if (f && !(needsUpstream && f.flag === SET_UPSTREAM)) {
         setEnabledFlags((prev) => {
           const next = new Set(prev);
           if (next.has(f.flag)) {
@@ -257,11 +268,35 @@ const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview }: Ap
                 {isEnabled ? '✓' : '○'}
               </Text>
               <Text color={labelColor}>{f.flag}</Text>
-              <Text dimColor>{f.description}</Text>
+              {needsUpstream && f.flag === SET_UPSTREAM ? (
+                <Text color={WARNING_ORANGE}>Required — {branch} tracks nothing yet</Text>
+              ) : (
+                <Text dimColor>{f.description}</Text>
+              )}
             </Box>
           );
         })}
       </Box>
+
+      {/* First push of a branch: the upstream gets set, which later pushes then reuse */}
+      {needsUpstream && (
+        <Box
+          flexDirection="column"
+          marginTop={1}
+          borderStyle="round"
+          borderColor={WARNING_ORANGE}
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          <Text color={WARNING_ORANGE} bold>
+            ⚠ First push of {branch}
+          </Text>
+          <Text color={WARNING_ORANGE}>
+            It tracks no upstream yet, so this push runs with --set-upstream and {branch} will
+            track {remote}/{branch}. Later pushes reuse it — no flag needed.
+          </Text>
+        </Box>
+      )}
 
       {/* Warning for --force */}
       {hasForce && !hasForceWithLease && (

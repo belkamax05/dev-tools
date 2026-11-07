@@ -389,10 +389,22 @@ const pushSelf = async (
     //? ever be sent by hand
     const remote = target.remote ?? 'origin';
     const into = target.branch ?? branch;
-    return push(
-      `${branch} to ${remote}/${into}, set as its upstream (it tracked nothing yet)`,
-      ['push', '--set-upstream', ...flags, remote, `${branch}:${into}`],
+    //? Said up front in the warning colour (the push screen shows the same as a panel): only the
+    //? first push does this — afterwards `@{u}` resolves and a plain push follows it
+    stepProgress.log.warn(
+      `${label}  ${formatColor(
+        `first push of ${branch}: it tracks nothing yet, so --set-upstream is added — it will track ${remote}/${into}`,
+        'warning',
+      )}`,
     );
+    const rest = flags.filter((flag) => flag !== '--set-upstream' && flag !== '-u');
+    return push(`${branch} to ${remote}/${into}, set as its upstream`, [
+      'push',
+      '--set-upstream',
+      ...rest,
+      remote,
+      `${branch}:${into}`,
+    ]);
   }
 
   if (ahead === 0 && !tags && !forced) {
