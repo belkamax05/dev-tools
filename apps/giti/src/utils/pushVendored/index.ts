@@ -2,6 +2,7 @@ import stepProgress from '../stepProgress';
 import formatArg from '@/dev-tools/utils/format/formatArg';
 import formatColor from '@/dev-tools/utils/format/formatColor';
 import describePush from '../describePush';
+import getFirstPush from '../getFirstPush';
 import getVendoredState from '../getVendoredState';
 import isPushRefused from '../isPushRefused';
 import resolveSubtreeUpstream from '../resolveSubtreeUpstream';
@@ -75,11 +76,17 @@ const pushVendored = async (
     );
   }
 
+  //? A submodule on a branch with no upstream yet: its push is that branch's first, made with
+  //? --set-upstream like the repository's own. The ahead/behind below were measured against the
+  //? remote's default branch, which a brand-new branch is neither ahead of nor behind in any sense
+  //? that decides the push — so neither check applies to it
+  const firstPush = kind === 'submodule' ? await getFirstPush(path) : null;
+
   //? A submodule sends its own commits, so whether there is anything to send is a question about
   //? its history against upstream. The parent's pinned commit answers a different question and
   //? gets both cases wrong: a moved-and-pushed checkout looks like work, and unpushed commits
   //? under an already-recorded pointer look like none.
-  if (kind === 'submodule' && ahead === 0) {
+  if (kind === 'submodule' && !firstPush && ahead === 0) {
     const stale = gitlinkBehind !== null && gitlinkBehind > 0;
     const tail = stale ? ' — commit the moved gitlink in the parent to record it' : '';
     return current(`every commit is already upstream${tail}`);
@@ -92,7 +99,7 @@ const pushVendored = async (
     return current(same);
   }
 
-  if (behind !== null && behind > 0) {
+  if (!firstPush && behind !== null && behind > 0) {
     const rejected = kind === 'subrepo' ? 'unmerged' : 'non-fast-forward';
     return skipped(
       `upstream moved ${plural(behind, 'commit')} since the last pull, so the push would be ` +
@@ -124,11 +131,24 @@ const pushVendored = async (
 
   //? A submodule's copy is a repository of its own and its own commits are what travel, so its
   //? push runs inside it. The other two are trees in the parent, pushed by the parent.
+  if (firstPush) {
+    stepProgress.log.warn(
+      `${label}  ${formatColor(
+        `first push of ${firstPush.branch}: it tracks nothing yet, so --set-upstream is added — ` +
+          `it will track ${firstPush.remote}/${firstPush.branch}`,
+        'warning',
+      )}`,
+    );
+  }
+  const submodulePush = firstPush
+    ? ['push', '--set-upstream', ...flags, firstPush.remote, firstPush.branch]
+    : ['push', ...flags];
+
   const [command, runIn]: [string[], string] =
     kind === 'subrepo'
       ? [['subrepo', 'push', dir, ...flags], cwd]
       : kind === 'submodule'
-        ? [['push', ...flags], path]
+        ? [submodulePush, path]
         : [
             [
               'subtree',
@@ -146,9 +166,11 @@ const pushVendored = async (
     kind === 'subtree'
       ? ` to ${upstream?.remote} ${upstream?.branch}`
       : kind === 'submodule'
-        ? ahead === null
-          ? ''
-          : ` ${plural(ahead, 'commit')}`
+        ? firstPush
+          ? ` ${firstPush.branch} to ${firstPush.remote}/${firstPush.branch}, set as its upstream`
+          : ahead === null
+            ? ''
+            : ` ${plural(ahead, 'commit')}`
         : localChanges
           ? ` ${plural(localChanges.length, 'changed file')}`
           : '';

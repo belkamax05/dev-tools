@@ -16,7 +16,6 @@ const PUSH_FLAGS: PushFlag[] = [
   { flag: '--no-verify', description: 'Skip pre-push hooks' },
   { flag: '--force-with-lease', description: 'Force push only if no upstream changes' },
   { flag: '--force', description: 'Force push (overwrites upstream)', isDangerous: true },
-  { flag: '--set-upstream', description: 'Set upstream tracking branch' },
   { flag: '--tags', description: 'Push all tags' },
   { flag: '--dry-run', description: 'Simulate push without sending data' },
   {
@@ -69,6 +68,13 @@ const buildCommandPreview = (
   return parts.join(' ');
 };
 
+/** One repository whose push here is its branch's first, so it gets --set-upstream. */
+export interface FirstPushNote {
+  label: string;
+  branch: string;
+  tracks: string;
+}
+
 interface BranchInfo {
   branch: string;
   remote: string;
@@ -91,22 +97,16 @@ interface AppProps {
   passthroughFlags: string[];
   onPush: (args: string[]) => void;
   preview?: Preview;
+  /** Repositories this push sets an upstream for, shown in the warning panel. */
+  firstPushes: FirstPushNote[];
 }
-
-const SET_UPSTREAM = '--set-upstream';
 
 //? git's own `warning` orange (libs/config/color: dark_orange)
 const WARNING_ORANGE = '#ffa500';
 
-const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview }: AppProps) => {
+const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview, firstPushes }: AppProps) => {
   const { exit } = useApp();
-  //? No tracking branch is the one case git refuses a plain `git push` with "has no upstream
-  //? branch": --set-upstream is then required, so it starts on and cannot be turned off. Once the
-  //? first push has set it, `@{u}` resolves and this screen never forces it again
-  const needsUpstream = !branchInfo.upstreamBranch;
-  const [enabledFlags, setEnabledFlags] = useState<Set<string>>(
-    new Set(needsUpstream ? [...initialFlags, SET_UPSTREAM] : initialFlags),
-  );
+  const [enabledFlags, setEnabledFlags] = useState<Set<string>>(new Set(initialFlags));
   const [flagIndex, setFlagIndex] = useState(0);
   //? Toggle showing all pending commits vs just first few
   const [expandedCommits, setExpandedCommits] = useState(false);
@@ -156,7 +156,7 @@ const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview }: Ap
     }
     if (input === ' ') {
       const f = PUSH_FLAGS[flagIndex];
-      if (f && !(needsUpstream && f.flag === SET_UPSTREAM)) {
+      if (f) {
         setEnabledFlags((prev) => {
           const next = new Set(prev);
           if (next.has(f.flag)) {
@@ -268,18 +268,14 @@ const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview }: Ap
                 {isEnabled ? '✓' : '○'}
               </Text>
               <Text color={labelColor}>{f.flag}</Text>
-              {needsUpstream && f.flag === SET_UPSTREAM ? (
-                <Text color={WARNING_ORANGE}>Required — {branch} tracks nothing yet</Text>
-              ) : (
-                <Text dimColor>{f.description}</Text>
-              )}
+              <Text dimColor>{f.description}</Text>
             </Box>
           );
         })}
       </Box>
 
       {/* First push of a branch: the upstream gets set, which later pushes then reuse */}
-      {needsUpstream && (
+      {firstPushes.length > 0 && (
         <Box
           flexDirection="column"
           marginTop={1}
@@ -289,12 +285,15 @@ const App = ({ branchInfo, initialFlags, passthroughFlags, onPush, preview }: Ap
           paddingRight={1}
         >
           <Text color={WARNING_ORANGE} bold>
-            ⚠ First push of {branch}
+            ⚠ First push — --set-upstream is added automatically
           </Text>
-          <Text color={WARNING_ORANGE}>
-            It tracks no upstream yet, so this push runs with --set-upstream and {branch} will
-            track {remote}/{branch}. Later pushes reuse it — no flag needed.
-          </Text>
+          {firstPushes.map((first) => (
+            <Text key={first.label} color={WARNING_ORANGE}>
+              {'  '}
+              {first.label}: {first.branch} tracks nothing yet → will track {first.tracks}
+            </Text>
+          ))}
+          <Text dimColor>Later pushes reuse the upstream — nothing to set by hand.</Text>
         </Box>
       )}
 
@@ -343,6 +342,11 @@ export interface RenderInkPushOptions {
   onConfirm?: (flags: string[]) => Promise<void>;
   /** The command the preview line names when `onConfirm` runs it — `giti send`. */
   previewCommand?: string;
+  /**
+   * Every repository the confirmed run gives an upstream (the root, submodules), from the
+   * caller that knows the tree. Without it, only this repository is checked.
+   */
+  firstPushes?: FirstPushNote[];
 }
 
 const renderInkPush = async ({
@@ -353,6 +357,7 @@ const renderInkPush = async ({
   cwd,
   onConfirm,
   previewCommand = 'giti send',
+  firstPushes,
 }: RenderInkPushOptions) => {
   const [currentBranch, remotes, stats, upstreamResult, logResult] = await Promise.all([
     getBranch(cwd).catch(() => 'HEAD'),
@@ -412,6 +417,15 @@ const renderInkPush = async ({
     pendingCommits,
   };
 
+  //? A branch with no upstream needs --set-upstream on its first push, and only then: the run
+  //? adds it by itself, so it is never a flag to pick here — only a warning to read
+  const needsUpstream = !hasUpstream;
+  const notes: FirstPushNote[] =
+    firstPushes ??
+    (needsUpstream && branch && branch !== 'HEAD'
+      ? [{ label: 'this repository', branch, tracks: `${remote}/${branch}` }]
+      : []);
+
   let gitArgs: string[] | null = null;
 
   const { waitUntilExit, unmount, clear } = render(
@@ -420,6 +434,7 @@ const renderInkPush = async ({
       initialFlags={initialFlags}
       passthroughFlags={passthroughFlags}
       onPush={(args) => (gitArgs = args)}
+      firstPushes={notes}
       preview={
         onConfirm
           ? { prefix: previewCommand, remote: initialRemote ?? '', branch: initialBranch ?? '' }
@@ -440,7 +455,9 @@ const renderInkPush = async ({
   }
 
   if (gitArgs) {
-    const result = await gitExec(gitArgs, cwd);
+    //? The plain `git push` path: the first push of a branch sets its upstream, as `send` does
+    const args = needsUpstream ? [...(gitArgs as string[]), '--set-upstream'] : (gitArgs as string[]);
+    const result = await gitExec(args, cwd);
     if (result.stdout) console.log(result.stdout);
     if (result.stderr) console.log(result.stderr);
     if (result.exitCode !== 0) process.exit(result.exitCode ?? 1);

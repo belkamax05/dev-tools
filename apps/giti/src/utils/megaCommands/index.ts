@@ -4,6 +4,8 @@ import formatColor from '@/dev-tools/utils/format/formatColor';
 import cleanVendored from '../cleanVendored';
 import describePull from '../describePull';
 import describePush from '../describePush';
+import getFirstPush from '../getFirstPush';
+import type { FirstPush } from '../getFirstPush';
 import getMegaSelfState from '../getMegaSelfState';
 import getMegaTree from '../getMegaTree';
 import type { MegaGroup, MegaRepo, MegaTree } from '../getMegaTree';
@@ -386,8 +388,8 @@ const pushSelf = async (
       return 'skipped';
     }
     //? The usual first push, `git push -u origin <branch>`: without it a new branch could only
-    //? ever be sent by hand
-    const remote = target.remote ?? 'origin';
+    //? ever be sent by hand. The remote is the one git would pick (push default, origin, the only one)
+    const remote = target.remote ?? (await getFirstPush(repo.path))?.remote ?? 'origin';
     const into = target.branch ?? branch;
     //? Said up front in the warning colour (the push screen shows the same as a panel): only the
     //? first push does this — afterwards `@{u}` resolves and a plain push follows it
@@ -577,6 +579,44 @@ export const runMegaPush = (
     selfFirst: false,
     self: (own) => pushSelf(tree.repo, own, target),
   });
+
+/** One repository of the tree whose push in this `send` sets its upstream. */
+export interface PlannedFirstPush extends FirstPush {
+  /** How the run labels it: `this repository`, or the submodule's directory. */
+  label: string;
+  /** What it will track from then on, e.g. `origin/feat`. */
+  tracks: string;
+}
+
+/**
+ * Every repository a `send` with these arguments would push with `--set-upstream` — the root and
+ * each selected submodule that is on a branch with no upstream yet — so the push screen can warn
+ * about them before anything runs. The same check `pushSelf` and `pushVendored` make while pushing;
+ * subrepos and subtrees are pushed from the parent and have no branch of their own to track.
+ */
+export const getPlannedFirstPushes = async (
+  tree: MegaTree,
+  rawArgs: string[],
+  target: TransferTarget = {},
+): Promise<PlannedFirstPush[]> => {
+  const args = splitVendoredArgs(rawArgs, OWN_FLAGS.transfer);
+  const submodules = select(tree, args.dirs).find((group) => group.kind === 'submodule')?.entries ?? [];
+  const [self, ...vendored] = await Promise.all([
+    hasOwn(args, '--no-self') ? null : getFirstPush(tree.repo.path),
+    ...submodules.map((entry) => getFirstPush(entry.path)),
+  ]);
+
+  const planned: PlannedFirstPush[] = [];
+  if (self) {
+    const remote = target.remote ?? self.remote;
+    planned.push({ ...self, remote, label: 'this repository', tracks: `${remote}/${target.branch ?? self.branch}` });
+  }
+  vendored.forEach((first, index) => {
+    const entry = submodules[index];
+    if (first && entry) planned.push({ ...first, label: entry.dir, tracks: `${first.remote}/${first.branch}` });
+  });
+  return planned;
+};
 
 /** `mega/diff [<dir>...] [--stat] [--no-self]`: everything this tree has that its upstreams do not. */
 export const runMegaDiff = async (tree: MegaTree, cwd: string, rawArgs: string[]) => {

@@ -1,7 +1,7 @@
 import getMegaTree from '../getMegaTree';
 import getRemotes from '../getRemotes';
 import getWorkingDir from '../getWorkingDir';
-import { runMegaPull, runMegaPush, splitTransferTarget } from '../megaCommands';
+import { getPlannedFirstPushes, runMegaPull, runMegaPush, splitTransferTarget } from '../megaCommands';
 
 /** giti-only: skip the screen, run with the flags as given. Never forwarded to git. */
 const YES = new Set(['--yes', '-y']);
@@ -58,7 +58,10 @@ const runTransferCommand = async (direction: 'send' | 'receive', rawArgs: string
   };
   if (direction === 'send') {
     const { default: renderInkPush } = await import('../../ui/renderInkPush');
-    await renderInkPush(options);
+    //? Which repositories — the root, any submodule — this push gives an upstream, for the screen
+    //? to warn about: the run adds --set-upstream to exactly those by itself
+    const firstPushes = await getPlannedFirstPushes(tree, rest, target);
+    await renderInkPush({ ...options, firstPushes });
   } else {
     const { default: renderInkPull } = await import('../../ui/renderInkPull');
     await renderInkPull(options);
