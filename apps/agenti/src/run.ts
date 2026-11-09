@@ -1,11 +1,19 @@
 import { homedir } from 'node:os';
 import { relative } from 'node:path';
-import settingsStore, { ideIdsFor, TAB_IDS, type TabId, withRepoIde } from './config/settings';
+import settingsStore, {
+  ideIdsFor,
+  syncsMcpUserScope,
+  TAB_IDS,
+  type TabId,
+  withMcpUserScope,
+  withRepoIde,
+} from './config/settings';
 import { getInventory, hasDrift, syncInventory } from './core/agents';
 import { getHealth } from './core/health';
-import { getIde, type IdeDefinition, IDES, mcpTargetsFor } from './core/ides';
+import { getIde, type IdeDefinition, IDES } from './core/ides';
 import { getInstructions, linkInstructions } from './core/instructions';
-import { buildComparisons, readMcpTarget, readSourceMcp, setMcpServer } from './core/mcp';
+import { buildComparisons, readMcpTarget, readSourceMcp } from './core/mcp';
+import { syncedMcpTargets, syncMcpServers } from './core/mcpSync';
 import findRepoRoot from './core/repo';
 import { projectScope, type Scope, userScope } from './core/scope';
 import { missingFromLock, restoreSkills } from './core/skills';
@@ -21,6 +29,8 @@ usage:
   agenti sync [--skills] [--quiet] [--user]
                                   make every IDE match .agents wherever that is safe
                                   unattended; --skills also restores skills-lock.json
+  agenti mcp-user [on|off]        whether sync also puts this repository's MCP servers
+                                  in each IDE's user scope, for every repository (on)
 
 IDEs: ${IDES.map((ide) => ide.id).join(', ')}
 `;
@@ -33,17 +43,14 @@ interface IdeReport {
   drift: boolean;
 }
 
-const mcpCounts = (scope: Scope, ide: IdeDefinition) => {
+const mcpCounts = (scope: Scope, ide: IdeDefinition, userToo: boolean) => {
   const source = readSourceMcp(scope.root);
   const counts: Record<string, number> = {};
-  if (scope.kind !== 'project') return counts;
-  //? Only the shared, file-based project scope is compared: that is what a
-  //? repository owns, and what sync keeps in step
-  for (const target of mcpTargetsFor(ide, scope.kind)) {
-    if (target.kind !== 'file' || target.scope !== 'project') continue;
+  for (const target of syncedMcpTargets(scope, ide, userToo)) {
     for (const comparison of buildComparisons(
       source.servers,
       readMcpTarget(scope.root, target).servers,
+      target,
     )) {
       counts[comparison.status] = (counts[comparison.status] ?? 0) + 1;
     }
@@ -51,11 +58,11 @@ const mcpCounts = (scope: Scope, ide: IdeDefinition) => {
   return counts;
 };
 
-const report = (scope: Scope, ides: IdeDefinition[]) => {
+const report = (scope: Scope, ides: IdeDefinition[], mcpUser: boolean) => {
   const perIde: IdeReport[] = ides.map((ide) => {
     const inventory = getInventory(scope, ide);
     const instructions = getInstructions(scope, ide).status;
-    const mcp = mcpCounts(scope, ide);
+    const mcp = mcpCounts(scope, ide, mcpUser);
     return {
       id: ide.id,
       agents: inventory.counts,
@@ -72,6 +79,7 @@ const report = (scope: Scope, ides: IdeDefinition[]) => {
   return {
     scope: scope.kind,
     root: scope.root,
+    mcpUserScope: mcpUser,
     ides: perIde,
     health: health.map(({ id, severity, title }) => ({ id, severity, title })),
     drift: perIde.some((ide) => ide.drift) || health.some((issue) => issue.severity === 'error'),
@@ -87,7 +95,7 @@ const printReport = (data: ReturnType<typeof report>) => {
       `${(getIde(ide.id)?.name ?? ide.id).padEnd(12)} agents ${a.native ? `${a.native} read natively` : `${a.synced ?? 0} in sync`} · ${a.mismatch ?? 0} differ · ${a.missing ?? 0} off · ${a.orphan ?? 0} IDE-only` +
         `  · instructions ${ide.instructions}` +
         (Object.keys(m).length
-          ? `  · mcp ${m.synced ?? 0} synced · ${m.diff ?? 0} differ · ${m['missing-in-target'] ?? 0} missing`
+          ? `  · mcp${data.mcpUserScope ? ' (project + user)' : ''} ${m.synced ?? 0} synced · ${m.diff ?? 0} differ · ${m['missing-in-target'] ?? 0} missing`
           : ''),
     );
   }
@@ -97,7 +105,12 @@ const printReport = (data: ReturnType<typeof report>) => {
   for (const issue of data.health) console.log(`  ${issue.severity.padEnd(5)} ${issue.title}`);
 };
 
-const sync = async (scope: Scope, ides: IdeDefinition[], flags: Set<string>) => {
+const sync = async (
+  scope: Scope,
+  ides: IdeDefinition[],
+  flags: Set<string>,
+  mcpUser: boolean,
+) => {
   const quiet = flags.has('--quiet');
   const say = (line: string) => {
     if (!quiet) console.log(line);
@@ -130,28 +143,10 @@ const sync = async (scope: Scope, ides: IdeDefinition[], flags: Set<string>) => 
       );
     }
 
-    //? Project files only: a user-scope file is every repository's, and a
-    //? repository's sync has no business adding servers to all of them
-    if (scope.kind === 'project') {
-      for (const target of mcpTargetsFor(ide, scope.kind)) {
-        if (target.kind !== 'file' || target.scope !== 'project') continue;
-        for (const comparison of buildComparisons(
-          source.servers,
-          readMcpTarget(scope.root, target).servers,
-        )) {
-          if (comparison.status !== 'missing-in-target' || !comparison.sourceEntry) continue;
-          const result = await setMcpServer(
-            scope.root,
-            readMcpTarget(scope.root, target),
-            comparison.name,
-            comparison.sourceEntry,
-          );
-          console.log(
-            `${ide.id}: ${result.ok ? 'added' : 'could not add'} MCP server ${comparison.name}`,
-          );
-          changedAny ||= result.ok;
-        }
-      }
+    for (const change of await syncMcpServers(scope, ide, mcpUser)) {
+      console.log(change.text);
+      if (change.detail) say(`  ${change.detail}`);
+      changedAny ||= change.ok;
     }
   }
 
@@ -188,15 +183,35 @@ export const run = async (...argv: string[]) => {
     .map((id) => getIde(id))
     .filter((ide): ide is IdeDefinition => Boolean(ide));
 
+  const mcpUser = syncsMcpUserScope(settings, scope.root);
+
   if (first === 'status') {
-    const data = report(scope, ides);
+    const data = report(scope, ides, mcpUser);
     if (flags.has('--json')) console.log(JSON.stringify(data, null, 2));
     else printReport(data);
     if (flags.has('--check') && data.drift) process.exitCode = 1;
     return;
   }
 
-  if (first === 'sync') return sync(scope, ides, flags);
+  if (first === 'sync') return sync(scope, ides, flags, mcpUser);
+
+  if (first === 'mcp-user') {
+    const choice = rest[0];
+    if (scope.kind !== 'project' || (choice !== 'on' && choice !== 'off')) {
+      if (!choice && scope.kind === 'project') {
+        console.log(`user-scope MCP sync is ${mcpUser ? 'on' : 'off'} for ${scope.root}`);
+        return;
+      }
+      console.error('usage: agenti mcp-user [on|off]  (inside a repository)');
+      process.exitCode = 1;
+      return;
+    }
+    await settingsStore.save(withMcpUserScope(settings, scope.root, choice === 'on'));
+    console.log(
+      `user-scope MCP sync ${choice} for ${scope.root}`,
+    );
+    return;
+  }
 
   if (first === 'ide' && rest[0]) {
     const ide = getIde(rest[0]);

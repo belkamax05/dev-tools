@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { relative } from 'node:path';
 import { Text, useInput } from 'ink';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import Box from '@/dev-tools/ui/components/Box';
 import type { Hint } from '@/dev-tools/ui/components/HintBar';
@@ -9,7 +9,9 @@ import ListDetail from '@/dev-tools/ui/components/ListDetail';
 import type { PickItem } from '@/dev-tools/ui/components/PickList';
 import { useColors } from '@/dev-tools/ui/providers/TuiThemeProvider';
 
+import settingsStore, { syncsMcpUserScope } from '../../../config/settings';
 import { mcpTargetsFor } from '../../../core/ides';
+import { syncMcpServers } from '../../../core/mcpSync';
 import {
   type ApprovalState,
   buildComparisons,
@@ -66,6 +68,9 @@ const mask = (value: string) => (value.length <= 4 ? '••••' : `•••
  * version's did; there is no pending state to save or lose. The env tokens
  * servers need are listed under the servers, set in `.env.user` from here.
  */
+/** Repository + IDE pairs already synced on open in this run — once each, not on every tab switch. */
+const autoSynced = new Set<string>();
+
 /** Who sees a scope's servers, in the words the header has room for. */
 const SCOPE_LABEL = {
   project: 'this repo, shared',
@@ -110,6 +115,28 @@ export const McpView = ({
     };
   }, [root, ide.id, targetIndex, refreshKey]);
 
+  //? Opening the tab is the sync: every reference server the IDE is missing —
+  //? in the project file and the user scope — is added, and stale copies are
+  //? repaired, so what the list then calls "synced" is what the IDE loads
+  useEffect(() => {
+    const key = `${root}\0${ide.id}`;
+    if (autoSynced.has(key)) return;
+    autoSynced.add(key);
+    void (async () => {
+      const userToo = syncsMcpUserScope(await settingsStore.load(), root);
+      const changes = await syncMcpServers(scope, ide, userToo);
+      if (changes.length === 0) return;
+      const failed = changes.filter((change) => !change.ok);
+      notify(
+        failed.length
+          ? `${failed[0]?.text}: ${failed[0]?.detail ?? ''}`
+          : `Synced ${changes.length} MCP server change(s) to ${ide.name}`,
+        failed.length ? 'error' : 'ok',
+      );
+      reload();
+    })();
+  }, [root, ide, scope, notify, reload]);
+
   const source = data?.source;
   const target = data?.target;
   const approvals = data?.approvals ?? {};
@@ -117,7 +144,8 @@ export const McpView = ({
     if (targets.length < 2) return notify(`${ide.name} has one MCP scope here`, 'info');
     setTargetIndex((at) => (at + 1) % targets.length);
   };
-  const comparisons = source && target ? buildComparisons(source.servers, target.servers) : [];
+  const comparisons =
+    source && target ? buildComparisons(source.servers, target.servers, target.target) : [];
   const tokens = source ? getRequiredTokens(source) : [];
   const tokenValue = (key: string) => data?.env[key] ?? process.env[key];
 

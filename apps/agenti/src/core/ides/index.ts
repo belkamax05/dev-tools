@@ -57,6 +57,12 @@ export type IdeMcpTarget =
       kind: 'file';
       key: 'mcpServers' | 'servers';
       path: (root: string) => string;
+      /**
+       * A server with a `url` must also name its transport (`"type": "http"`),
+       * or the IDE skips it. Claude Code's `.mcp.json` is such a file; its
+       * CLI-managed scopes always are.
+       */
+      urlNeedsType?: boolean;
     }
   | { scope: 'local' | 'user'; kind: 'claude-cli' };
 
@@ -128,6 +134,7 @@ export const IDES: readonly IdeDefinition[] = [
         kind: 'file',
         key: 'mcpServers',
         path: (root) => join(root, '.mcp.json'),
+        urlNeedsType: true,
       },
       { scope: 'local', kind: 'claude-cli' },
       { scope: 'user', kind: 'claude-cli' },

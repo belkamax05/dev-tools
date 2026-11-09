@@ -13,6 +13,13 @@ export type LogoMode = (typeof LOGO_MODES)[number];
 export interface RepoSettings {
   /** The IDEs this repository is kept in step with; the first is the one tabs open on. */
   ides: string[];
+  /**
+   * Also keep the reference MCP servers in each IDE's user scope (Claude Code's
+   * `~/.claude.json`), so sessions in every other repository get them too. On
+   * unless turned off (`false`, the only value stored): without it a Claude Code
+   * session started anywhere but this repository sees none of its servers.
+   */
+  mcpUserScope?: boolean;
 }
 
 export interface AgentiSettings {
@@ -52,13 +59,16 @@ const coerce = (raw: Record<string, unknown>): AgentiSettings => {
   if (typeof raw.defaultIde === 'string' && getIde(raw.defaultIde)) out.defaultIde = raw.defaultIde;
   if (raw.repos && typeof raw.repos === 'object') {
     for (const [root, value] of Object.entries(raw.repos as Record<string, unknown>)) {
-      const entry = value as { ide?: unknown; ides?: unknown } | null;
+      const entry = value as { ide?: unknown; ides?: unknown; mcpUserScope?: unknown } | null;
       //? `{ ide }` is the single-IDE shape this file had before; read as a list of one
       const listed = Array.isArray(entry?.ides) ? entry.ides : entry?.ide ? [entry.ide] : [];
       const ides = listed.filter(
         (id): id is string => typeof id === 'string' && Boolean(getIde(id)),
       );
-      if (ides.length) out.repos[root] = { ides: [...new Set(ides)] };
+      if (ides.length) {
+        out.repos[root] = { ides: [...new Set(ides)] };
+        if (entry?.mcpUserScope === false) out.repos[root].mcpUserScope = false;
+      }
     }
   }
   return out;
@@ -169,8 +179,32 @@ export const hasOwnIde = (settings: AgentiSettings, root: string): boolean =>
 const withIds = (settings: AgentiSettings, root: string, ides: string[]): AgentiSettings => ({
   ...settings,
   defaultIde: ides[0] ?? settings.defaultIde,
-  repos: { ...settings.repos, [root]: { ides } },
+  //? Spread, so changing the IDE list keeps the repository's other choices
+  repos: { ...settings.repos, [root]: { ...settings.repos[root], ides } },
 });
+
+/** Whether this repository's MCP servers are also kept in its IDEs' user scopes. */
+export const syncsMcpUserScope = (settings: AgentiSettings, root: string): boolean =>
+  settings.repos[root]?.mcpUserScope !== false;
+
+/**
+ * Turn user-scope MCP sync on or off for a repository. A repository that only
+ * inherited its IDE list gets that list as its own, since the choice is stored
+ * beside it.
+ */
+export const withMcpUserScope = (
+  settings: AgentiSettings,
+  root: string,
+  on: boolean,
+): AgentiSettings => {
+  const { mcpUserScope: _old, ...rest } = settings.repos[root] ?? {
+    ides: ideIdsFor(settings, root),
+  };
+  return {
+    ...settings,
+    repos: { ...settings.repos, [root]: on ? rest : { ...rest, mcpUserScope: false } },
+  };
+};
 
 /** Make `ide` the primary, adding it if it was not in the list. */
 export const withRepoIde = (settings: AgentiSettings, root: string, ide: string): AgentiSettings =>

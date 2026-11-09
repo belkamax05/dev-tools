@@ -139,9 +139,36 @@ export const getDiffFields = (source: McpServerEntry, target: McpServerEntry) =>
     }));
 };
 
-/** Every server in either config, reference servers first. */
-export const buildComparisons = (source: McpServers, target: McpServers): McpServerComparison[] => [
-  ...Object.entries(source).map(([name, sourceEntry]): McpServerComparison => {
+/** Whether a target skips a `url` server that does not name its transport. */
+const urlNeedsType = (target: IdeMcpTarget): boolean =>
+  target.kind === 'claude-cli' || target.urlNeedsType === true;
+
+/**
+ * A reference entry as `target` must hold it. The reference stays IDE-neutral
+ * (`{ url }`); a target that skips a remote server without a transport (Claude
+ * Code) gets `"type": "http"`. An entry that already names one is left alone.
+ */
+export const entryForTarget = (
+  entry: McpServerEntry,
+  target: IdeMcpTarget | undefined,
+): McpServerEntry =>
+  target && urlNeedsType(target) && entry.url && entry.type === undefined
+    ? { type: 'http', ...entry }
+    : entry;
+
+/**
+ * Every server in either config, reference servers first.
+ *
+ * With `targetDef`, each reference entry is compared as that target must hold
+ * it (`entryForTarget`), so a copy the IDE would skip shows as drift, not synced.
+ */
+export const buildComparisons = (
+  source: McpServers,
+  target: McpServers,
+  targetDef?: IdeMcpTarget,
+): McpServerComparison[] => [
+  ...Object.entries(source).map(([name, rawSourceEntry]): McpServerComparison => {
+    const sourceEntry = entryForTarget(rawSourceEntry, targetDef);
     const targetEntry = target[name];
     if (!targetEntry) return { name, status: 'missing-in-target', sourceEntry };
     return {
@@ -423,8 +450,9 @@ export const setMcpServer = async (
   root: string,
   state: McpTargetState,
   name: string,
-  entry: McpServerEntry | undefined,
+  rawEntry: McpServerEntry | undefined,
 ): Promise<OperationResult> => {
+  const entry = rawEntry && entryForTarget(rawEntry, state.target);
   if (state.target.kind === 'file') {
     if (!state.file) return { ok: false, message: 'Not a file target' };
     const servers = { ...state.servers };
