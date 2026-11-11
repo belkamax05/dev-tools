@@ -1,5 +1,5 @@
-import { existsSync, statSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { basename, dirname, parse, resolve } from 'node:path';
 import * as p from '@clack/prompts';
 import { detectRenderers, pickRenderer } from '@/dev-tools/utils/browser/screenshotHtml';
 import { parseFlags, parseLeadingFlags } from '@/dev-tools/utils/cli/parseFlags';
@@ -16,6 +16,8 @@ const listLine = (converter: Converter) =>
   `  ${converter.name.padEnd(12)} ${`${converter.from} → ${converter.to}`.padEnd(14)} ${converter.description}`;
 
 const SHOT_FLAGS = `shot / ansi-to-png flags:
+  --src=<file>           shot only; run this script (zsh -i <file>) instead of a command, its
+                         source as the prompt; output defaults to <file name>.png here
   --output=<file>        shot only; default: the command as a file name, in the current directory
   --title=<text>         title bar (default: folder — command, or the input's file name)
   --prompt=<text>        the prompt line (default: the command; none for a file)
@@ -50,11 +52,13 @@ const shotHelp = () => `convi shot — run a command, save its coloured output a
 usage:
   convi shot [flags] [--] <command…>   flags first; everything after the command is its own
   convi shot 'bun test | tail -20'     one quoted argument is a shell line
+  convi shot [flags] --src=<file>      run a script file, its source shown as the prompt
 
 examples:
   convi shot bun run validate                       → bun-run-validate.png here
   convi shot --output=reports/lint -- bun run lint  → reports/lint.png
   convi shot -- help                                a command called help, not this text
+  convi shot --src=./test.sh                        → test.png, the script's source as prompt
 
 ${SHOT_FLAGS}
 
@@ -98,17 +102,37 @@ const preparePaths = (converter: Converter, inputArg: string, outputArg?: string
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
 /**
+ * `--src=<file>`: the script to run instead of a command - by an interactive zsh (`zsh -i <file>`,
+ * so your aliases and functions work; no `chmod +x` needed), with its source as the prompt line.
+ * Undefined without `--src`. @throws On a missing file, or a command given as well
+ */
+const scriptFrom = (flags: Record<string, string>, command: string[], cwd: string) => {
+  if (flags.src === undefined) return undefined;
+  if (flags.src === 'true' || flags.src === '') throw new Error('--src needs a file: --src=<file>');
+  if (command.length) throw new Error('--src runs a script file - give it no command as well');
+  const path = resolve(cwd, flags.src);
+  if (!existsSync(path)) throw new Error(`Script not found: ${path}`);
+  if (statSync(path).isDirectory()) throw new Error(`Script is a directory: ${path}`);
+  return {
+    path,
+    source: readFileSync(path, 'utf8').trimEnd(),
+    command: ['zsh', '-i', path],
+  };
+};
+
+/**
  * `convi shot [flags] [--] <command…>`: run the command as a colour terminal would show it, then
  * render what it printed as a terminal window. The command failing is no failure of ours — a
  * screenshot of an error is often the point — so its exit code is reported, not passed on.
  */
 const runShot = async (argv: string[]) => {
-  const { flags, rest: command } = parseLeadingFlags(argv);
+  const { flags, rest } = parseLeadingFlags(argv);
+  let command = rest;
   if (wantsShotHelp(argv, flags, command)) {
     process.stdout.write(shotHelp());
     return;
   }
-  if (!command.length) {
+  if (!command.length && flags.src === undefined) {
     console.error('No command to run.\n');
     process.stderr.write(shotHelp());
     process.exitCode = 1;
@@ -116,7 +140,15 @@ const runShot = async (argv: string[]) => {
   }
 
   const cwd = process.cwd();
-  const line = commandLine(command);
+  let script: ReturnType<typeof scriptFrom>;
+  try {
+    script = scriptFrom(flags, command, cwd);
+  } catch (error) {
+    fail(error);
+    return;
+  }
+  if (script) command = script.command;
+  const line = script ? basename(script.path) : commandLine(command);
   const columns = flags.columns === undefined ? undefined : Number(flags.columns);
   const timeout = flags.timeout === undefined ? undefined : Number(flags.timeout);
   const term = flags.term as Term | undefined;
@@ -131,7 +163,8 @@ const runShot = async (argv: string[]) => {
     if (term !== undefined && !Object.hasOwn(TERMS, term)) {
       throw new Error(`--term must be ${Object.keys(TERMS).join(' or ')} — not "${term}"`);
     }
-    output = resolve(cwd, withExtension(flags.output ?? slugOf(line), '.png'));
+    const fallbackName = script ? parse(script.path).name : slugOf(line);
+    output = resolve(cwd, withExtension(flags.output ?? fallbackName, '.png'));
     assertOutputDir(output);
     assertRenderer(options);
   } catch (error) {
@@ -150,7 +183,7 @@ const runShot = async (argv: string[]) => {
     const result = await renderTerminalPng(captured.output, output, {
       ...options,
       title: options.title ?? `${label} — ${line}`,
-      prompt: options.prompt ?? line,
+      prompt: options.prompt ?? script?.source ?? line,
       promptLabel: label,
       columns,
     });

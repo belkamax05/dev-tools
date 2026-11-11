@@ -31,7 +31,8 @@ Paths are relative to the current directory. Also reachable as `dev-tools conver
 `convi shot [flags] [--] <command…>` runs the command in the current directory and renders its
 output as a window: title bar, the command on a prompt line, then everything it printed. Its
 flags come before the command (or before `--`); anything after belongs to the command. One
-quoted argument is a shell line: `convi shot 'bun test | tail -20'`.
+quoted argument is a shell line: `convi shot 'bun test | tail -20'`. A multi-line script goes in a
+file: `convi shot --src=./test.sh` (or `dfs shot --src=./test.sh`) → `test.png`.
 
 The command's output is piped, so it is told colour is wanted (`FORCE_COLOR`, `CLICOLOR_FORCE`,
 `COLORTERM`, `NO_COLOR` removed) and gets `TERM=xterm-256color` — with `TERM=linux`, clack and
@@ -41,6 +42,7 @@ is reported, not passed on.
 
 | Flag | Default |
 | --- | --- |
+| `--src=<file>` | none — run this script file instead of a command, with an interactive zsh (`zsh -i <file>`: your aliases work, no `chmod +x` needed); its source is the prompt line and the PNG is `<file name>.png` |
 | `--output=<file>` | the command as a file name (`bun-run-validate.png`), in the current directory |
 | `--title=<text>` | `<folder> — <command>`; for a file, its name |
 | `--prompt=<text>` | the command; no prompt line for a file |
