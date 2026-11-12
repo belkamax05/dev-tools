@@ -1,5 +1,5 @@
 import { otherActiveRuns, readOtherActiveRuns } from './activeRuns';
-import { branchSourceOf, jenkinsBranches } from './branches';
+import { branchSourceOf, jenkinsBranches, jenkinsSuggestions } from './branches';
 import { actorOf, readJobHistory, runOf } from './history';
 import { readJenkinsTimings } from './timings';
 import {
@@ -81,6 +81,12 @@ export interface JobStepOptions {
    * e.g. `{ FE_CODE_BRANCH: 'fe' }` for a full deploy started from the backend flow.
    */
   linkedBranchParams?: Record<string, string>;
+  /**
+   * Params that send a pick (`picks` in the config — a value picked beside the branch): param →
+   * its id, e.g. `{ BUILD_AND_DEPLOY_BRANCH: 'build-and-deploy' }`. Sent after `params`, so a
+   * pick replaces a fixed value of the same name.
+   */
+  pickParams?: Record<string, string>;
 }
 
 /** The job, or undefined when it does not exist on this server. */
@@ -372,6 +378,13 @@ const jobPlan = async (
       sources[param] = `${linked} branch`;
     } else blockers.push(`${param}: no ${linked} branch picked — pick one in that flow`);
   }
+  for (const [param, id] of Object.entries(step.pickParams ?? {})) {
+    const value = input.picks?.[id];
+    if (value) {
+      params[param] = value;
+      sources[param] = id;
+    } else blockers.push(`${param}: nothing picked for ${id}, and it has no default`);
+  }
   for (const [param, stepId] of Object.entries(step.versions ?? {})) {
     const version = input.upstream[stepId]?.ref?.version;
     if (version) {
@@ -595,6 +608,15 @@ export const jenkinsPlugin = definePlugin<JenkinsOptions>({
     ]);
     if (!data) throw new Error(`no job ${from.job} on ${options.url} (branches.source)`);
     return jenkinsBranches(definitions, data.builds, from, patterns);
+  },
+  suggestions: async ({ options, env }, _connection, source) => {
+    const from = branchSourceOf(source);
+    const [definitions, data] = await Promise.all([
+      jobParameters(options, env, from.job),
+      readJob(options, env, from.job),
+    ]);
+    if (!data) throw new Error(`no job ${from.job} on ${options.url} (suggest.source)`);
+    return jenkinsSuggestions(definitions, data.builds, from);
   },
   steps: {
     job: {

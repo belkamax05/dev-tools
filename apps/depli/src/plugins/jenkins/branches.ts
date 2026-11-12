@@ -62,3 +62,22 @@ export const jenkinsBranches = (
       choices.indexOf(a.name) - choices.indexOf(b.name),
   );
 };
+
+/**
+ * A job's choice list for one parameter, in the job's own order — the first is its default. What
+ * the job's pipeline builds the list from (build-and-deploy's branch lists, say) is the
+ * suggestion; each says when the job last ran with it, as `jenkinsBranches` does.
+ */
+export const jenkinsSuggestions = (
+  definitions: readonly ParamDefinition[],
+  builds: readonly JenkinsBuild[],
+  source: JenkinsBranchSource,
+): BranchHead[] => {
+  const choices = definitions.find((definition) => definition.name === source.param)?.choices ?? [];
+  const heads = jenkinsBranches(definitions, builds, source);
+  return choices.flatMap((name, index) => {
+    const head = heads.find((item) => item.name === name);
+    if (!head) return [];
+    return [{ ...head, message: `${index === 0 ? `${source.job}'s default · ` : ''}${head.message}` }];
+  });
+};

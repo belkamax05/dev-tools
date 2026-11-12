@@ -16,6 +16,8 @@ export interface ProjectState extends BranchSelection {
   timingsExpanded?: boolean;
   otherRunsExpanded?: Record<string, boolean>;
   env?: string;
+  /** Per pick id (`picks` in depli.config.ts): the value picked — its default when absent. */
+  picks?: Record<string, string>;
   /** Per provider: the transport pinned, the SSH key picked — set in the Connections tab. */
   connections?: Record<string, ConnectionPreference>;
 }

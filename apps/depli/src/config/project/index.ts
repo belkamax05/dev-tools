@@ -82,6 +82,47 @@ export interface BranchRecentRule {
   atLeast?: Array<{ patterns: string[]; count: number }>;
 }
 
+/**
+ * Where suggestions come from: a provider instance (a key of `providers`) and where it reads them
+ * — Jenkins: `{ job: 'build_fe-nginx', param: 'CODE_BRANCH' }`, that parameter's choice list, in
+ * the job's own order (its first is the job's default).
+ */
+export interface SuggestSource {
+  provider: string;
+  source?: Record<string, unknown>;
+}
+
+/** What a pick's `default` is given: the branch of the step it is resolved for, and the env. */
+export interface PickDefaultInput {
+  branch: string;
+  env: string;
+}
+
+/**
+ * A value picked beside the branch and the env, and sent by the steps that name it — e.g. the
+ * branch of the CI scripts' own repository a Jenkins job checks out. Its value is the one picked
+ * (saved per flow, like the branch), else `default`. Steps send it with `pickParams`
+ * (Jenkins: `{ BUILD_AND_DEPLOY_BRANCH: 'build-and-deploy' }`); every step's input has it as
+ * `input.picks[id]` for a param function.
+ */
+export interface PickConfig {
+  /** Shown beside the branch; the id when unset. */
+  label?: string;
+  /** The Chain tab's key that opens its picker — a key nothing else takes (e.g. `D`). */
+  hotkey?: string;
+  /** Until one is picked: a fixed value, or one worked out from the step's branch and the env. */
+  default?: string | ((input: PickDefaultInput) => string | undefined);
+  /** The list the picker offers, in the source's order (Jenkins: a job's choice list). */
+  suggest?: SuggestSource;
+  /**
+   * A value typed into the picker's filter that is not suggested can be used as it is — a trigger
+   * whose job refuses it offers to add it to that job's list, as for a branch.
+   */
+  custom?: boolean;
+  /** One line under the picker's list: what the value is for. */
+  description?: string;
+}
+
 export interface DepliProjectConfig {
   /** The checkout shown beside the branch (`B` jumps back to it); it preselects nothing. */
   repo?: { path?: string };
@@ -103,7 +144,20 @@ export interface DepliProjectConfig {
      * not every branch (a Jenkins choice list); a trigger offers to add it where it is refused.
      */
     custom?: boolean;
+    /**
+     * The picker's default list: what another provider suggests, in its order — e.g. the branch
+     * list a Jenkins job's own pipeline builds for its branch parameter — in place of `recent` /
+     * `watch`. Each is shown with what `provider` knows of it (its commit) when it has it; `a`
+     * still lists every branch. Falls back to `recent` / `watch` when it cannot be read.
+     */
+    suggest?: SuggestSource;
   };
+  /**
+   * Values picked beside the branch (see `PickConfig`) — `{ 'build-and-deploy': { … } }`. Each is
+   * a row under the branch on the Chain tab, its own picker, and `--pick=<id>=<value>` on the
+   * command line.
+   */
+  picks?: Record<string, PickConfig>;
   /**
    * Branches picked in another flow that this one shows and uses — `{ fe: { flow: 'fe' } }`: the
    * fe flow's pick, read-only here. Steps run on one with `branchFrom: 'fe'`; params get them as

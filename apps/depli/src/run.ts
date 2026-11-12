@@ -8,7 +8,8 @@ import { connectAll } from './core/connection';
 import { levelsOf } from './core/graph';
 import { evaluateEnvs } from './core/matrix';
 
-import { contextFor } from './core/registry';
+import { contextFor, resolvePick } from './core/registry';
+import { readSuggestions, withHeads } from './core/suggest';
 import { openSession } from './core/session';
 import { planTrigger, sendTrigger } from './core/trigger';
 
@@ -26,14 +27,22 @@ usage:
   depli probe [--json]            each provider's transports, probed; the first that works
                                   is the one used
   depli list-branches [glob…] [--json]
-                                  branches matching the globs (branches.recent, else the
-                                  watch list, when none) with their head commit
+                                  branches matching the globs (branches.suggest, else
+                                  branches.recent, else the watch list, when none) with their
+                                  head commit
+  depli picks [--json]            each value picked beside the branch (picks in
+                                  depli.config.ts): what the steps get, and what its source
+                                  suggests
   depli where [--json]            what every env runs now, whichever branch (Chain: [e])
   depli plan <step> [--branch=B] [--env=E]
                                   the exact request a step's trigger would send — a dry run
   depli trigger <step> [--branch=B] [--env=E] --yes [--confirm-env=E]
                                   send it — refused unless triggers.enabled is on in
                                   depli.config.ts; a protected env needs --confirm-env=<env>
+
+  --pick=<id>=<value>             on status, plan, trigger, picks: use this value for a pick
+                                  (repeatable) — not saved; the dashboard's pick otherwise,
+                                  else the pick's default for the branch
 
 A config with flows (e.g. fe and be) opens one at a time: --flow=<id> (or the flow as the
 first word: \`depli be\`, \`depli be status\`) on any command, else the one last switched to
@@ -96,6 +105,19 @@ export const run = async (...input: string[]) => {
   const session = await openSession();
   const { project } = session;
   for (const problem of project.problems) console.error(`depli: ${problem}`);
+  //? --pick=<id>=<value>: this run only, over what the dashboard saved
+  for (const arg of argv.filter((item) => item.startsWith('--pick='))) {
+    const [id = '', ...value] = arg.slice('--pick='.length).split('=');
+    const entry = project.picks?.[id];
+    if (!entry) {
+      console.error(
+        `depli: --pick: no pick "${id}" — picks: ${Object.keys(project.picks ?? {}).join(', ') || 'none'}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    entry.value = value.join('=') || undefined;
+  }
   const targetEnv = flagValue(argv, 'env') ?? session.targetEnv;
   const connections = await connectAll(project, session.env, session.state.connections);
 
@@ -115,8 +137,18 @@ export const run = async (...input: string[]) => {
     );
     return heads.sort((a, b) => (b.committedAt ?? '').localeCompare(a.committedAt ?? ''));
   };
-  /** What the Branches tab lists: `branches.recent`'s pick, else the watched ones. */
+  /** What the Branches tab lists: `branches.suggest`'s, else `branches.recent`'s pick, else the watched ones. */
   const listedHeads = async () => {
+    const suggested = await readSuggestions(
+      project,
+      connections,
+      session.env,
+      project.config.branches?.suggest,
+    ).catch((error: Error) => {
+      console.error(`depli: suggested branches not read — ${error.message}`);
+      return undefined;
+    });
+    if (suggested?.length) return withHeads(suggested, (await providerHeads([])) ?? []);
     const recent = project.config.branches?.recent;
     if (!recent) return providerHeads(project.config.branches?.watch ?? []);
     const all = await providerHeads([]);
@@ -125,7 +157,7 @@ export const run = async (...input: string[]) => {
   const branch =
     flagValue(argv, 'branch') ??
     session.branch ??
-    (['status', 'plan', 'trigger'].includes(first ?? '')
+    (['status', 'plan', 'trigger', 'picks'].includes(first ?? '')
       ? (await listedHeads().catch(() => undefined))?.[0]?.name
       : undefined);
 
@@ -181,6 +213,34 @@ export const run = async (...input: string[]) => {
     return;
   }
 
+  if (first === 'picks') {
+    const picks = await Promise.all(
+      Object.entries(project.config.picks ?? {}).map(async ([id, pick]) => {
+        const fallback = resolvePick({ config: project.config }, id, {
+          branch: branch ?? '',
+          env: targetEnv,
+        });
+        const suggestions = await readSuggestions(project, connections, session.env, pick.suggest)
+          .then((heads) => heads?.map((head) => head.name))
+          .catch((error: Error) => `not read: ${error.message}`);
+        const picked = project.picks?.[id]?.value;
+        return { id, label: pick.label ?? id, value: picked ?? fallback, picked, default: fallback, suggestions };
+      }),
+    );
+    if (json) return void console.log(JSON.stringify({ branch, env: targetEnv, picks }, null, 2));
+    if (!picks.length) console.log('no picks in depli.config.ts');
+    for (const pick of picks) {
+      console.log(
+        `${pick.label} (${pick.id}): ${pick.value ?? '—'}${pick.picked ? ` — picked; default ${pick.default ?? 'none'}` : ` — default for ${branch ?? 'no branch'}`}`,
+      );
+      if (typeof pick.suggestions === 'string') console.log(`    ${pick.suggestions}`);
+      else
+        for (const name of pick.suggestions ?? [])
+          console.log(`    ${name === pick.value ? '●' : '○'} ${name}`);
+    }
+    return;
+  }
+
   if (!branch) {
     console.error(
       'depli: no branch — pass --branch=<name>, or connect the provider that lists them',
@@ -195,7 +255,13 @@ export const run = async (...input: string[]) => {
     const linked = Object.values(project.linked ?? {})
       .map((entry) => ` · ${entry.label} ${entry.branch ?? '(none picked)'}`)
       .join('');
-    console.log(`${branch} → ${targetEnv}${linked}\n`);
+    const picks = Object.entries(project.picks ?? {})
+      .map(
+        ([id, entry]) =>
+          ` · ${entry.label} ${resolvePick(project, id, { branch, env: targetEnv }) ?? '(none)'}${entry.value ? ' (picked)' : ''}`,
+      )
+      .join('');
+    console.log(`${branch} → ${targetEnv}${linked}${picks}\n`);
     printChain(chain);
     return;
   }

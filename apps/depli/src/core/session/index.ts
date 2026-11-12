@@ -61,6 +61,13 @@ export const openSession = async (env: Env = process.env, flow?: string): Promis
         return [id, { flow, label: label ?? `${flow} branch`, branch: savedFor(flow)?.selected }];
       }),
     );
+  //? Values picked beside the branch; a pick not saved uses its default
+  project.picks = Object.fromEntries(
+    Object.entries(project.config.picks ?? {}).map(([id, pick]) => [
+      id,
+      { label: pick.label ?? id, value: picked.picks?.[id] || undefined },
+    ]),
+  );
   const current = project.config.repo?.path
     ? await currentBranch(project.config.repo.path)
     : undefined;
@@ -83,6 +90,7 @@ export const openSession = async (env: Env = process.env, flow?: string): Promis
       timingsExpanded: picked.timingsExpanded === true,
       otherRunsExpanded: picked.otherRunsExpanded ?? {},
       connections: picked.connections ?? {},
+      picks: picked.picks ?? {},
     },
   };
 };

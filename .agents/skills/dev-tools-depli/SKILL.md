@@ -21,7 +21,9 @@ flip `triggers.enabled` unless the user explicitly asked for that specific deplo
 ```sh
 depli status [--branch=B] [--env=E] [--json]   # chain state and recommended next step(s)
 depli where [--json]                           # what every env runs now
-depli list-branches [glob…] [--json]           # branches.recent, else the watch list
+depli list-branches [glob…] [--json]           # branches.suggest, else branches.recent, else watch
+depli picks [--json]                           # values picked beside the branch, and suggestions
+depli status|plan|trigger … --pick=<id>=<value> # a pick for this run only (not saved)
 depli probe [--json]                           # each provider's transports (API/ssh reachability)
 depli plan <step> [--branch=B] [--env=E]       # dry run: exact request, every param
 depli trigger <step> … --yes [--confirm-env=E] # gated — see above
@@ -59,6 +61,12 @@ Nearest at/above cwd, or `DEPLI_PROJECT_DIR`. Key parts:
   (send every param explicitly), `alsoDeployedBy`, `branchFrom`, `observeOnly`, `linkedBranchParams`
 - `flows: { fe: {…}, be: {…} }` + `defaultFlow` — flow keys replace top-level ones, `providers`
   merge by name; `linkedBranches` lets a flow use another flow's branch pick
+- `branches.suggest: { provider, source }` — the picker's list is that provider's suggestions in
+  its order (Jenkins: a job's choice list, `{ job, param }`), with commits from the branch provider;
+  `recent`/`watch` is the fallback
+- `picks: { id: { label, hotkey, default, suggest, custom, description } }` — a value picked beside
+  the branch (saved per flow; `default` fixed or `({ branch, env }) => …`); Jenkins steps send it
+  with `pickParams: { PARAM: id }`, any step reads `input.picks[id]`
 - `triggers: { enabled: false }`, `pollSeconds`, `plugins` (custom providers)
 
 Plans are validated against Jenkins' current job parameters: a value outside a choice list blocks

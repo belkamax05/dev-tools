@@ -330,6 +330,11 @@ export interface StepInput {
   upstream: Record<string, StepStatus>;
   /** Every linked branch by id (`linkedBranches`), for params that send one — e.g. `fe`. */
   branches?: Record<string, string>;
+  /**
+   * Every pick by id (`picks` in the config): the value picked, else its default for this step's
+   * branch — e.g. `{ 'build-and-deploy': 'develop-9115' }`. A pick with neither is absent.
+   */
+  picks?: Record<string, string>;
 }
 
 /**
@@ -468,6 +473,15 @@ export interface ProviderPlugin<Options = Record<string, unknown>> {
     context: PluginContext<Options>,
     connection: Connection,
     patterns: readonly string[],
+    source?: Record<string, unknown>,
+  ) => Promise<BranchHead[]>;
+  /**
+   * What the provider suggests from `source`, in its own order (the first is its default) — e.g. a
+   * Jenkins job's choice list for one parameter. For `branches.suggest` and a pick's `suggest`.
+   */
+  suggestions?: (
+    context: PluginContext<Options>,
+    connection: Connection,
     source?: Record<string, unknown>,
   ) => Promise<BranchHead[]>;
   /**

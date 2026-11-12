@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { JenkinsBuild } from './api';
-import { branchSourceOf, jenkinsBranches } from './branches';
+import { branchSourceOf, jenkinsBranches, jenkinsSuggestions } from './branches';
 
 const build = (number: number, day: number, branch: string, result = 'SUCCESS'): JenkinsBuild => ({
   number,
@@ -54,4 +54,15 @@ test('patterns narrow the list; a source without job and param is refused', () =
   expect(heads.map((head) => head.name)).toEqual(['release-26.13', 'release-26.14']);
   expect(branchSourceOf(source)).toEqual(source);
   expect(() => branchSourceOf({ job: 'build_ts-app' })).toThrow('{ job, param }');
+});
+
+test('suggestions are the choice list in the job’s own order, the first marked as its default', () => {
+  const heads = jenkinsSuggestions(
+    definitions,
+    [build(10, 1, 'release-26.13'), build(12, 3, 'develop'), build(11, 2, 'not-listed')],
+    { job: 'build_ts-app', param: 'CODE_BRANCH' },
+  );
+  expect(heads.map((head) => head.name)).toEqual(['release-26.13', 'release-26.14', 'develop', 'master']);
+  expect(heads[0]?.message).toStartWith("build_ts-app's default · build_ts-app #10");
+  expect(heads[1]?.message).toStartWith('never built by build_ts-app');
 });

@@ -38,6 +38,21 @@ export interface BranchesViewProps {
   custom?: boolean;
   /** Where the list comes from (`branches.provider`) — named in its title. */
   source?: string;
+  /** The list's title in place of the default (e.g. `Suggested by build_fe-nginx's CODE_BRANCH`). */
+  scopeTitle?: string;
+  /** What is picked — `branch` by default; a pick's label otherwise. */
+  noun?: string;
+  /** `a` toggles every branch — off for a list that has no "all" (a pick's suggestions). */
+  allowAll?: boolean;
+  /** Rows above the list, never filtered out — e.g. a pick's "back to the default". */
+  leading?: PickItem<BranchHead>[];
+  /**
+   * Names the leading rows stand for (a pick's default value): not listed again below them, and
+   * never offered as typed. With a filter, a leading row stays when its label matches.
+   */
+  leadingCovers?: string[];
+  /** A line under the detail: what the value is used for. */
+  detailNote?: string;
   session: Session;
   onCaptureInput: (captured: boolean) => void;
   /** A branch was picked: show its chain. */
@@ -61,6 +76,12 @@ export const BranchesView = ({
   recent,
   custom = false,
   source = 'the provider',
+  scopeTitle,
+  noun = 'branch',
+  allowAll = true,
+  leading = [],
+  leadingCovers = [],
+  detailNote,
   session,
   onCaptureInput,
   onPicked,
@@ -83,7 +104,7 @@ export const BranchesView = ({
     setFilter(value);
     session.branchFilter = value;
     //? Typing a name that is not watched: look through every branch rather than show nothing
-    if (value && !allBranches) loadBranches(true);
+    if (value && !allBranches && allowAll) loadBranches(true);
   };
 
   const askFilter = () =>
@@ -95,14 +116,14 @@ export const BranchesView = ({
   useInput(
     (input, key) => {
       if (input === hotkeys.search) askFilter();
-      else if (input === 'a') loadBranches(!allBranches);
+      else if (input === 'a' && allowAll) loadBranches(!allBranches);
       else if (key.escape && filter) changeFilter('');
       else if (key.escape) onClose?.();
     },
     { isActive: !prompt.isOpen },
   );
 
-  const listed = branches ?? [];
+  const listed = (branches ?? []).filter((head) => !leadingCovers.includes(head.name));
   const row = (head: BranchHead): PickItem<BranchHead> => ({
     id: head.name,
     label: `${head.name === data.branch ? '✓' : ' '} ${head.name}`,
@@ -116,7 +137,7 @@ export const BranchesView = ({
     : listed.map(row);
   //? A name nobody listed: offered as typed, last — a trigger then offers to add it where refused
   const typed =
-    custom && filter && !listed.some((head) => head.name === filter)
+    custom && filter && !listed.some((head) => head.name === filter) && !leadingCovers.includes(filter)
       ? {
           id: `typed:${filter}`,
           label: `+ ${filter}`,
@@ -125,29 +146,36 @@ export const BranchesView = ({
           value: {
             name: filter,
             sha: '',
-            message: `Not one of ${source}'s branches: used exactly as typed. A trigger whose job refuses it offers to add it to that job's list.`,
+            message: `Not one of ${source}'s ${noun === 'branch' ? 'branches' : 'values'}: used exactly as typed. A trigger whose job refuses it offers to add it to that job's list.`,
           },
         }
       : undefined;
-  const items = typed ? [...matched, typed] : matched;
+  const shownLeading = filter ? fuzzyFilter(leading, filter, (item) => item.label) : leading;
+  const items = [...shownLeading, ...matched, ...(typed ? [typed] : [])];
   const scope = allBranches
     ? `All branches (${branches?.length ?? '…'})`
-    : recent
+    : scopeTitle
+      ? `${scopeTitle} (${branches?.length ?? '…'})`
+      : recent
       ? `Most recent on ${source} (${branches?.length ?? '…'})`
       : `Watched: ${watch.join(' ')}`;
 
   //? The header's keys are buttons too: a click does exactly what the key does
-  const title = 'Pick a branch ';
+  const title = `Pick ${noun === 'branch' ? 'a branch' : noun} `;
   const matching = filter ? `matching "${filter}" — ${items.length} · ` : '';
   const headerHints: Hint[] = filter
     ? [{ key: 'Esc', label: 'clear', onPress: () => changeFilter('') }]
     : [
         { key: hotkeys.search, label: 'filter', onPress: askFilter },
-        {
-          key: 'a',
-          label: `all / ${recent ? 'recent' : 'watched'}`,
-          onPress: () => loadBranches(!allBranches),
-        },
+        ...(allowAll
+          ? [
+              {
+                key: 'a',
+                label: `all / ${scopeTitle ? 'suggested' : recent ? 'recent' : 'watched'}`,
+                onPress: () => loadBranches(!allBranches),
+              },
+            ]
+          : []),
         ...(data.current && data.branch !== data.current
           ? [{ key: 'B', label: `back to ${data.current}`, onPress: onBackToCheckout }]
           : []),
@@ -182,22 +210,32 @@ export const BranchesView = ({
           ) : (
             <>
               <SpinnerGlyph />
-              Reading branches…
+              Reading {noun === 'branch' ? 'branches' : 'suggestions'}…
             </>
           )
         }
-        detailTitle="Branch"
+        detailTitle={noun === 'branch' ? 'Branch' : noun}
         reservedChrome={['viewHeader']}
-        activateLabel="use this branch"
+        activateLabel={`use this ${noun === 'branch' ? 'branch' : 'value'}`}
         initialSelectedId={filter ? items[0]?.id : (data.branch ?? session.selected.branches)}
         isInputActive={!prompt.isOpen}
         hints={[
           { key: hotkeys.search, label: filter ? `filter: ${filter}` : 'filter', onPress: askFilter },
-          {
-            key: 'a',
-            label: allBranches ? (recent ? 'recent only' : 'watched only') : 'all branches',
-            onPress: () => loadBranches(!allBranches),
-          },
+          ...(allowAll
+            ? [
+                {
+                  key: 'a',
+                  label: allBranches
+                    ? scopeTitle
+                      ? 'suggested only'
+                      : recent
+                        ? 'recent only'
+                        : 'watched only'
+                    : 'all branches',
+                  onPress: () => loadBranches(!allBranches),
+                },
+              ]
+            : []),
         ]}
         onActivate={(item) => {
           if (!item.value) return;
@@ -212,7 +250,7 @@ export const BranchesView = ({
           if (!head) return null;
           return (
             <Box flexDirection="column">
-              <Text color={colors.text}>{head.name}</Text>
+              <Text color={colors.text}>{head.name || item.label.trim()}</Text>
               {(head.sha || head.committedAt) && (
                 <Text color={colors.muted}>
                   {head.sha.slice(0, 12)}
@@ -227,10 +265,19 @@ export const BranchesView = ({
               )}
               <Text> </Text>
               <Text color={colors.muted} wrap="wrap">
-                {head.name === data.branch
-                  ? 'The chain is showing this branch.'
-                  : 'Enter shows its chain. The checkout is not switched, and switching it does not change the pick.'}
+                {noun !== 'branch'
+                  ? head.name === data.branch
+                    ? 'In use now.'
+                    : 'Enter uses it for every step that sends it — saved for this flow until picked again.'
+                  : head.name === data.branch
+                    ? 'The chain is showing this branch.'
+                    : 'Enter shows its chain. The checkout is not switched, and switching it does not change the pick.'}
               </Text>
+              {detailNote && (
+                <Text color={colors.muted} wrap="wrap">
+                  {detailNote}
+                </Text>
+              )}
             </Box>
           );
         }}

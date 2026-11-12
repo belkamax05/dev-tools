@@ -71,6 +71,8 @@ export interface ChainViewProps {
    */
   linked?: Array<{ id: string; flow: string; label: string; branch?: string }>;
   onOpenFlow?: (flow: string) => void;
+  /** A pick's row or key (`picks` — a value picked beside the branch): open its picker. */
+  onPickValue?: (id: string) => void;
 }
 
 const RUN_ICON: Record<StepRun['state'], string> = {
@@ -123,6 +125,8 @@ interface SelectorRowProps {
   label: string;
   value: string;
   valueColor: string;
+  /** Labels are padded to this so every row's value starts in the same column. */
+  labelWidth?: number;
   open?: boolean;
   /**
    * Dimmed, after the value: what it is now, and other keys that act on it. Never the row's own
@@ -160,6 +164,7 @@ const SelectorRow = ({
   label,
   value,
   valueColor,
+  labelWidth = 6,
   open,
   note,
   action,
@@ -172,7 +177,7 @@ const SelectorRow = ({
     <Box flexDirection="row">
       <Box ref={ref} flexShrink={0}>
         <Text color={colors.muted}>[{hotkey}] </Text>
-        <Text color={isHovered ? colors.highlight : colors.text}>{label.padEnd(7)}</Text>
+        <Text color={isHovered ? colors.highlight : colors.text}>{`${label.padEnd(labelWidth)} `}</Text>
         <Text color={isHovered ? colors.highlight : valueColor} bold>
           {value} {open ? '▴' : '▾'}
         </Text>
@@ -207,6 +212,7 @@ export const ChainView = ({
   envOpenRequest = 0,
   linked,
   onOpenFlow,
+  onPickValue,
 }: ChainViewProps) => {
   const colors = useColors();
   const theme = useTuiTheme();
@@ -263,6 +269,8 @@ export const ChainView = ({
   //? The auto-trigger panel takes its rows (frame, title, list) from the two above it
   //? Its full height whenever anything is armed — one trigger or many, the panel never shrinks
   const autoPanelRows = data.autos.length ? AUTO_ROWS + 3 : 0;
+  //? Each pick (`picks`) is a row of its own under the branch
+  const pickRows = data.picks.length;
   //? Open, the environments panel stands above both panels and never shrinks: its frame (2) and
   //? title, the list's own frame (2) and column names, the legend — 7 rows around the envs. On a
   //? short terminal it lists fewer envs (and scrolls) rather than lose its bottom border
@@ -273,6 +281,7 @@ export const ChainView = ({
       ENV_ROWS,
       viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'chipRow'], 6) -
         autoPanelRows -
+        pickRows -
         7 -
         6,
     ),
@@ -282,6 +291,7 @@ export const ChainView = ({
     6,
     viewport.contentRows(['appShell', 'viewHints', 'panelFrame', 'chipRow'], 6) -
       autoPanelRows -
+      pickRows -
       envPanelRows,
   );
   const graphRows = sideBySide ? contentRows : Math.max(6, Math.floor(contentRows / 2));
@@ -752,6 +762,8 @@ export const ChainView = ({
       else if (input === 'O') openLatestRun(selected);
       else if (input === 'c') copyCurl(selected);
       else if (input === 'b') onPickBranch();
+      else if (data.picks.some((pick) => pick.hotkey === input))
+        onPickValue?.(data.picks.find((pick) => pick.hotkey === input)!.id);
       else if (input === 'l' && selected)
         setLogChoice((was) => ({ ...was, [selected.step.id]: !logsOpen }));
       //? Bound only with the gate open: while triggers are off no key can start one
@@ -1173,6 +1185,13 @@ export const ChainView = ({
     );
   };
 
+  //? Every selector row's value starts in one column: the widest label, then a space
+  const labelWidth = Math.max(
+    6,
+    ...(linked ?? []).map((entry) => entry.label.length),
+    ...data.picks.map((pick) => pick.label.length),
+  );
+
   return (
     <Box ref={rootRef} flexDirection="column" flexGrow={1} overflow="hidden">
       <Box ref={chipsRef} flexShrink={0} flexDirection="column">
@@ -1180,6 +1199,7 @@ export const ChainView = ({
           <>
             <SelectorRow
               hotkey="b"
+              labelWidth={labelWidth}
               label="Branch"
               value={data.branch ?? '—'}
               valueColor={colors.accent}
@@ -1201,6 +1221,7 @@ export const ChainView = ({
               <SelectorRow
                 key={entry.id}
                 hotkey="F"
+                labelWidth={labelWidth}
                 label={entry.label}
                 value={entry.branch ?? '— none picked'}
                 valueColor={entry.branch ? colors.accent : colors.warn}
@@ -1208,8 +1229,25 @@ export const ChainView = ({
                 onPress={() => onOpenFlow?.(entry.flow)}
               />
             ))}
+            {data.picks.map((pick) => (
+              <SelectorRow
+                key={pick.id}
+                hotkey={pick.hotkey ?? '·'}
+                labelWidth={labelWidth}
+                label={pick.label}
+                value={pick.value ?? '— none'}
+                valueColor={pick.picked ? colors.warn : pick.value ? colors.accent : colors.error}
+                note={
+                  pick.picked
+                    ? `picked — the default is ${pick.fallback ?? 'none'} · ${pick.hotkey ? `[${pick.hotkey}] or ` : ''}a click changes it`
+                    : `default for ${data.branch ?? 'the branch'}${pick.source ? ` · ${pick.hotkey ? `[${pick.hotkey}] or ` : ''}a click picks from ${pick.source}` : ''}`
+                }
+                onPress={() => onPickValue?.(pick.id)}
+              />
+            ))}
             <SelectorRow
               hotkey="e"
+              labelWidth={labelWidth}
               label="Env"
               value={`${data.targetEnv}${protectedEnvs.includes(data.targetEnv) ? ' (protected)' : ''}`}
               valueColor={protectedEnvs.includes(data.targetEnv) ? colors.error : colors.accent}

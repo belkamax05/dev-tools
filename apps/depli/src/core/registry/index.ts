@@ -1,4 +1,9 @@
-import type { DepliProjectConfig, ProviderConfig } from '../../config/project';
+import type {
+  DepliProjectConfig,
+  PickDefaultInput,
+  ProviderConfig,
+  SuggestSource,
+} from '../../config/project';
 import githubPlugin from '../../plugins/github';
 import jenkinsPlugin from '../../plugins/jenkins';
 import { saveEnv } from '../envSet';
@@ -30,6 +35,8 @@ export interface Project {
   flow?: { id: string; label: string; all: string[] };
   /** `linkedBranches`, with what each other flow has picked (undefined: nothing yet). */
   linked?: Record<string, { flow: string; label: string; branch?: string }>;
+  /** `picks`, with what was picked (undefined: the pick's default is used). */
+  picks?: Record<string, { label: string; value?: string }>;
   config: DepliProjectConfig;
   providers: Provider[];
   /** Config mistakes, reported in the UI rather than thrown. */
@@ -58,6 +65,15 @@ export const resolveProject = (dir: string, config: DepliProjectConfig): Project
         problems.push(`providers.${name}.disabledTransports: ${plugin.id} has no transport "${id}"`);
     providers.push({ name, plugin, options, transports, disabled });
   }
+  const checkSuggest = (where: string, suggest?: SuggestSource) => {
+    if (!suggest) return;
+    const provider = providers.find((entry) => entry.name === suggest.provider);
+    if (!provider) problems.push(`${where}.suggest: no provider "${suggest.provider}"`);
+    else if (!provider.plugin.suggestions)
+      problems.push(`${where}.suggest: ${provider.plugin.id} cannot suggest`);
+  };
+  checkSuggest('branches', config.branches?.suggest);
+  for (const [id, pick] of Object.entries(config.picks ?? {})) checkSuggest(`picks.${id}`, pick.suggest);
   for (const step of config.pipeline ?? []) {
     const provider = providers.find((entry) => entry.name === step.provider);
     if (!provider) problems.push(`pipeline.${step.id}: no provider "${step.provider}"`);
@@ -70,11 +86,26 @@ export const resolveProject = (dir: string, config: DepliProjectConfig): Project
 };
 
 /**
+ * A pick's value for a branch and env: the one picked, else its `default` (fixed, or worked out
+ * from the branch). Undefined when it has neither.
+ */
+export const resolvePick = (
+  project: Partial<Pick<Project, 'config' | 'picks'>>,
+  id: string,
+  input: PickDefaultInput,
+): string | undefined => {
+  const picked = project.picks?.[id]?.value;
+  if (picked) return picked;
+  const fallback = project.config?.picks?.[id]?.default;
+  return (typeof fallback === 'function' ? fallback(input) : fallback) || undefined;
+};
+
+/**
  * What a step is given: its own branch — the one picked, or the linked branch it names in
  * `branchFrom` ('' when that has none yet) — and every linked branch by id.
  */
 export const inputFor = (
-  project: Pick<Project, 'linked'>,
+  project: Pick<Project, 'linked'> & Partial<Pick<Project, 'config' | 'picks'>>,
   step: StepConfig,
   branch: string,
   env: string,
@@ -85,13 +116,14 @@ export const inputFor = (
       linked.branch ? [[id, linked.branch]] : [],
     ),
   );
-  return {
-    step,
-    branch: step.branchFrom ? (branches[step.branchFrom] ?? '') : branch,
-    env,
-    upstream,
-    branches,
-  };
+  const own = step.branchFrom ? (branches[step.branchFrom] ?? '') : branch;
+  const picks = Object.fromEntries(
+    Object.keys(project.config?.picks ?? {}).flatMap((id) => {
+      const value = resolvePick(project, id, { branch: own, env });
+      return value ? [[id, value]] : [];
+    }),
+  );
+  return { step, branch: own, env, upstream, branches, picks };
 };
 
 /** Why a step cannot be read yet: its `branchFrom` names a linked branch nothing picked. */

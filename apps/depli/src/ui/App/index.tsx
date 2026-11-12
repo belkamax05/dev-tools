@@ -24,6 +24,7 @@ import depliTheme from '../theme';
 import type { Handoff, Session } from '../types';
 import useDepli, { type DepliData } from '../useDepli';
 import BranchesView from '../views/BranchesView';
+import PickView from '../views/PickView';
 import ChainView from '../views/ChainView';
 import ConnectionsView from '../views/ConnectionsView';
 import EnvironmentsView from '../views/EnvironmentsView';
@@ -169,6 +170,8 @@ export const App = ({
   const [isInputCaptured, setIsInputCaptured] = useState(false);
   //? The branch picker: the Chain tab's whole area while open — `filter` opens with the filter
   const [branchPicker, setBranchPicker] = useState(Boolean(flowIntent?.pickBranch));
+  //? A pick's picker (`picks`), by id: the Chain tab's whole area while open, like the branch's
+  const [pickPicker, setPickPicker] = useState<string>();
   //? Bumped to open the Chain's environments panel from the status row
   const [envOpenRequest] = useState(0);
   //? The Environments view (footer E): the whole interface while open; Esc goes back to the tab
@@ -316,6 +319,21 @@ export const App = ({
       footerHints="[r] refresh · [B] checkout branch"
       footerActions={footerActions}
     >
+      {envView === 'closed' &&
+        tab === 'chain' &&
+        !branchPicker &&
+        (() => {
+          const pick = data.picks.find((entry) => entry.id === pickPicker);
+          return pick ? (
+            <PickView
+              data={data}
+              pick={pick}
+              session={session}
+              onCaptureInput={setIsInputCaptured}
+              onClose={() => setPickPicker(undefined)}
+            />
+          ) : null;
+        })()}
       {envView === 'closed' && tab === 'chain' && branchPicker && (
         <BranchesView
           data={data}
@@ -323,6 +341,7 @@ export const App = ({
           recent={project.config.branches?.recent}
           custom={Boolean(project.config.branches?.custom)}
           source={project.config.branches?.provider ?? 'the provider'}
+          scopeTitle={data.suggestedFrom && `Suggested by ${data.suggestedFrom}`}
           session={session}
           onCaptureInput={setIsInputCaptured}
           onPicked={closeBranchPicker}
@@ -330,7 +349,7 @@ export const App = ({
           onBackToCheckout={backToCheckout}
         />
       )}
-      {envView === 'closed' && tab === 'chain' && !branchPicker && (
+      {envView === 'closed' && tab === 'chain' && !branchPicker && !pickPicker && (
         <ChainView
           data={data}
           envIds={envs.map((entry) => entry.id)}
@@ -344,6 +363,7 @@ export const App = ({
           envOpenRequest={envOpenRequest}
           linked={Object.entries(project.linked ?? {}).map(([id, entry]) => ({ id, ...entry }))}
           onOpenFlow={(flow) => pickLinked(flow)}
+          onPickValue={setPickPicker}
         />
       )}
       {envView === 'closed' && tab === 'connections' && (

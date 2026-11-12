@@ -30,7 +30,8 @@ import {
   type StepRun,
 } from '../../core/plugin';
 import { type Session, saveSession } from '../../core/session';
-import { contextFor, inputFor } from '../../core/registry';
+import { contextFor, inputFor, resolvePick } from '../../core/registry';
+import { readSuggestions, withHeads } from '../../core/suggest';
 import {
   applyFix,
   type PlannedTrigger,
@@ -38,6 +39,32 @@ import {
   sendTrigger,
   stopRun,
 } from '../../core/trigger';
+
+/** One `picks` entry as the dashboard shows it. */
+export interface PickState {
+  id: string;
+  label: string;
+  hotkey?: string;
+  description?: string;
+  custom: boolean;
+  /** What the steps get now: `picked`, else the default for the branch shown. */
+  value?: string;
+  /** What was picked; undefined while the default is used. */
+  picked?: string;
+  /** The default for the branch shown. */
+  fallback?: string;
+  /** Where its suggestions come from — `job`'s `param`, the provider's name. */
+  source?: string;
+}
+
+/** `{ job, param }` (Jenkins) as `job's param`, else the provider's name. */
+const sourceLabel = (suggest?: { provider: string; source?: Record<string, unknown> }) => {
+  if (!suggest) return undefined;
+  const { job, param } = suggest.source ?? {};
+  return typeof job === 'string' && typeof param === 'string'
+    ? `${job}'s ${param}`
+    : suggest.provider;
+};
 
 /** How often the checkout's branch is re-read — cheap, local, so often. */
 const BRANCH_POLL_MS = 3_000;
@@ -90,6 +117,18 @@ export interface DepliData {
     choice: string | undefined,
   ) => Promise<Connection['probes'][number]>;
   loadBranches: (all: boolean) => void;
+  /**
+   * The branch list is `branches.suggest`'s (another provider's suggestions, in its order) — not
+   * `recent` / `watch`. Undefined while not known.
+   */
+  suggestedFrom?: string;
+  /** `picks`: each pick's value for the branch shown (picked, else its default), in config order. */
+  picks: PickState[];
+  /** Pick a value (undefined: back to the pick's default) — saved per flow, the chain re-read. */
+  setPick: (id: string, value: string | undefined) => void;
+  /** What a pick's `suggest` offers, by pick id — undefined until read. */
+  pickSuggestions: Record<string, BranchHead[] | undefined>;
+  loadPickSuggestions: (id: string) => void;
   loadEnvs: () => void;
   /** Read `history` (again) — the Environments view asks for it. */
   loadHistory: () => void;
@@ -171,6 +210,14 @@ export const useDepli = (
   const [loading, setLoading] = useState(true);
   const [allHeads, setAllHeads] = useState<BranchHead[]>();
   const [allBranches, setAllBranches] = useState(false);
+  //? branches.suggest's list (undefined: not read, or none), read with the branches
+  const [suggested, setSuggested] = useState<BranchHead[]>();
+  const [picked, setPicked] = useState<Record<string, string | undefined>>(() =>
+    Object.fromEntries(Object.entries(project.picks ?? {}).map(([id, pick]) => [id, pick.value])),
+  );
+  const [pickSuggestions, setPickSuggestions] = useState<Record<string, BranchHead[] | undefined>>(
+    {},
+  );
   const [envs, setEnvs] = useState<EnvRow[]>();
   const envsRef = useRef(envs);
   envsRef.current = envs;
@@ -282,6 +329,12 @@ export const useDepli = (
         setAllHeads([]);
         return;
       }
+      const suggest = project.config.branches?.suggest;
+      readSuggestions(project, connectionsRef.current, env, suggest)
+        .then((heads) => setSuggested(heads?.length ? heads : undefined))
+        .catch((error: Error) =>
+          notify(`Suggested branches not read (${error.message}) — listing recent ones`, 'warn'),
+        );
       provider.plugin
         .branches(
           contextFor(project, provider, env, connection),
@@ -406,32 +459,79 @@ export const useDepli = (
 
   const watch = project.config.branches?.watch ?? [];
   const recent = project.config.branches?.recent;
-  const picked =
+  //? Suggested (branches.suggest) first, with what the branch provider knows of each
+  const listed =
     allHeads &&
-    (recent
-      ? pickRecentBranches(allHeads, recent)
-      : allHeads.filter((head) => matchesPatterns(head.name, watch)));
+    (suggested
+      ? withHeads(suggested, allHeads)
+      : recent
+        ? pickRecentBranches(allHeads, recent)
+        : allHeads.filter((head) => matchesPatterns(head.name, watch)));
   //? The branch shown stays listed even when the rule would leave it out
   const shownHead = allHeads?.find((head) => head.name === branch);
   const branches =
     allHeads &&
     (allBranches
       ? allHeads
-      : picked && shownHead && !picked.includes(shownHead)
-        ? [shownHead, ...picked]
-        : picked);
+      : listed && shownHead && !listed.some((head) => head.name === shownHead.name)
+        ? [shownHead, ...listed]
+        : listed);
 
   //? Nothing picked yet: read the provider's branches and start on the newest of the list
   // biome-ignore lint/correctness/useExhaustiveDependencies: once connections land
   useEffect(() => {
     if (branch || !key) return;
     if (!allHeads) loadBranches(false);
-    else if (picked?.[0]) setBranch(picked[0].name);
+    else if (listed?.[0]) setBranch(listed[0].name);
   }, [branch, key, allHeads]);
+
+  const picks = Object.entries(project.config.picks ?? {}).map(([id, pick]): PickState => {
+    const fallback = resolvePick({ config: project.config }, id, {
+      branch: branch ?? '',
+      env: targetEnv,
+    });
+    return {
+      id,
+      label: pick.label ?? id,
+      hotkey: pick.hotkey,
+      description: pick.description,
+      custom: Boolean(pick.custom),
+      value: picked[id] || fallback,
+      picked: picked[id] || undefined,
+      fallback,
+      source: sourceLabel(pick.suggest),
+    };
+  });
+
+  const loadPickSuggestions = (id: string) => {
+    const suggest = project.config.picks?.[id]?.suggest;
+    readSuggestions(project, connectionsRef.current, env, suggest)
+      .then((heads) => setPickSuggestions((was) => ({ ...was, [id]: heads ?? [] })))
+      .catch((error: Error) => {
+        setPickSuggestions((was) => ({ ...was, [id]: [] }));
+        notify(`${project.picks?.[id]?.label ?? id}: suggestions not read — ${error.message}`, 'warn');
+      });
+  };
 
   return {
     branch,
     current,
+    suggestedFrom: suggested && !allBranches ? sourceLabel(project.config.branches?.suggest) : undefined,
+    picks,
+    pickSuggestions,
+    loadPickSuggestions,
+    setPick: (id, value) => {
+      const next = { ...state.current.picks };
+      if (value) next[id] = value;
+      else delete next[id];
+      state.current = { ...state.current, picks: next };
+      persist();
+      //? The project's copy is what every step's input reads
+      const entry = project.picks?.[id];
+      if (entry) entry.value = value || undefined;
+      setPicked((was) => ({ ...was, [id]: value || undefined }));
+      setTick((t) => t + 1);
+    },
     targetEnv,
     connections,
     chain,
@@ -462,6 +562,8 @@ export const useDepli = (
     },
     refresh: () => {
       setAllHeads(undefined);
+      setSuggested(undefined);
+      setPickSuggestions({});
       setTick((value) => value + 1);
       if (envs) loadEnvs();
       if (history) loadHistory();

@@ -15,10 +15,12 @@ depli chain|connections|settings
 depli environments                             # dashboard on the Environments view (dfs environments)
 depli status [--branch=B] [--env=E] [--json]   # the chain, and what is recommended next
 depli probe [--json]                           # each provider's transports, probed
-depli list-branches [glob…] [--json]           # branches.recent (else the watch list) by default
+depli list-branches [glob…] [--json]           # branches.suggest, else branches.recent, else watch
+depli picks [--json]                           # each pick (picks): its value and its suggestions
 depli where [--json]                           # what every env runs now
 depli plan <step> [--branch=B] [--env=E]       # dry run of one step's trigger
 depli trigger <step> … --yes [--confirm-env=E] # refused unless triggers.enabled
+depli status|plan|trigger … --pick=<id>=<value> # a pick's value for this run only
 depli be [command…]  |  depli … --flow=be      # a flow of a multi-flow config (see Flows)
 ```
 
@@ -68,6 +70,40 @@ custom: true }` lists the job's choice list for `param` plus the branches its re
 for (newest build first, no commit). `custom` lets the picker take a typed name that is not listed
 (`+ name`, last); a job whose choice list refuses it then offers **Add** before triggering — the
 same fix as any refused branch, which Jenkins keeps for one build.
+
+**Suggested branches** — `branches.suggest: { provider: 'jenkins', source: { job, param } }`
+makes the picker's default list another provider's suggestions, in that provider's order — for
+Jenkins, the job's choice list for `param` (its first is the job's default), so the picker offers
+what the job's own "Build with Parameters" form does. Each is shown with its commit when the
+branch provider (GitHub) has it; `a` still lists every branch, and `recent` / `watch` is the
+fallback when the suggestions cannot be read (VPN down). Add `custom: true` to take a typed name.
+
+**Picks** — values picked beside the branch and env, sent by the steps that name them — e.g. the
+CI scripts' own branch every Jenkins job checks its pipeline out from:
+
+```ts
+picks: {
+  'build-and-deploy': {
+    hotkey: 'D',                     // the Chain tab's key for its picker
+    default: ({ branch }) => (branch === 'master' ? 'cromwell-master' : 'develop-9115'),
+    suggest: { provider: 'jenkins', source: { job: 'build_fe-nginx', param: 'BUILD_AND_DEPLOY_BRANCH' } },
+    custom: true,                    // a typed value not suggested is used as it is
+  },
+},
+// on a Jenkins job step:
+pickParams: { BUILD_AND_DEPLOY_BRANCH: 'build-and-deploy' },
+```
+
+Each pick is a row under the branch on the Chain tab (`[D] build-and-deploy develop-9115`): the
+default for the branch shown, or the value picked (orange). Its key, or a click, opens a picker
+like the branch's — `↺ default` first, then the suggestions in their order, `/` to filter, and
+with `custom` a typed value (`+ value`). A pick is saved per flow, like the branch, until picked
+again; picking `↺ default` goes back to the default. Steps get every pick as `input.picks` (the
+default worked out from each step's own branch — its `branchFrom` one too); Jenkins'
+`pickParams` sends one (`← build-and-deploy` in the parameters), replacing a `params` value of
+the same name. A value outside the job's choice list gets the same **Add** fix, applied right
+before the send, as a branch. On the command line: `depli picks [--json]` lists each pick and its
+suggestions; `--pick=<id>=<value>` on `status` / `plan` / `trigger` uses a value for that run only.
 
 **Triggers** (only with `triggers.enabled`): whether the selected step can be sent is worked out as soon as it is selected (a dry run — reads only): the button reads `[T] Trigger…` when it can, and orange **⊘ Trigger blocked** with every reason under it (plus the step's `blockedHelp` from the project config when the target itself would refuse) when it cannot. When the target refuses a value it could be taught (a branch outside a Jenkins job's choice list), an **Add …** action — `A` — appears directly under the reason in the same group, labelled “Resolve before triggering”, with a shared-configuration notice. It offers to change the target: a red popover says exactly what changes and for how long, and clickable Apply and Cancel buttons confirm or dismiss it (Enter applies, Esc cancels). Applying is refused while triggers are off. The step is planned again afterwards; triggering still has its own confirmation. `T`, or the Trigger button, plans the request, shows it in a popover and asks to confirm — for a protected env by typing its name. With triggers off, `T` is not bound at all and the button says what blocks it. **Stop**: while a step is running and its plugin can stop runs (Jenkins jobs), the detail shows a framed red **■ Stop #N** button — `X` or a click — that aborts the running build after a confirmation (a protected env by typing its name); it is not shown otherwise, nor while triggers are off.
 
